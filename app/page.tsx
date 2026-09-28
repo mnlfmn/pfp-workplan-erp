@@ -9,13 +9,18 @@ import {
   Clock3,
   Cloud,
   CloudOff,
+  Gauge,
   HandCoins,
+  LayoutDashboard,
+  ListChecks,
   PencilLine,
   Plus,
   ReceiptText,
   Search,
   SlidersHorizontal,
   Target,
+  TrendingUp,
+  Users,
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -118,6 +123,14 @@ type FinanceDraft = {
   vendor: string;
 };
 
+type TeamMember = {
+  id: string;
+  name: string;
+  role: string;
+  group: "PCU" | "Workplan";
+  aliases: string[];
+};
+
 const statusMeta: Record<
   StatusKey,
   { label: string; tone: string; dot: string; weight: number }
@@ -162,6 +175,93 @@ const statusMeta: Record<
 
 const allActivities = workplan.activities as Activity[];
 const allBudgetLines = workplan.budgetLines as BudgetLine[];
+
+const teamMembers: TeamMember[] = [
+  {
+    id: "tuvshinjargal-p",
+    name: "Tuvshinjargal.P",
+    role: "Coordinator",
+    group: "PCU",
+    aliases: ["Tuvshinjargal", "Түвшинжаргал"],
+  },
+  {
+    id: "ochirkhuyag-j",
+    name: "Ochirkhuyag.J",
+    role: "PA Management senior officer",
+    group: "PCU",
+    aliases: ["Ochirkhuyag", "Ж.Очирхуяг", "Очирхуяг"],
+  },
+  {
+    id: "namuunaa-m",
+    name: "Namuunaa.M",
+    role: "PA expansion officer",
+    group: "PCU",
+    aliases: ["Namuunaa", "М.Намуунаа", "Намуунаа"],
+  },
+  {
+    id: "khulan-s",
+    name: "Khulan.S",
+    role: "Project and partnership officer",
+    group: "PCU",
+    aliases: ["Khulan", "С.Хулан", "Ш.Хулан", "Хулан"],
+  },
+  {
+    id: "enkhsaikhan-u",
+    name: "Enkhsaikhan.U",
+    role: "Sustainable finance officer",
+    group: "PCU",
+    aliases: ["Enkhsaikhan", "Энхсайхан"],
+  },
+  {
+    id: "amartuvshin-s",
+    name: "Amartuvshin.S",
+    role: "PCU workplan member",
+    group: "PCU",
+    aliases: ["Amartuvshin", "С.Амартүвшин", "Амартүвшин"],
+  },
+  {
+    id: "bolormaa",
+    name: "Bolormaa",
+    role: "PCU workplan member",
+    group: "PCU",
+    aliases: ["Bolormaa", "Болормаа"],
+  },
+  {
+    id: "tsenguun",
+    name: "Tsenguun",
+    role: "PCU workplan member",
+    group: "PCU",
+    aliases: ["Tsenguun", "Цэнгүүн"],
+  },
+  {
+    id: "namjilmaa-ch",
+    name: "Namjilmaa.Ch",
+    role: "Additional workplan member",
+    group: "Workplan",
+    aliases: ["Namjilmaa", "Ч.Намжилмаа", "Намжилмаа"],
+  },
+  {
+    id: "munkhjin-ts",
+    name: "Munkhjin.Ts",
+    role: "Additional workplan member",
+    group: "Workplan",
+    aliases: ["Munkhjin", "Ц.Мөнхжин", "Мөнхжин"],
+  },
+  {
+    id: "tugsbuyan-m",
+    name: "Tugsbuyan.M",
+    role: "Additional workplan member",
+    group: "Workplan",
+    aliases: ["Tugsbuyan", "М.Төгсбуян", "Төгсбуян"],
+  },
+  {
+    id: "battogtokh-n",
+    name: "Battogtokh.N",
+    role: "Additional workplan member",
+    group: "Workplan",
+    aliases: ["Battogtokh", "Н.Баттогтох", "Баттогтох"],
+  },
+];
 
 function todayForInput() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -298,10 +398,115 @@ function deriveActivityProgress(
   );
 }
 
+function activityAssignmentText(
+  activity: Activity,
+  updates: Record<string, UpdateRecord>,
+) {
+  return [
+    activity.lead,
+    activity.technicalLead,
+    activity.support,
+    updates[activity.id]?.owner,
+    ...activity.subactivities.flatMap((item) => [
+      item.owner,
+      item.executor,
+      updates[item.id]?.owner,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase();
+}
+
+function isAssignedToMember(
+  activity: Activity,
+  memberId: string,
+  updates: Record<string, UpdateRecord>,
+) {
+  if (memberId === "all") return true;
+  const member = teamMembers.find((item) => item.id === memberId);
+  if (!member) return false;
+  const assignmentText = activityAssignmentText(activity, updates);
+  return member.aliases.some((alias) =>
+    assignmentText.includes(alias.toLocaleLowerCase()),
+  );
+}
+
+function codesShareBudgetLine(activityCode: string, budgetCode: string) {
+  const normalize = (value: string) =>
+    value.replace(/\s/g, "").replace(/\.+$/, "");
+  const activity = normalize(activityCode);
+  const budget = normalize(budgetCode);
+  return (
+    activity === budget ||
+    activity.startsWith(`${budget}.`) ||
+    budget.startsWith(`${activity}.`)
+  );
+}
+
+function budgetKeysForActivities(activities: Activity[]) {
+  return new Set(
+    allBudgetLines
+      .filter((line) =>
+        activities.some(
+          (activity) =>
+            activity.section === line.section &&
+            codesShareBudgetLine(activity.code, line.code),
+        ),
+      )
+      .map((line) => line.id),
+  );
+}
+
+function averageActivityProgress(
+  activities: Activity[],
+  updates: Record<string, UpdateRecord>,
+) {
+  if (!activities.length) return 0;
+  return Math.round(
+    activities.reduce(
+      (total, activity) => total + deriveActivityProgress(activity, updates),
+      0,
+    ) / activities.length,
+  );
+}
+
+function summarizeFinance(lines: BudgetLine[], entries: FinanceEntry[]) {
+  const keys = new Set(lines.map((line) => line.id));
+  const budgetMnt = lines.reduce(
+    (total, line) => total + Number(line.budgetMntMillion) * 1_000_000,
+    0,
+  );
+  const relevantEntries = entries.filter((entry) => keys.has(entry.budgetKey));
+  const commitmentMnt = relevantEntries
+    .filter((entry) => entry.entryType === "commitment")
+    .reduce((total, entry) => total + entry.amountMnt, 0);
+  const expenditureMnt = relevantEntries
+    .filter((entry) => entry.entryType === "expenditure")
+    .reduce((total, entry) => total + entry.amountMnt, 0);
+  const linesWithEntries = new Set(relevantEntries.map((entry) => entry.budgetKey));
+  return {
+    budgetMnt,
+    commitmentMnt,
+    expenditureMnt,
+    uncommittedMnt: budgetMnt - commitmentMnt,
+    remainingMnt: budgetMnt - expenditureMnt,
+    commitmentPercent:
+      budgetMnt > 0 ? Math.round((commitmentMnt / budgetMnt) * 100) : 0,
+    spentPercent:
+      budgetMnt > 0 ? Math.round((expenditureMnt / budgetMnt) * 100) : 0,
+    financeCoveragePercent:
+      lines.length > 0 ? Math.round((linesWithEntries.size / lines.length) * 100) : 0,
+    relevantEntries,
+  };
+}
+
 export default function Home() {
+  const [activeView, setActiveView] = useState("dashboard");
   const [query, setQuery] = useState("");
   const [section, setSection] = useState("all");
   const [goal, setGoal] = useState("all");
+  const [member, setMember] = useState("all");
   const [status, setStatus] = useState("all");
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -767,6 +972,17 @@ export default function Home() {
     [],
   );
 
+  const memberActivities = useMemo(
+    () =>
+      allActivities.filter((item) => isAssignedToMember(item, member, updates)),
+    [member, updates],
+  );
+
+  const memberBudgetKeys = useMemo(
+    () => (member === "all" ? null : budgetKeysForActivities(memberActivities)),
+    [member, memberActivities],
+  );
+
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return allActivities.filter((item) => {
@@ -776,6 +992,7 @@ export default function Home() {
       const matchesStatus = status === "all" || currentStatus === status;
       const matchesWorkstream =
         workstream === "all" || item.workstream === workstream;
+      const matchesMember = isAssignedToMember(item, member, updates);
       const haystack = [
         item.code,
         item.title,
@@ -783,6 +1000,7 @@ export default function Home() {
         item.workstream,
         item.technicalLead,
         item.lead,
+        activityAssignmentText(item, updates),
       ]
         .join(" ")
         .toLocaleLowerCase();
@@ -791,22 +1009,30 @@ export default function Home() {
         matchesGoal &&
         matchesStatus &&
         matchesWorkstream &&
+        matchesMember &&
         haystack.includes(normalized)
       );
     });
-  }, [goal, query, section, status, workstream, updates]);
+  }, [goal, member, query, section, status, workstream, updates]);
 
   const filteredBudgetLines = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return allBudgetLines.filter((line) => {
       const matchesSection = section === "all" || line.section === section;
       const matchesGoal = goal === "all" || line.goal === goal;
+      const matchesMember =
+        member === "all" || Boolean(memberBudgetKeys?.has(line.id));
       const haystack = [line.code, line.title, line.workstream, line.goal]
         .join(" ")
         .toLocaleLowerCase();
-      return matchesSection && matchesGoal && haystack.includes(normalized);
+      return (
+        matchesSection &&
+        matchesGoal &&
+        matchesMember &&
+        haystack.includes(normalized)
+      );
     });
-  }, [goal, query, section]);
+  }, [goal, member, memberBudgetKeys, query, section]);
 
   const financeByBudgetKey = useMemo(() => {
     const totals = new Map<string, { commitment: number; expenditure: number }>();
@@ -822,32 +1048,11 @@ export default function Home() {
   }, [financeEntries]);
 
   const financeStats = useMemo(() => {
-    const keys = new Set(filteredBudgetLines.map((line) => line.id));
-    const budgetMnt = filteredBudgetLines.reduce(
-      (total, line) => total + Number(line.budgetMntMillion) * 1_000_000,
-      0,
-    );
-    const relevantEntries = financeEntries.filter((entry) => keys.has(entry.budgetKey));
-    const commitmentMnt = relevantEntries
-      .filter((entry) => entry.entryType === "commitment")
-      .reduce((total, entry) => total + entry.amountMnt, 0);
-    const expenditureMnt = relevantEntries
-      .filter((entry) => entry.entryType === "expenditure")
-      .reduce((total, entry) => total + entry.amountMnt, 0);
-    return {
-      budgetMnt,
-      commitmentMnt,
-      expenditureMnt,
-      uncommittedMnt: budgetMnt - commitmentMnt,
-      remainingMnt: budgetMnt - expenditureMnt,
-      spentPercent:
-        budgetMnt > 0 ? Math.round((expenditureMnt / budgetMnt) * 100) : 0,
-      relevantEntries,
-    };
+    return summarizeFinance(filteredBudgetLines, financeEntries);
   }, [filteredBudgetLines, financeEntries]);
 
   const stats = useMemo(() => {
-    const allSubs = allActivities.flatMap((item) => item.subactivities);
+    const allSubs = filtered.flatMap((item) => item.subactivities);
     const completed = allSubs.filter(
       (item) =>
         recordStatus(item.id, item.status as StatusKey, updates) === "completed",
@@ -860,13 +1065,138 @@ export default function Home() {
       (item) => updates[item.id]?.supportNeeded || item.ministrySupport,
     ).length;
     const overall = Math.round(
-      allActivities.reduce(
+      filtered.reduce(
         (total, item) => total + deriveActivityProgress(item, updates),
         0,
-      ) / allActivities.length,
+      ) / Math.max(filtered.length, 1),
     );
     return { completed, attention, support, overall };
-  }, [updates]);
+  }, [filtered, updates]);
+
+  const dashboardActivities = useMemo(
+    () =>
+      allActivities.filter(
+        (item) =>
+          (section === "all" || item.section === section) &&
+          (goal === "all" || item.goal === goal) &&
+          isAssignedToMember(item, member, updates),
+      ),
+    [goal, member, section, updates],
+  );
+
+  const dashboardBudgetLines = useMemo(
+    () =>
+      allBudgetLines.filter(
+        (line) =>
+          (section === "all" || line.section === section) &&
+          (goal === "all" || line.goal === goal) &&
+          (member === "all" || Boolean(memberBudgetKeys?.has(line.id))),
+      ),
+    [goal, member, memberBudgetKeys, section],
+  );
+
+  const dashboardFinance = useMemo(
+    () => summarizeFinance(dashboardBudgetLines, financeEntries),
+    [dashboardBudgetLines, financeEntries],
+  );
+
+  const deliveryIndicators = useMemo(() => {
+    const completed = dashboardActivities.filter(
+      (item) => deriveActivityStatus(item, updates) === "completed",
+    ).length;
+    const atRisk = dashboardActivities.filter((item) =>
+      ["delayed", "on_hold"].includes(deriveActivityStatus(item, updates)),
+    ).length;
+    const reported = dashboardActivities.filter(
+      (item) => deriveActivityStatus(item, updates) !== "not_reported",
+    ).length;
+    const reportingDate = new Date(`${workplan.meta.reportingDate}T00:00:00Z`);
+    const overdue = dashboardActivities.filter((item) => {
+      if (!item.endDate || deriveActivityStatus(item, updates) === "completed") {
+        return false;
+      }
+      return new Date(`${item.endDate}T00:00:00Z`) < reportingDate;
+    }).length;
+    return {
+      activityProgress: averageActivityProgress(dashboardActivities, updates),
+      completionPercent: dashboardActivities.length
+        ? Math.round((completed / dashboardActivities.length) * 100)
+        : 0,
+      reportingPercent: dashboardActivities.length
+        ? Math.round((reported / dashboardActivities.length) * 100)
+        : 0,
+      completed,
+      atRisk,
+      overdue,
+    };
+  }, [dashboardActivities, updates]);
+
+  const goalRows = useMemo(() => {
+    const orderedGoals = [...goals].sort((a, b) => {
+      if (a === "All goals") return 1;
+      if (b === "All goals") return -1;
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+    const visibleGoals = goal === "all" ? orderedGoals : [goal];
+    return visibleGoals.map((goalValue) => {
+      const activities = allActivities.filter(
+        (item) =>
+          item.goal === goalValue &&
+          (section === "all" || item.section === section) &&
+          isAssignedToMember(item, member, updates),
+      );
+      const activityBudgetKeys =
+        member === "all" ? null : budgetKeysForActivities(activities);
+      const lines = allBudgetLines.filter(
+        (line) =>
+          line.goal === goalValue &&
+          (section === "all" || line.section === section) &&
+          (member === "all" || Boolean(activityBudgetKeys?.has(line.id))),
+      );
+      const finance = summarizeFinance(lines, financeEntries);
+      const completed = activities.filter(
+        (item) => deriveActivityStatus(item, updates) === "completed",
+      ).length;
+      const atRisk = activities.filter((item) =>
+        ["delayed", "on_hold"].includes(deriveActivityStatus(item, updates)),
+      ).length;
+      return {
+        goal: goalValue,
+        activities: activities.length,
+        completed,
+        atRisk,
+        progress: averageActivityProgress(activities, updates),
+        ...finance,
+      };
+    });
+  }, [financeEntries, goal, goals, member, section, updates]);
+
+  const teamSummaries = useMemo(
+    () =>
+      teamMembers.map((teamMember) => {
+        const activities = allActivities.filter(
+          (item) =>
+            (section === "all" || item.section === section) &&
+            (goal === "all" || item.goal === goal) &&
+            isAssignedToMember(item, teamMember.id, updates),
+        );
+        const budgetKeys = budgetKeysForActivities(activities);
+        const lines = allBudgetLines.filter(
+          (line) =>
+            (section === "all" || line.section === section) &&
+            (goal === "all" || line.goal === goal) &&
+            budgetKeys.has(line.id),
+        );
+        const finance = summarizeFinance(lines, financeEntries);
+        return {
+          ...teamMember,
+          activityCount: activities.length,
+          progress: averageActivityProgress(activities, updates),
+          ...finance,
+        };
+      }),
+    [financeEntries, goal, section, updates],
+  );
 
   return (
     <main className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
@@ -927,24 +1257,282 @@ export default function Home() {
         </section>
 
         <Tabs
-          defaultValue="workplan"
+          value={activeView}
           className="gap-5"
-          onValueChange={() => setQuery("")}
+          onValueChange={(value) => {
+            setActiveView(value);
+            setQuery("");
+          }}
         >
-          <TabsList className="h-12 w-full justify-start rounded-xl border border-[#d7ded5] bg-white p-1 sm:w-auto">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-[#d7ded5] bg-white p-1 sm:flex sm:w-auto">
+            <TabsTrigger
+              value="dashboard"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Dashboard
+            </TabsTrigger>
             <TabsTrigger
               value="workplan"
-              className="h-9 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
             >
+              <ListChecks className="h-4 w-4" />
               Workplan
             </TabsTrigger>
             <TabsTrigger
               value="finance"
-              className="h-9 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
             >
+              <Banknote className="h-4 w-4" />
               Finance
             </TabsTrigger>
+            <TabsTrigger
+              value="team"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              <Users className="h-4 w-4" />
+              Team
+            </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="dashboard" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+              <div className="mb-4 lg:mb-0">
+                <h2 className="text-xl font-black">Portfolio dashboard</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Goal delivery and financial position as of 30 June 2026
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3 lg:flex">
+                <NativeSelect
+                  value={section}
+                  onChange={(event) => setSection(event.target.value)}
+                  className="h-10 min-w-[155px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter dashboard by workplan section"
+                >
+                  <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
+                  <NativeSelectOption value="A">Section A</NativeSelectOption>
+                  <NativeSelectOption value="B">Section B</NativeSelectOption>
+                </NativeSelect>
+                <NativeSelect
+                  value={goal}
+                  onChange={(event) => setGoal(event.target.value)}
+                  className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter dashboard by goal"
+                >
+                  <NativeSelectOption value="all">Every goal</NativeSelectOption>
+                  {goals.map((value) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {value === "All goals" ? "Cross-goal" : value}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+                <NativeSelect
+                  value={member}
+                  onChange={(event) => setMember(event.target.value)}
+                  className="h-10 min-w-[230px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter dashboard by team member"
+                >
+                  <NativeSelectOption value="all">All team members</NativeSelectOption>
+                  {teamMembers.map((item) => (
+                    <NativeSelectOption key={item.id} value={item.id}>
+                      {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+            </section>
+
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  label: "Budget",
+                  value: formatMntMillion(dashboardFinance.budgetMnt),
+                  detail: "million MNT in selected scope",
+                  icon: WalletCards,
+                  accent: "bg-[#0c3b2d] text-white",
+                },
+                {
+                  label: "Commitments",
+                  value: formatMntMillion(dashboardFinance.commitmentMnt),
+                  detail: `${dashboardFinance.commitmentPercent}% of budget committed`,
+                  icon: HandCoins,
+                  accent: "bg-white",
+                },
+                {
+                  label: "Expenditure",
+                  value: formatMntMillion(dashboardFinance.expenditureMnt),
+                  detail: `${dashboardFinance.spentPercent}% of budget spent`,
+                  icon: ReceiptText,
+                  accent: "bg-white",
+                },
+                {
+                  label: "Remaining",
+                  value: formatMntMillion(dashboardFinance.remainingMnt),
+                  detail: "budget less expenditure, million MNT",
+                  icon: Banknote,
+                  accent:
+                    dashboardFinance.remainingMnt < 0
+                      ? "bg-[#fff0f1] text-[#8f1d2c]"
+                      : "bg-[#edf6e8]",
+                },
+              ].map((metric) => (
+                <article
+                  key={metric.label}
+                  className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
+                >
+                  <div className="mb-5 flex items-center justify-between">
+                    <p
+                      className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
+                    >
+                      {metric.label}
+                    </p>
+                    <metric.icon
+                      className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
+                    />
+                  </div>
+                  <p className="text-3xl font-black tracking-[-0.03em]">
+                    {metric.value}
+                  </p>
+                  <p
+                    className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
+                  >
+                    {metric.detail}
+                  </p>
+                </article>
+              ))}
+            </section>
+
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {[
+                {
+                  label: "Activity progress",
+                  value: `${deliveryIndicators.activityProgress}%`,
+                  detail: `${dashboardActivities.length} activities`,
+                  icon: Gauge,
+                },
+                {
+                  label: "Completion rate",
+                  value: `${deliveryIndicators.completionPercent}%`,
+                  detail: `${deliveryIndicators.completed} completed`,
+                  icon: CircleCheck,
+                },
+                {
+                  label: "Commitment rate",
+                  value: `${dashboardFinance.commitmentPercent}%`,
+                  detail: "committed ÷ budget",
+                  icon: HandCoins,
+                },
+                {
+                  label: "Expenditure rate",
+                  value: `${dashboardFinance.spentPercent}%`,
+                  detail: "expenditure ÷ budget",
+                  icon: TrendingUp,
+                },
+                {
+                  label: "Activities at risk",
+                  value: deliveryIndicators.atRisk,
+                  detail: `${deliveryIndicators.overdue} overdue at reporting date`,
+                  icon: AlertTriangle,
+                },
+                {
+                  label: "Reporting coverage",
+                  value: `${deliveryIndicators.reportingPercent}%`,
+                  detail: `${dashboardFinance.financeCoveragePercent}% finance-line coverage`,
+                  icon: ListChecks,
+                },
+              ].map((indicator) => (
+                <article
+                  key={indicator.label}
+                  className="rounded-2xl border border-[#d7ded5] bg-white p-4"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-[#5d7467]">
+                      {indicator.label}
+                    </p>
+                    <indicator.icon className="h-4 w-4 text-[#49705c]" />
+                  </div>
+                  <p className="mt-3 text-2xl font-black">{indicator.value}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#718178]">
+                    {indicator.detail}
+                  </p>
+                </article>
+              ))}
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
+              <div className="border-b border-[#e2e7e0] px-5 py-4">
+                <h2 className="text-xl font-black">Progress and finance by goal</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Activity progress is paired with budget, commitments, expenditure, and remaining balance.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[1050px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
+                      <TableHead className="w-[235px] pl-5">Goal</TableHead>
+                      <TableHead className="w-[210px]">Activity progress</TableHead>
+                      <TableHead className="text-right">Budget</TableHead>
+                      <TableHead className="text-right">Commitment</TableHead>
+                      <TableHead className="text-right">Expenditure</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="pr-5 text-right">At risk</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {goalRows.map((row) => (
+                      <TableRow key={row.goal}>
+                        <TableCell className="pl-5">
+                          <p className="font-black">
+                            {row.goal === "All goals" ? "Cross-goal" : row.goal}
+                          </p>
+                          <p className="mt-1 text-xs text-[#718178]">
+                            {row.completed} of {row.activities} activities completed
+                          </p>
+                        </TableCell>
+                        <TableCell>
+                          <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                            <span>{row.progress}%</span>
+                            <span className="text-xs text-[#718178]">
+                              {row.activities} activities
+                            </span>
+                          </div>
+                          <Progress
+                            value={row.progress}
+                            className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-bold tabular-nums">
+                          {formatMntMillion(row.budgetMnt)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <p className="font-bold">{formatMntMillion(row.commitmentMnt)}</p>
+                          <p className="text-xs text-[#718178]">{row.commitmentPercent}%</p>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <p className="font-bold">{formatMntMillion(row.expenditureMnt)}</p>
+                          <p className="text-xs text-[#718178]">{row.spentPercent}%</p>
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-black tabular-nums ${row.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
+                        >
+                          {formatMntMillion(row.remainingMnt)}
+                        </TableCell>
+                        <TableCell className="pr-5 text-right">
+                          <span
+                            className={`inline-flex min-w-8 justify-center rounded-full px-2.5 py-1 text-xs font-black ${row.atRisk ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}
+                          >
+                            {row.atRisk}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </section>
+          </TabsContent>
 
           <TabsContent value="workplan" className="space-y-6">
 
@@ -959,15 +1547,15 @@ export default function Home() {
             },
             {
               label: "Main activities",
-              value: workplan.meta.activityCount,
-              detail: "Across sections A and B",
+              value: filtered.length,
+              detail: `of ${workplan.meta.activityCount} activities in scope`,
               icon: Clock3,
               accent: "bg-white",
             },
             {
               label: "Sub-activities completed",
               value: stats.completed,
-              detail: `of ${workplan.meta.subactivityCount} reported`,
+              detail: `of ${filtered.reduce((total, item) => total + item.subactivities.length, 0)} in scope`,
               icon: CircleCheck,
               accent: "bg-white",
             },
@@ -1073,6 +1661,19 @@ export default function Home() {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              <NativeSelect
+                value={member}
+                onChange={(event) => setMember(event.target.value)}
+                className="h-10 min-w-[220px] border-[#ced8cf] bg-[#f8faf7]"
+                aria-label="Filter workplan by team member"
+              >
+                <NativeSelectOption value="all">All team members</NativeSelectOption>
+                {teamMembers.map((item) => (
+                  <NativeSelectOption key={item.id} value={item.id}>
+                    {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
             </div>
           </div>
 
@@ -1149,6 +1750,7 @@ export default function Home() {
                   setGoal("all");
                   setStatus("all");
                   setWorkstream("all");
+                  setMember("all");
                 }}
               >
                 Clear filters
@@ -1226,6 +1828,11 @@ export default function Home() {
                   <p className="text-sm text-[#718178]">
                     {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
                   </p>
+                  {member !== "all" && (
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Team finance uses budget lines linked to assigned activities. Shared lines may appear for more than one member.
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
                   <label className="relative block min-w-[230px]">
@@ -1258,6 +1865,19 @@ export default function Home() {
                     {goals.map((value) => (
                       <NativeSelectOption key={value} value={value}>
                         {value === "All goals" ? "Cross-goal" : value}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <NativeSelect
+                    value={member}
+                    onChange={(event) => setMember(event.target.value)}
+                    className="h-10 min-w-[220px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter finance by team member"
+                  >
+                    <NativeSelectOption value="all">All team members</NativeSelectOption>
+                    {teamMembers.map((item) => (
+                      <NativeSelectOption key={item.id} value={item.id}>
+                        {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -1351,6 +1971,7 @@ export default function Home() {
                       setQuery("");
                       setSection("all");
                       setGoal("all");
+                      setMember("all");
                     }}
                   >
                     Clear filters
@@ -1444,6 +2065,141 @@ export default function Home() {
                   </Button>
                 </div>
               )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="team" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+              <div className="mb-4 lg:mb-0">
+                <h2 className="text-xl font-black">PCU team performance</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  The five confirmed PCU roles are included with additional names found in the workplan.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:flex">
+                <NativeSelect
+                  value={section}
+                  onChange={(event) => setSection(event.target.value)}
+                  className="h-10 min-w-[155px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter team report by workplan section"
+                >
+                  <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
+                  <NativeSelectOption value="A">Section A</NativeSelectOption>
+                  <NativeSelectOption value="B">Section B</NativeSelectOption>
+                </NativeSelect>
+                <NativeSelect
+                  value={goal}
+                  onChange={(event) => setGoal(event.target.value)}
+                  className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter team report by goal"
+                >
+                  <NativeSelectOption value="all">Every goal</NativeSelectOption>
+                  {goals.map((value) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {value === "All goals" ? "Cross-goal" : value}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
+              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-black">Team activity and finance report</h2>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Financial values use the budget lines linked to each member&apos;s assigned activities.
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-[#5d7467]">
+                  {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[1180px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
+                      <TableHead className="w-[270px] pl-5">Team member</TableHead>
+                      <TableHead className="w-[190px]">Activity progress</TableHead>
+                      <TableHead className="text-right">Budget</TableHead>
+                      <TableHead className="text-right">Commitment</TableHead>
+                      <TableHead className="text-right">Expenditure</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="w-24 pr-5 text-right">Report</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {teamSummaries.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="pl-5">
+                          <div className="flex items-start gap-3">
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e7efe3] text-sm font-black text-[#275b45]">
+                              {item.name
+                                .split(/[.\s]/)
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((part) => part[0])
+                                .join("")}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-black">{item.name}</p>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-600"}`}
+                                >
+                                  {item.group}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-[#718178]">{item.role}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                            <span>{item.progress}%</span>
+                            <span className="text-xs text-[#718178]">
+                              {item.activityCount} activities
+                            </span>
+                          </div>
+                          <Progress
+                            value={item.progress}
+                            className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-bold tabular-nums">
+                          {formatMntMillion(item.budgetMnt)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMntMillion(item.commitmentMnt)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMntMillion(item.expenditureMnt)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-black tabular-nums ${item.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
+                        >
+                          {formatMntMillion(item.remainingMnt)}
+                        </TableCell>
+                        <TableCell className="pr-5 text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setMember(item.id);
+                              setActiveView("dashboard");
+                            }}
+                          >
+                            View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="border-t border-[#e2e7e0] bg-[#f8faf7] px-5 py-3 text-xs leading-5 text-[#718178]">
+                Shared objective-level budget lines can be linked to more than one team member. Team rows should not be added together as a programme total.
+              </div>
             </section>
           </TabsContent>
         </Tabs>
@@ -1685,6 +2441,7 @@ export default function Home() {
                           Owner
                         </span>
                         <Input
+                          list="pcu-team-member-options"
                           value={draft.owner}
                           onChange={(event) =>
                             setDraft((current) => ({
@@ -1876,6 +2633,13 @@ export default function Home() {
           )}
         </SheetContent>
       </Sheet>
+      <datalist id="pcu-team-member-options">
+        {teamMembers.map((item) => (
+          <option key={item.id} value={item.name}>
+            {item.role}
+          </option>
+        ))}
+      </datalist>
     </main>
   );
 }
