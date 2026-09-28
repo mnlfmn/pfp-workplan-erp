@@ -57,6 +57,15 @@ def average_progress(statuses: list[str]) -> int:
     return round(sum(weights.get(status, 0) for status in statuses) / len(statuses))
 
 
+def section_key(code: object) -> str:
+    text = str(code or "").strip().upper()
+    if text.startswith("A."):
+        return "A"
+    if text.startswith("B."):
+        return "B"
+    return ""
+
+
 workbook = openpyxl.load_workbook(SOURCE, data_only=True, read_only=False)
 plan_sheet = workbook["WP 2026 for Board&TCC"]
 progress_sheet = workbook["WORKPLAN PROGRESS up to June 01"]
@@ -94,6 +103,7 @@ for row in range(16, plan_sheet.max_row + 1):
         "startDate": clean(plan_sheet.cell(row, 20).value),
         "endDate": clean(plan_sheet.cell(row, 21).value),
         "sourceRow": row,
+        "section": section_key(plan_sheet.cell(row, 7).value),
     }
     node_key = f"{uid}-{row}" if uid in nodes else str(uid)
     nodes[node_key] = record
@@ -219,6 +229,50 @@ for activity in activities:
         activity["progress"] = average_progress([activity["status"]])
 
 
+# The workbook stores A-section budgets at objective level and B-section budgets
+# at the lowest funded objective/activity level. These rows reconcile to the
+# workbook's MNT 25,802 million total without counting parent rollups twice.
+budget_candidates: list[dict] = []
+for row in range(16, 130):
+    code = clean(plan_sheet.cell(row, 7).value)
+    section = section_key(code)
+    budget = clean(plan_sheet.cell(row, 14).value)
+    if not section or not isinstance(budget, (int, float)):
+        continue
+    budget_candidates.append(
+        {
+            "id": f"budget-row-{row}",
+            "sourceRow": row,
+            "section": section,
+            "goal": clean(plan_sheet.cell(row, 5).value),
+            "code": code,
+            "title": clean(plan_sheet.cell(row, 8).value),
+            "level": clean(plan_sheet.cell(row, 2).value) or "Budget line",
+            "workstream": clean(plan_sheet.cell(row, 15).value),
+            "budgetMntMillion": budget,
+        }
+    )
+
+budget_lines: list[dict] = []
+for candidate in budget_candidates:
+    code = str(candidate["code"]).rstrip(".")
+    descendants = [
+        item
+        for item in budget_candidates
+        if item["section"] == candidate["section"]
+        and item["sourceRow"] != candidate["sourceRow"]
+        and str(item["code"]).startswith(f"{code}.")
+        and float(item["budgetMntMillion"]) != 0
+    ]
+    if candidate["section"] == "A":
+        if candidate["level"] == "Objective":
+            budget_lines.append(candidate)
+    elif candidate["level"] in {"Main Activity", "Budget line"}:
+        budget_lines.append(candidate)
+    elif candidate["level"] == "Objective" and not descendants:
+        budget_lines.append(candidate)
+
+
 payload = {
     "meta": {
         "title": "PFP 2026 Workplan Monitor",
@@ -226,11 +280,12 @@ payload = {
         "reportingDate": "2026-06-30",
         "activityCount": len(activities),
         "subactivityCount": sum(len(item["subactivities"]) for item in activities),
-        "strategicAreaCount": len(
-            {item["strategicArea"]["id"] for item in activities if item["strategicArea"]}
+        "budgetTotalMntMillion": sum(
+            float(item["budgetMntMillion"]) for item in budget_lines
         ),
     },
     "activities": activities,
+    "budgetLines": budget_lines,
 }
 
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)

@@ -11,3 +11,15 @@ export const activityUpdates = sqliteTable("activity_updates", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedBy: text("updated_by").notNull().default(""),
 });
+
+export const financeEntries = sqliteTable("finance_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  budgetKey: text("budget_key").notNull(),
+  entryType: text("entry_type").notNull(),
+  amountMnt: integer("amount_mnt").notNull(),
+  entryDate: text("entry_date").notNull(),
+  description: text("description").notNull().default(""),
+  vendor: text("vendor").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  createdBy: text("created_by").notNull().default(""),
+});

@@ -3,19 +3,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Banknote,
   CalendarDays,
-  ChevronRight,
   CircleCheck,
   Clock3,
   Cloud,
   CloudOff,
+  HandCoins,
+  PencilLine,
+  Plus,
+  ReceiptText,
   Search,
   SlidersHorizontal,
   Target,
+  WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   NativeSelect,
@@ -31,11 +44,21 @@ import {
 } from "@/components/ui/sheet";
 import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import workplan from "@/lib/workplan-data.json";
 
 type Activity = (typeof workplan.activities)[number];
 type Subactivity = Activity["subactivities"][number];
+type BudgetLine = (typeof workplan.budgetLines)[number];
 type StatusKey =
   | "completed"
   | "in_progress"
@@ -72,6 +95,27 @@ type Draft = {
   owner: string;
   note: string;
   supportNeeded: string;
+};
+
+type FinanceEntry = {
+  id: number;
+  budgetKey: string;
+  entryType: "commitment" | "expenditure";
+  amountMnt: number;
+  entryDate: string;
+  description: string;
+  vendor: string;
+  createdAt: string;
+  createdBy: string;
+};
+
+type FinanceDraft = {
+  budgetKey: string;
+  entryType: "commitment" | "expenditure";
+  amountMillion: string;
+  entryDate: string;
+  description: string;
+  vendor: string;
 };
 
 const statusMeta: Record<
@@ -117,6 +161,29 @@ const statusMeta: Record<
 };
 
 const allActivities = workplan.activities as Activity[];
+const allBudgetLines = workplan.budgetLines as BudgetLine[];
+
+function todayForInput() {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function formatMntMillion(amountMnt: number) {
+  return new Intl.NumberFormat("en", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(amountMnt / 1_000_000);
+}
+
+function formatBudgetMillion(value: number) {
+  return new Intl.NumberFormat("en", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
 
 function formatDate(value: string) {
   if (!value) return "No date";
@@ -233,6 +300,8 @@ function deriveActivityProgress(
 
 export default function Home() {
   const [query, setQuery] = useState("");
+  const [section, setSection] = useState("all");
+  const [goal, setGoal] = useState("all");
   const [status, setStatus] = useState("all");
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -249,6 +318,20 @@ export default function Home() {
     supportNeeded: "",
   });
   const [saving, setSaving] = useState(false);
+  const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
+  const [financeState, setFinanceState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [financeDialogOpen, setFinanceDialogOpen] = useState(false);
+  const [financeSaving, setFinanceSaving] = useState(false);
+  const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
+    budgetKey: allBudgetLines[0]?.id ?? "",
+    entryType: "commitment",
+    amountMillion: "",
+    entryDate: todayForInput(),
+    description: "",
+    vendor: "",
+  });
 
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
@@ -313,6 +396,26 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/finance")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Finance store unavailable");
+        return (await response.json()) as { entries: FinanceEntry[] };
+      })
+      .then((payload) => {
+        if (!active) return;
+        setFinanceEntries(payload.entries);
+        setFinanceState("ready");
+      })
+      .catch(() => {
+        if (active) setFinanceState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const persistUpdate = useCallback(
     async (payload: {
       activityKey: string;
@@ -362,6 +465,81 @@ export default function Home() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  const openFinanceDialog = useCallback((budgetKey?: string) => {
+    setFinanceDraft({
+      budgetKey: budgetKey ?? allBudgetLines[0]?.id ?? "",
+      entryType: "commitment",
+      amountMillion: "",
+      entryDate: todayForInput(),
+      description: "",
+      vendor: "",
+    });
+    setFinanceDialogOpen(true);
+  }, []);
+
+  const persistFinanceEntry = useCallback(
+    async (payload: {
+      budgetKey: string;
+      entryType: FinanceDraft["entryType"];
+      amountMnt: number;
+      entryDate: string;
+      description?: string;
+      vendor?: string;
+    }) => {
+      const response = await fetch("/api/finance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json()) as {
+        entry?: FinanceEntry;
+        error?: string;
+      };
+      if (!response.ok || !result.entry) {
+        throw new Error(result.error || "The finance entry could not be saved.");
+      }
+      setFinanceEntries((current) => [result.entry!, ...current]);
+      setFinanceState("ready");
+      return result.entry;
+    },
+    [],
+  );
+
+  async function saveFinanceEntry() {
+    const amountMillion = Number(financeDraft.amountMillion);
+    if (!Number.isFinite(amountMillion) || amountMillion <= 0) {
+      toast.error("Enter an amount greater than zero.");
+      return;
+    }
+    setFinanceSaving(true);
+    try {
+      const entry = await persistFinanceEntry({
+        budgetKey: financeDraft.budgetKey,
+        entryType: financeDraft.entryType,
+        amountMnt: Math.round(amountMillion * 1_000_000),
+        entryDate: financeDraft.entryDate,
+        description: financeDraft.description,
+        vendor: financeDraft.vendor,
+      });
+      setFinanceDialogOpen(false);
+      toast.success(
+        financeDraft.entryType === "commitment"
+          ? "Commitment added"
+          : "Expenditure added",
+        { description: `${formatMntMillion(entry.amountMnt)} mln MNT` },
+      );
+    } catch (error) {
+      setFinanceState("unavailable");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The finance entry could not be saved.",
+      );
+    } finally {
+      setFinanceSaving(false);
     }
   }
 
@@ -507,11 +685,73 @@ export default function Home() {
           { signal: lifecycle.signal },
         ),
       ).catch(() => undefined);
+      void Promise.resolve(
+        modelContext.registerTool(
+          {
+            name: "add_finance_entry",
+            title: "Add finance entry",
+            description:
+              "Record a commitment or expenditure against an approved PFP 2026 budget line.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                budgetKey: {
+                  type: "string",
+                  enum: allBudgetLines.map((line) => line.id),
+                },
+                entryType: {
+                  type: "string",
+                  enum: ["commitment", "expenditure"],
+                },
+                amountMntMillion: { type: "number", exclusiveMinimum: 0 },
+                entryDate: { type: "string", format: "date" },
+                description: { type: "string" },
+                vendor: { type: "string" },
+              },
+              required: [
+                "budgetKey",
+                "entryType",
+                "amountMntMillion",
+                "entryDate",
+              ],
+              additionalProperties: false,
+            },
+            annotations: {
+              readOnlyHint: false,
+              untrustedContentHint: false,
+            },
+            async execute(input) {
+              const budgetKey = String(input.budgetKey ?? "");
+              const entryType = String(input.entryType ?? "") as FinanceDraft["entryType"];
+              const amountMntMillion = Number(input.amountMntMillion);
+              const entryDate = String(input.entryDate ?? "");
+              if (
+                !allBudgetLines.some((line) => line.id === budgetKey) ||
+                !["commitment", "expenditure"].includes(entryType) ||
+                !Number.isFinite(amountMntMillion) ||
+                amountMntMillion <= 0 ||
+                !/^\d{4}-\d{2}-\d{2}$/.test(entryDate)
+              ) {
+                throw new Error("Invalid finance entry.");
+              }
+              return persistFinanceEntry({
+                budgetKey,
+                entryType,
+                amountMnt: Math.round(amountMntMillion * 1_000_000),
+                entryDate,
+                description: String(input.description ?? ""),
+                vendor: String(input.vendor ?? ""),
+              });
+            },
+          },
+          { signal: lifecycle.signal },
+        ),
+      ).catch(() => undefined);
     } catch {
       // WebMCP support is optional; the visible interface remains fully usable.
     }
     return () => lifecycle.abort();
-  }, [persistUpdate]);
+  }, [persistFinanceEntry, persistUpdate]);
 
   const workstreams = useMemo(
     () =>
@@ -521,10 +761,18 @@ export default function Home() {
     [],
   );
 
+  const goals = useMemo(
+    () =>
+      Array.from(new Set(allActivities.map((item) => item.goal).filter(Boolean))).sort(),
+    [],
+  );
+
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return allActivities.filter((item) => {
       const currentStatus = deriveActivityStatus(item, updates);
+      const matchesSection = section === "all" || item.section === section;
+      const matchesGoal = goal === "all" || item.goal === goal;
       const matchesStatus = status === "all" || currentStatus === status;
       const matchesWorkstream =
         workstream === "all" || item.workstream === workstream;
@@ -538,9 +786,65 @@ export default function Home() {
       ]
         .join(" ")
         .toLocaleLowerCase();
-      return matchesStatus && matchesWorkstream && haystack.includes(normalized);
+      return (
+        matchesSection &&
+        matchesGoal &&
+        matchesStatus &&
+        matchesWorkstream &&
+        haystack.includes(normalized)
+      );
     });
-  }, [query, status, workstream, updates]);
+  }, [goal, query, section, status, workstream, updates]);
+
+  const filteredBudgetLines = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return allBudgetLines.filter((line) => {
+      const matchesSection = section === "all" || line.section === section;
+      const matchesGoal = goal === "all" || line.goal === goal;
+      const haystack = [line.code, line.title, line.workstream, line.goal]
+        .join(" ")
+        .toLocaleLowerCase();
+      return matchesSection && matchesGoal && haystack.includes(normalized);
+    });
+  }, [goal, query, section]);
+
+  const financeByBudgetKey = useMemo(() => {
+    const totals = new Map<string, { commitment: number; expenditure: number }>();
+    for (const entry of financeEntries) {
+      const current = totals.get(entry.budgetKey) ?? {
+        commitment: 0,
+        expenditure: 0,
+      };
+      current[entry.entryType] += entry.amountMnt;
+      totals.set(entry.budgetKey, current);
+    }
+    return totals;
+  }, [financeEntries]);
+
+  const financeStats = useMemo(() => {
+    const keys = new Set(filteredBudgetLines.map((line) => line.id));
+    const budgetMnt = filteredBudgetLines.reduce(
+      (total, line) => total + Number(line.budgetMntMillion) * 1_000_000,
+      0,
+    );
+    const relevantEntries = financeEntries.filter((entry) => keys.has(entry.budgetKey));
+    const commitmentMnt = relevantEntries
+      .filter((entry) => entry.entryType === "commitment")
+      .reduce((total, entry) => total + entry.amountMnt, 0);
+    const expenditureMnt = relevantEntries
+      .filter((entry) => entry.entryType === "expenditure")
+      .reduce((total, entry) => total + entry.amountMnt, 0);
+    return {
+      budgetMnt,
+      commitmentMnt,
+      expenditureMnt,
+      uncommittedMnt: budgetMnt - commitmentMnt,
+      remainingMnt: budgetMnt - expenditureMnt,
+      spentPercent:
+        budgetMnt > 0 ? Math.round((expenditureMnt / budgetMnt) * 100) : 0,
+      relevantEntries,
+    };
+  }, [filteredBudgetLines, financeEntries]);
 
   const stats = useMemo(() => {
     const allSubs = allActivities.flatMap((item) => item.subactivities);
@@ -562,34 +866,6 @@ export default function Home() {
       ) / allActivities.length,
     );
     return { completed, attention, support, overall };
-  }, [updates]);
-
-  const strategicAreas = useMemo(() => {
-    const grouped = new Map<
-      string,
-      { id: string; code: string; title: string; activities: Activity[] }
-    >();
-    for (const item of allActivities) {
-      const area = item.strategicArea;
-      const key = area?.id ?? `other-${item.sourceRow}`;
-      const existing = grouped.get(key) ?? {
-        id: key,
-        code: area?.code ?? "Other",
-        title: area?.title ?? "Other workplan activities",
-        activities: [],
-      };
-      existing.activities.push(item);
-      grouped.set(key, existing);
-    }
-    return Array.from(grouped.values()).map((area) => ({
-      ...area,
-      progress: Math.round(
-        area.activities.reduce(
-          (total, item) => total + deriveActivityProgress(item, updates),
-          0,
-        ) / area.activities.length,
-      ),
-    }));
   }, [updates]);
 
   return (
@@ -650,6 +926,28 @@ export default function Home() {
           </div>
         </section>
 
+        <Tabs
+          defaultValue="workplan"
+          className="gap-5"
+          onValueChange={() => setQuery("")}
+        >
+          <TabsList className="h-12 w-full justify-start rounded-xl border border-[#d7ded5] bg-white p-1 sm:w-auto">
+            <TabsTrigger
+              value="workplan"
+              className="h-9 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              Workplan
+            </TabsTrigger>
+            <TabsTrigger
+              value="finance"
+              className="h-9 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              Finance
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="workplan" className="space-y-6">
+
         <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
             {
@@ -662,7 +960,7 @@ export default function Home() {
             {
               label: "Main activities",
               value: workplan.meta.activityCount,
-              detail: `${workplan.meta.strategicAreaCount} strategic areas`,
+              detail: "Across sections A and B",
               icon: Clock3,
               accent: "bg-white",
             },
@@ -707,41 +1005,6 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="mb-6 overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-          <div className="flex items-center justify-between border-b border-[#e2e7e0] px-5 py-4">
-            <div>
-              <h2 className="text-lg font-bold">Strategic areas</h2>
-              <p className="text-sm text-[#718178]">Portfolio progress at a glance</p>
-            </div>
-            <span className="rounded-full bg-[#edf3e9] px-3 py-1 text-xs font-bold text-[#476255]">
-              {strategicAreas.length} lines
-            </span>
-          </div>
-          <div className="flex gap-3 overflow-x-auto p-3">
-            {strategicAreas.map((area) => (
-              <div
-                key={area.id}
-                className="min-w-[220px] flex-1 rounded-xl border border-[#e1e7de] bg-[#f8faf6] p-4"
-              >
-                <div className="mb-3 flex items-center justify-between text-sm">
-                  <span className="font-black text-[#315845]">{area.code}</span>
-                  <span className="font-bold">{area.progress}%</span>
-                </div>
-                <Progress
-                  value={area.progress}
-                  className="h-1.5 bg-[#dfe8db] [&_[data-slot=progress-indicator]]:bg-[#277255]"
-                />
-                <p className="mt-3 line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-[#334b3f]">
-                  {area.title}
-                </p>
-                <p className="mt-2 text-xs text-[#718178]">
-                  {area.activities.length} activities
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
         <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
           <div className="border-b border-[#e2e7e0] p-4 lg:flex lg:items-center lg:justify-between lg:p-5">
             <div className="mb-4 lg:mb-0">
@@ -750,7 +1013,7 @@ export default function Home() {
                 {filtered.length} of {workplan.meta.activityCount} activities
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
               <label className="relative block min-w-[240px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                 <Input
@@ -761,6 +1024,29 @@ export default function Home() {
                   aria-label="Search workplan activities"
                 />
               </label>
+              <NativeSelect
+                value={section}
+                onChange={(event) => setSection(event.target.value)}
+                className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                aria-label="Filter by workplan section"
+              >
+                <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
+                <NativeSelectOption value="A">Section A</NativeSelectOption>
+                <NativeSelectOption value="B">Section B</NativeSelectOption>
+              </NativeSelect>
+              <NativeSelect
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                aria-label="Filter by goal"
+              >
+                <NativeSelectOption value="all">Every goal</NativeSelectOption>
+                {goals.map((value) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {value === "All goals" ? "Cross-goal" : value}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
               <NativeSelect
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
@@ -796,7 +1082,7 @@ export default function Home() {
             <span>Workstream</span>
             <span>Status</span>
             <span>Progress</span>
-            <span />
+            <span>Update</span>
           </div>
           <div className="max-h-[720px] divide-y divide-[#e8ece6] overflow-y-auto">
             {filtered.map((item) => {
@@ -827,9 +1113,7 @@ export default function Home() {
                     </p>
                   </div>
                   <p className="line-clamp-2 text-sm font-medium text-[#53685c]">
-                    {item.workstream ||
-                      item.strategicArea?.title ||
-                      "Programme management"}
+                    {item.workstream || "Programme management"}
                   </p>
                   <div>
                     <StatusPill status={currentStatus} />
@@ -844,7 +1128,7 @@ export default function Home() {
                       className="h-1.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
                     />
                   </div>
-                  <ChevronRight className="hidden h-5 w-5 text-[#91a098] lg:block" />
+                  <PencilLine className="hidden h-5 w-5 text-[#4f725f] lg:block" />
                 </button>
               );
             })}
@@ -861,6 +1145,8 @@ export default function Home() {
                 className="mt-4"
                 onClick={() => {
                   setQuery("");
+                  setSection("all");
+                  setGoal("all");
                   setStatus("all");
                   setWorkstream("all");
                 }}
@@ -870,7 +1156,420 @@ export default function Home() {
             </div>
           )}
         </section>
+          </TabsContent>
+
+          <TabsContent value="finance" className="space-y-6">
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  label: "2026 budget",
+                  value: formatMntMillion(financeStats.budgetMnt),
+                  detail: "million MNT",
+                  icon: WalletCards,
+                  accent: "bg-[#0c3b2d] text-white",
+                },
+                {
+                  label: "Commitments",
+                  value: formatMntMillion(financeStats.commitmentMnt),
+                  detail: `${formatMntMillion(financeStats.uncommittedMnt)} mln MNT uncommitted`,
+                  icon: HandCoins,
+                  accent: "bg-white",
+                },
+                {
+                  label: "Expenditure",
+                  value: formatMntMillion(financeStats.expenditureMnt),
+                  detail: `${financeStats.spentPercent}% of filtered budget`,
+                  icon: ReceiptText,
+                  accent: "bg-white",
+                },
+                {
+                  label: "Budget remaining",
+                  value: formatMntMillion(financeStats.remainingMnt),
+                  detail: "Budget less expenditure, million MNT",
+                  icon: Banknote,
+                  accent:
+                    financeStats.remainingMnt < 0
+                      ? "bg-[#fff0f1] text-[#8f1d2c]"
+                      : "bg-[#edf6e8]",
+                },
+              ].map((metric) => (
+                <article
+                  key={metric.label}
+                  className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
+                >
+                  <div className="mb-5 flex items-center justify-between">
+                    <p
+                      className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
+                    >
+                      {metric.label}
+                    </p>
+                    <metric.icon
+                      className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
+                    />
+                  </div>
+                  <p className="text-3xl font-black tracking-[-0.03em]">
+                    {metric.value}
+                  </p>
+                  <p
+                    className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
+                  >
+                    {metric.detail}
+                  </p>
+                </article>
+              ))}
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
+              <div className="border-b border-[#e2e7e0] p-4 lg:flex lg:items-end lg:justify-between lg:p-5">
+                <div className="mb-4 lg:mb-0">
+                  <h2 className="text-xl font-bold">Budget monitoring</h2>
+                  <p className="text-sm text-[#718178]">
+                    {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
+                  <label className="relative block min-w-[230px]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9 text-base md:text-sm"
+                      placeholder="Search budget line"
+                      aria-label="Search budget lines"
+                    />
+                  </label>
+                  <NativeSelect
+                    value={section}
+                    onChange={(event) => setSection(event.target.value)}
+                    className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter finance by workplan section"
+                  >
+                    <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
+                    <NativeSelectOption value="A">Section A</NativeSelectOption>
+                    <NativeSelectOption value="B">Section B</NativeSelectOption>
+                  </NativeSelect>
+                  <NativeSelect
+                    value={goal}
+                    onChange={(event) => setGoal(event.target.value)}
+                    className="h-10 min-w-[140px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter finance by goal"
+                  >
+                    <NativeSelectOption value="all">Every goal</NativeSelectOption>
+                    {goals.map((value) => (
+                      <NativeSelectOption key={value} value={value}>
+                        {value === "All goals" ? "Cross-goal" : value}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <Button
+                    onClick={() => openFinanceDialog()}
+                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add finance entry
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <Table className="min-w-[980px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
+                      <TableHead className="w-[44%] pl-5">Budget line</TableHead>
+                      <TableHead className="text-right">Budget</TableHead>
+                      <TableHead className="text-right">Committed</TableHead>
+                      <TableHead className="text-right">Expenditure</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="w-24 pr-5 text-right">Entry</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredBudgetLines.map((line) => {
+                      const totals = financeByBudgetKey.get(line.id) ?? {
+                        commitment: 0,
+                        expenditure: 0,
+                      };
+                      const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
+                      const remainingMnt = budgetMnt - totals.expenditure;
+                      return (
+                        <TableRow key={line.id}>
+                          <TableCell className="pl-5 align-top">
+                            <div className="flex items-start gap-3">
+                              <span className="mt-0.5 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                                {line.code}
+                              </span>
+                              <div>
+                                <p className="font-bold leading-5 text-[#183529]">
+                                  {line.title}
+                                </p>
+                                <p className="mt-1 text-xs text-[#718178]">
+                                  Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-bold tabular-nums">
+                            {formatBudgetMillion(Number(line.budgetMntMillion))}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatMntMillion(totals.commitment)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatMntMillion(totals.expenditure)}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
+                          >
+                            {formatMntMillion(remainingMnt)}
+                          </TableCell>
+                          <TableCell className="pr-5 text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openFinanceDialog(line.id)}
+                              aria-label={`Add finance entry for ${line.code}`}
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {filteredBudgetLines.length === 0 && (
+                <div className="px-6 py-14 text-center">
+                  <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
+                  <p className="font-bold">No budget lines match these filters</p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => {
+                      setQuery("");
+                      setSection("all");
+                      setGoal("all");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-bold">Finance entries</h2>
+                  <p className="text-sm text-[#718178]">
+                    Most recent commitments and expenditure for the selected filters
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-[#5d7467]">
+                  {financeStats.relevantEntries.length} entries
+                </span>
+              </div>
+              {financeState === "unavailable" && (
+                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+                  Saved finance entries are temporarily unavailable. The approved budget remains visible.
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <Table className="min-w-[800px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
+                      <TableHead className="pl-5">Date</TableHead>
+                      <TableHead>Budget line</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="pr-5 text-right">Amount (mln MNT)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {financeStats.relevantEntries.slice(0, 20).map((entry) => {
+                      const line = allBudgetLines.find(
+                        (item) => item.id === entry.budgetKey,
+                      );
+                      return (
+                        <TableRow key={entry.id}>
+                          <TableCell className="pl-5 whitespace-nowrap">
+                            {formatDate(entry.entryDate)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs font-bold text-[#2f634c]">
+                            {line?.code ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-bold ${entry.entryType === "commitment" ? "bg-blue-50 text-blue-800" : "bg-emerald-50 text-emerald-800"}`}
+                            >
+                              {entry.entryType === "commitment"
+                                ? "Commitment"
+                                : "Expenditure"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-[380px]">
+                            <p className="truncate font-medium">
+                              {entry.description || entry.vendor || "No description"}
+                            </p>
+                            {entry.vendor && entry.description && (
+                              <p className="mt-1 truncate text-xs text-[#718178]">
+                                {entry.vendor}
+                              </p>
+                            )}
+                          </TableCell>
+                          <TableCell className="pr-5 text-right font-black tabular-nums">
+                            {formatMntMillion(entry.amountMnt)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              {financeState === "ready" && financeStats.relevantEntries.length === 0 && (
+                <div className="px-6 py-12 text-center">
+                  <ReceiptText className="mx-auto mb-3 h-7 w-7 text-[#779083]" />
+                  <p className="font-bold">No finance entries yet</p>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Add the first commitment or expenditure to start tracking the balance.
+                  </p>
+                  <Button
+                    onClick={() => openFinanceDialog()}
+                    className="mt-4 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add finance entry
+                  </Button>
+                </div>
+              )}
+            </section>
+          </TabsContent>
+        </Tabs>
       </div>
+
+      <Dialog open={financeDialogOpen} onOpenChange={setFinanceDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add finance entry</DialogTitle>
+            <DialogDescription>
+              Record a commitment or expenditure against one approved 2026 budget line.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Budget line</span>
+              <NativeSelect
+                value={financeDraft.budgetKey}
+                onChange={(event) =>
+                  setFinanceDraft((current) => ({
+                    ...current,
+                    budgetKey: event.target.value,
+                  }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                {allBudgetLines.map((line) => (
+                  <NativeSelectOption key={line.id} value={line.id}>
+                    {line.code} · {line.title}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Entry type</span>
+                <NativeSelect
+                  value={financeDraft.entryType}
+                  onChange={(event) =>
+                    setFinanceDraft((current) => ({
+                      ...current,
+                      entryType: event.target.value as FinanceDraft["entryType"],
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="commitment">Commitment</NativeSelectOption>
+                  <NativeSelectOption value="expenditure">Expenditure</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Date</span>
+                <Input
+                  type="date"
+                  value={financeDraft.entryDate}
+                  onChange={(event) =>
+                    setFinanceDraft((current) => ({
+                      ...current,
+                      entryDate: event.target.value,
+                    }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Amount (million MNT)</span>
+              <Input
+                type="number"
+                min="0.001"
+                step="0.001"
+                inputMode="decimal"
+                value={financeDraft.amountMillion}
+                onChange={(event) =>
+                  setFinanceDraft((current) => ({
+                    ...current,
+                    amountMillion: event.target.value,
+                  }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="For example, 25.5"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Vendor or payee</span>
+              <Input
+                value={financeDraft.vendor}
+                onChange={(event) =>
+                  setFinanceDraft((current) => ({
+                    ...current,
+                    vendor: event.target.value,
+                  }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="Optional"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Description</span>
+              <Textarea
+                value={financeDraft.description}
+                onChange={(event) =>
+                  setFinanceDraft((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                className="min-h-24 border-[#cbd6cc] bg-white"
+                placeholder="Contract, purchase, invoice, or other reference"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFinanceDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={saveFinanceEntry}
+              disabled={financeSaving || financeState === "loading"}
+              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+            >
+              {financeSaving ? "Saving…" : "Save entry"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Sheet
         open={Boolean(selected)}
@@ -892,9 +1591,7 @@ export default function Home() {
                   {selected.title}
                 </SheetTitle>
                 <SheetDescription className="text-[#718178]">
-                  {selected.workstream ||
-                    selected.strategicArea?.title ||
-                    "Programme management"}
+                  {selected.workstream || "Programme management"}
                 </SheetDescription>
               </SheetHeader>
 
@@ -1080,7 +1777,7 @@ export default function Home() {
                     <div>
                       <h3 className="font-black">Sub-activities</h3>
                       <p className="text-sm text-[#718178]">
-                        {selected.subactivities.length} reported items
+                        Select an item to change its status and progress
                       </p>
                     </div>
                   </div>
@@ -1108,7 +1805,12 @@ export default function Home() {
                             <p className="text-sm font-bold leading-5">
                               {sub.title}
                             </p>
-                            <StatusPill status={currentStatus} />
+                            <div className="flex items-center gap-2">
+                              <StatusPill status={currentStatus} />
+                              <span className="hidden text-xs font-bold text-[#416552] sm:inline">
+                                Edit
+                              </span>
+                            </div>
                           </div>
                           <div className="mt-3 flex items-center gap-3">
                             <Progress
