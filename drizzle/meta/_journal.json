@@ -22,6 +22,13 @@
       "when": 1790590360347,
       "tag": "0002_calm_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790612242181,
+      "tag": "0003_typical_firestar",
+      "breakpoints": true
     }
   ]
 }

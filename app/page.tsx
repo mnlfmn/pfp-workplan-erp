@@ -9,6 +9,7 @@ import {
   Clock3,
   Cloud,
   CloudOff,
+  CopyPlus,
   Gauge,
   HandCoins,
   LayoutDashboard,
@@ -28,6 +29,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,6 +141,74 @@ type TeamDraft = {
   aliasesText: string;
 };
 
+type WorkplanYear = {
+  year: number;
+  title: string;
+  status: string;
+  reportingDate: string;
+};
+
+type BudgetAllocation = {
+  id: string;
+  planYear: number;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+type ActivityPlanDraft = {
+  code: string;
+  title: string;
+  titleMn: string;
+  section: string;
+  goal: string;
+  priority: string;
+  workstream: string;
+  startDate: string;
+  endDate: string;
+  lead: string;
+  technicalLead: string;
+  support: string;
+  partners: string;
+  actionPlan: string;
+  description: string;
+  baseline: string;
+  target: string;
+};
+
+type SubactivityPlanDraft = {
+  title: string;
+  owner: string;
+  executor: string;
+  startDate: string;
+  endDate: string;
+  status: StatusKey;
+  progressSummary: string;
+  ministrySupport: string;
+};
+
+type BudgetLineDraft = {
+  code: string;
+  title: string;
+  section: string;
+  goal: string;
+  workstream: string;
+  level: string;
+  amountMnt: string;
+};
+
+type AllocationDraft = {
+  id: string;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: string;
+  note: string;
+};
+
 const statusMeta: Record<
   StatusKey,
   { label: string; tone: string; dot: string; weight: number }
@@ -181,8 +251,49 @@ const statusMeta: Record<
   },
 };
 
-const allActivities = workplan.activities as Activity[];
-const allBudgetLines = workplan.budgetLines as BudgetLine[];
+const baseActivities = workplan.activities as Activity[];
+const baseBudgetLines = workplan.budgetLines as BudgetLine[];
+
+const emptyActivityDraft: ActivityPlanDraft = {
+  code: "",
+  title: "",
+  titleMn: "",
+  section: "A",
+  goal: "Goal 1",
+  priority: "Medium",
+  workstream: "",
+  startDate: "",
+  endDate: "",
+  lead: "",
+  technicalLead: "",
+  support: "",
+  partners: "",
+  actionPlan: "",
+  description: "",
+  baseline: "",
+  target: "",
+};
+
+const emptySubactivityDraft: SubactivityPlanDraft = {
+  title: "",
+  owner: "",
+  executor: "",
+  startDate: "",
+  endDate: "",
+  status: "not_started",
+  progressSummary: "",
+  ministrySupport: "",
+};
+
+const emptyBudgetLineDraft: BudgetLineDraft = {
+  code: "",
+  title: "",
+  section: "A",
+  goal: "Goal 1",
+  workstream: "",
+  level: "Activity",
+  amountMnt: "",
+};
 
 function todayForInput() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -361,9 +472,12 @@ function codesShareBudgetLine(activityCode: string, budgetCode: string) {
   );
 }
 
-function budgetKeysForActivities(activities: Activity[]) {
+function budgetKeysForActivities(
+  activities: Activity[],
+  budgetLines: BudgetLine[],
+) {
   return new Set(
-    allBudgetLines
+    budgetLines
       .filter((line) =>
         activities.some(
           (activity) =>
@@ -419,6 +533,24 @@ function summarizeFinance(lines: BudgetLine[], entries: FinanceEntry[]) {
 }
 
 export default function Home() {
+  const [selectedYear, setSelectedYear] = useState(2026);
+  const [workplanYears, setWorkplanYears] = useState<WorkplanYear[]>([
+    {
+      year: 2026,
+      title: "2026 workplan",
+      status: "active",
+      reportingDate: workplan.meta.reportingDate,
+    },
+  ]);
+  const [allActivities, setAllActivities] = useState<Activity[]>(baseActivities);
+  const [allBudgetLines, setAllBudgetLines] = useState<BudgetLine[]>(baseBudgetLines);
+  const [planState, setPlanState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [yearDialogOpen, setYearDialogOpen] = useState(false);
+  const [newYear, setNewYear] = useState(2027);
+  const [copyCurrentYear, setCopyCurrentYear] = useState(true);
+  const [yearSaving, setYearSaving] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [query, setQuery] = useState("");
   const [section, setSection] = useState("all");
@@ -463,17 +595,50 @@ export default function Home() {
   const [financeDialogOpen, setFinanceDialogOpen] = useState(false);
   const [financeSaving, setFinanceSaving] = useState(false);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
-    budgetKey: allBudgetLines[0]?.id ?? "",
+    budgetKey: baseBudgetLines[0]?.id ?? "",
     entryType: "commitment",
     amountMnt: "",
     entryDate: todayForInput(),
     description: "",
     vendor: "",
   });
+  const [allocations, setAllocations] = useState<BudgetAllocation[]>([]);
+  const [allocationState, setAllocationState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [allocationDialogOpen, setAllocationDialogOpen] = useState(false);
+  const [allocationSaving, setAllocationSaving] = useState(false);
+  const [allocationDeleteOpen, setAllocationDeleteOpen] = useState(false);
+  const [allocationDraft, setAllocationDraft] = useState<AllocationDraft>({
+    id: "",
+    budgetKey: baseBudgetLines[0]?.id ?? "",
+    activityKey: baseActivities[0]?.id ?? "",
+    amountMnt: "",
+    note: "",
+  });
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [planRecordType, setPlanRecordType] = useState<
+    "activity" | "subactivity"
+  >("activity");
+  const [editingPlanKey, setEditingPlanKey] = useState<string | null>(null);
+  const [editingPlanParentKey, setEditingPlanParentKey] = useState("");
+  const [activityPlanDraft, setActivityPlanDraft] = useState<ActivityPlanDraft>(
+    emptyActivityDraft,
+  );
+  const [subactivityPlanDraft, setSubactivityPlanDraft] =
+    useState<SubactivityPlanDraft>(emptySubactivityDraft);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planDeleteOpen, setPlanDeleteOpen] = useState(false);
+  const [budgetLineDialogOpen, setBudgetLineDialogOpen] = useState(false);
+  const [editingBudgetKey, setEditingBudgetKey] = useState<string | null>(null);
+  const [budgetLineDraft, setBudgetLineDraft] =
+    useState<BudgetLineDraft>(emptyBudgetLineDraft);
+  const [budgetLineSaving, setBudgetLineSaving] = useState(false);
+  const [budgetLineDeleteOpen, setBudgetLineDeleteOpen] = useState(false);
 
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
-    [selectedId],
+    [allActivities, selectedId],
   );
 
   const selectableTargets = useMemo(() => {
@@ -515,7 +680,7 @@ export default function Home() {
         supportNeeded: saved?.supportNeeded || target.baseSupport,
       });
     },
-    [updates],
+    [allActivities, updates],
   );
 
   const openActivity = useCallback(
@@ -525,6 +690,75 @@ export default function Home() {
     },
     [loadTarget, updates],
   );
+
+  useEffect(() => {
+    let active = true;
+    setPlanState("loading");
+    fetch(`/api/workplan?year=${selectedYear}`)
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          activities?: Activity[];
+          budgetLines?: BudgetLine[];
+          years?: WorkplanYear[];
+          error?: string;
+        };
+        if (!response.ok || !result.activities || !result.budgetLines) {
+          throw new Error(result.error || "Workplan unavailable");
+        }
+        return result;
+      })
+      .then((result) => {
+        if (!active) return;
+        setAllActivities(result.activities ?? []);
+        setAllBudgetLines(result.budgetLines ?? []);
+        if (result.years) setWorkplanYears(result.years);
+        setSelectedId(null);
+        setPlanState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        if (selectedYear === 2026) {
+          setAllActivities(baseActivities);
+          setAllBudgetLines(baseBudgetLines);
+        } else {
+          setAllActivities([]);
+          setAllBudgetLines([]);
+        }
+        setPlanState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedYear]);
+
+  useEffect(() => {
+    let active = true;
+    setAllocationState("loading");
+    fetch(`/api/allocations?year=${selectedYear}`)
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          allocations?: BudgetAllocation[];
+          error?: string;
+        };
+        if (!response.ok || !result.allocations) {
+          throw new Error(result.error || "Allocations unavailable");
+        }
+        return result.allocations;
+      })
+      .then((items) => {
+        if (!active) return;
+        setAllocations(items);
+        setAllocationState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setAllocations([]);
+        setAllocationState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedYear]);
 
   useEffect(() => {
     let active = true;
@@ -654,17 +888,20 @@ export default function Home() {
     }
   }
 
-  const openFinanceDialog = useCallback((budgetKey?: string) => {
-    setFinanceDraft({
-      budgetKey: budgetKey ?? allBudgetLines[0]?.id ?? "",
-      entryType: "commitment",
-      amountMnt: "",
-      entryDate: todayForInput(),
-      description: "",
-      vendor: "",
-    });
-    setFinanceDialogOpen(true);
-  }, []);
+  const openFinanceDialog = useCallback(
+    (budgetKey?: string) => {
+      setFinanceDraft({
+        budgetKey: budgetKey ?? allBudgetLines[0]?.id ?? "",
+        entryType: "commitment",
+        amountMnt: "",
+        entryDate: todayForInput(),
+        description: "",
+        vendor: "",
+      });
+      setFinanceDialogOpen(true);
+    },
+    [allBudgetLines],
+  );
 
   const persistFinanceEntry = useCallback(
     async (payload: {
@@ -726,6 +963,499 @@ export default function Home() {
       );
     } finally {
       setFinanceSaving(false);
+    }
+  }
+
+  function applyPlanResult(result: {
+    activities?: Activity[];
+    budgetLines?: BudgetLine[];
+    years?: WorkplanYear[];
+  }) {
+    if (result.activities) setAllActivities(result.activities);
+    if (result.budgetLines) setAllBudgetLines(result.budgetLines);
+    if (result.years) setWorkplanYears(result.years);
+    setPlanState("ready");
+  }
+
+  function openYearDialog() {
+    const latest = Math.max(...workplanYears.map((item) => item.year), selectedYear);
+    setNewYear(latest + 1);
+    setCopyCurrentYear(true);
+    setYearDialogOpen(true);
+  }
+
+  async function createWorkplanYear() {
+    if (!Number.isInteger(newYear) || newYear <= selectedYear || newYear > 2100) {
+      toast.error("Choose a future year after the currently selected workplan.");
+      return;
+    }
+    setYearSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "create_year",
+          fromYear: selectedYear,
+          toYear: newYear,
+          copyCurrent: copyCurrentYear,
+          title: `${newYear} workplan`,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        years?: WorkplanYear[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The new workplan could not be created.");
+      }
+      applyPlanResult(result);
+      setSelectedYear(newYear);
+      setYearDialogOpen(false);
+      setActiveView("workplan");
+      toast.success(`${newYear} workplan created`, {
+        description: copyCurrentYear
+          ? "Activities and budget lines were copied as a new draft."
+          : "A blank draft is ready for planning.",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The new workplan could not be created.",
+      );
+    } finally {
+      setYearSaving(false);
+    }
+  }
+
+  function openAddActivity() {
+    setPlanRecordType("activity");
+    setEditingPlanKey(null);
+    setEditingPlanParentKey("");
+    setActivityPlanDraft({
+      ...emptyActivityDraft,
+      startDate: `${selectedYear}-01-01`,
+      endDate: `${selectedYear}-12-31`,
+    });
+    setPlanDialogOpen(true);
+  }
+
+  function openEditActivity(activity: Activity) {
+    setPlanRecordType("activity");
+    setEditingPlanKey(activity.id);
+    setEditingPlanParentKey("");
+    setActivityPlanDraft({
+      code: activity.code,
+      title: activity.title,
+      titleMn: activity.titleMn,
+      section: activity.section,
+      goal: activity.goal,
+      priority: activity.priority,
+      workstream: activity.workstream,
+      startDate: activity.startDate,
+      endDate: activity.endDate,
+      lead: activity.lead,
+      technicalLead: activity.technicalLead,
+      support: activity.support,
+      partners: activity.partners,
+      actionPlan: activity.actionPlan,
+      description: activity.description,
+      baseline: activity.baseline,
+      target: activity.target,
+    });
+    setPlanDialogOpen(true);
+  }
+
+  function openAddSubactivity(activity: Activity) {
+    setPlanRecordType("subactivity");
+    setEditingPlanKey(null);
+    setEditingPlanParentKey(activity.id);
+    setSubactivityPlanDraft({
+      ...emptySubactivityDraft,
+      startDate: `${selectedYear}-01-01`,
+      endDate: `${selectedYear}-12-31`,
+    });
+    setPlanDialogOpen(true);
+  }
+
+  function openEditSubactivity(activity: Activity, subactivity: Subactivity) {
+    setPlanRecordType("subactivity");
+    setEditingPlanKey(subactivity.id);
+    setEditingPlanParentKey(activity.id);
+    setSubactivityPlanDraft({
+      title: subactivity.title,
+      owner: subactivity.owner,
+      executor: subactivity.executor,
+      startDate: subactivity.startDate,
+      endDate: subactivity.endDate,
+      status: subactivity.status as StatusKey,
+      progressSummary: subactivity.progressSummary,
+      ministrySupport: subactivity.ministrySupport,
+    });
+    setPlanDialogOpen(true);
+  }
+
+  async function savePlanRecord() {
+    const isActivity = planRecordType === "activity";
+    const title = isActivity
+      ? activityPlanDraft.title.trim()
+      : subactivityPlanDraft.title.trim();
+    if (!title) {
+      toast.error("Enter a title for this workplan item.");
+      return;
+    }
+    if (isActivity && !activityPlanDraft.code.trim()) {
+      toast.error("Enter an activity code.");
+      return;
+    }
+    const key =
+      editingPlanKey ??
+      `${selectedYear}:${isActivity ? "activity" : "subactivity"}-${crypto.randomUUID()}`;
+    const currentActivity = isActivity
+      ? allActivities.find((item) => item.id === editingPlanKey)
+      : null;
+    const currentSubactivity = !isActivity
+      ? allActivities
+          .flatMap((item) => item.subactivities)
+          .find((item) => item.id === editingPlanKey)
+      : null;
+    const record = isActivity
+      ? {
+          ...(currentActivity ?? {}),
+          ...activityPlanDraft,
+          id: key,
+          uid: currentActivity?.uid ?? key,
+          level: currentActivity?.level ?? "Main Activity",
+          parentUid: currentActivity?.parentUid ?? "",
+          planCode: activityPlanDraft.code,
+          rawStatus: currentActivity?.rawStatus ?? "Not started",
+          budgetMntMillion: currentActivity?.budgetMntMillion ?? "",
+          sourceRow: currentActivity?.sourceRow ?? 0,
+          status: currentActivity?.status ?? "not_started",
+          progressSummary: currentActivity?.progressSummary ?? "",
+          ministrySupport: currentActivity?.ministrySupport ?? "",
+          progressStartDate: activityPlanDraft.startDate,
+          progressEndDate: activityPlanDraft.endDate,
+          progress: currentActivity?.progress ?? 0,
+          objective: currentActivity?.objective ?? {
+            id: "",
+            code: activityPlanDraft.code.split(".").slice(0, 3).join("."),
+            title: "",
+          },
+          strategicArea: currentActivity?.strategicArea ?? {
+            id: "",
+            code: "",
+            title: "",
+          },
+          portfolio: currentActivity?.portfolio ?? {
+            id: "",
+            code: activityPlanDraft.section,
+            title: "",
+          },
+          subactivities: undefined,
+        }
+      : {
+          ...(currentSubactivity ?? {}),
+          ...subactivityPlanDraft,
+          id: key,
+          activityId: editingPlanParentKey,
+          rawStatus: currentSubactivity?.rawStatus ?? "Not started",
+          sourceRow: currentSubactivity?.sourceRow ?? 0,
+        };
+    setPlanSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          year: selectedYear,
+          recordType: planRecordType,
+          recordKey: key,
+          parentKey: isActivity ? "" : editingPlanParentKey,
+          record,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The workplan item could not be saved.");
+      }
+      applyPlanResult(result);
+      setPlanDialogOpen(false);
+      if (isActivity) setSelectedId(key);
+      toast.success(editingPlanKey ? "Workplan item updated" : "Workplan item added");
+    } catch (error) {
+      setPlanState("unavailable");
+      toast.error(
+        error instanceof Error ? error.message : "The workplan item could not be saved.",
+      );
+    } finally {
+      setPlanSaving(false);
+    }
+  }
+
+  async function removePlanRecord() {
+    if (!editingPlanKey) return;
+    setPlanSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          year: selectedYear,
+          recordType: planRecordType,
+          recordKey: editingPlanKey,
+          parentKey: editingPlanParentKey,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The workplan item could not be removed.");
+      }
+      applyPlanResult(result);
+      if (planRecordType === "activity") setSelectedId(null);
+      setPlanDeleteOpen(false);
+      setPlanDialogOpen(false);
+      toast.success("Workplan item removed");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The workplan item could not be removed.",
+      );
+    } finally {
+      setPlanSaving(false);
+    }
+  }
+
+  function openAddBudgetLine() {
+    setEditingBudgetKey(null);
+    setBudgetLineDraft(emptyBudgetLineDraft);
+    setBudgetLineDialogOpen(true);
+  }
+
+  function openEditBudgetLine(line: BudgetLine) {
+    setEditingBudgetKey(line.id);
+    setBudgetLineDraft({
+      code: line.code,
+      title: line.title,
+      section: line.section,
+      goal: line.goal,
+      workstream: line.workstream,
+      level: line.level,
+      amountMnt: String(Math.round(Number(line.budgetMntMillion) * 1_000_000)),
+    });
+    setBudgetLineDialogOpen(true);
+  }
+
+  async function saveBudgetLine() {
+    const amountMnt = Number(budgetLineDraft.amountMnt.replace(/[,\s]/g, ""));
+    if (!budgetLineDraft.code.trim() || !budgetLineDraft.title.trim()) {
+      toast.error("Enter a budget code and title.");
+      return;
+    }
+    if (!Number.isSafeInteger(amountMnt) || amountMnt < 0) {
+      toast.error("Enter a valid whole tugrik budget amount.");
+      return;
+    }
+    const key = editingBudgetKey ?? `${selectedYear}:budget-${crypto.randomUUID()}`;
+    const current = allBudgetLines.find((item) => item.id === editingBudgetKey);
+    const record = {
+      ...(current ?? {}),
+      id: key,
+      sourceRow: current?.sourceRow ?? 0,
+      code: budgetLineDraft.code,
+      title: budgetLineDraft.title,
+      section: budgetLineDraft.section,
+      goal: budgetLineDraft.goal,
+      workstream: budgetLineDraft.workstream,
+      level: budgetLineDraft.level,
+      budgetMntMillion: amountMnt / 1_000_000,
+    };
+    setBudgetLineSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          year: selectedYear,
+          recordType: "budget",
+          recordKey: key,
+          parentKey: "",
+          record,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The budget line could not be saved.");
+      }
+      applyPlanResult(result);
+      setBudgetLineDialogOpen(false);
+      toast.success(editingBudgetKey ? "Budget line updated" : "Budget line added");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The budget line could not be saved.",
+      );
+    } finally {
+      setBudgetLineSaving(false);
+    }
+  }
+
+  async function removeBudgetLine() {
+    if (!editingBudgetKey) return;
+    setBudgetLineSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          year: selectedYear,
+          recordType: "budget",
+          recordKey: editingBudgetKey,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The budget line could not be removed.");
+      }
+      applyPlanResult(result);
+      setBudgetLineDeleteOpen(false);
+      setBudgetLineDialogOpen(false);
+      toast.success("Budget line removed");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The budget line could not be removed.",
+      );
+    } finally {
+      setBudgetLineSaving(false);
+    }
+  }
+
+  const allocationTargets = useMemo(
+    () =>
+      allActivities.flatMap((activity) => [
+        {
+          key: activity.id,
+          label: `${activity.code || activity.uid} · ${activity.title}`,
+        },
+        ...activity.subactivities.map((subactivity) => ({
+          key: subactivity.id,
+          label: `${activity.code || activity.uid} · Sub-activity · ${subactivity.title}`,
+        })),
+      ]),
+    [allActivities],
+  );
+
+  function openAllocationDialog(
+    budgetKey?: string,
+    activityKey?: string,
+    allocation?: BudgetAllocation,
+  ) {
+    setAllocationDraft({
+      id: allocation?.id ?? "",
+      budgetKey: allocation?.budgetKey ?? budgetKey ?? allBudgetLines[0]?.id ?? "",
+      activityKey:
+        allocation?.activityKey ?? activityKey ?? allocationTargets[0]?.key ?? "",
+      amountMnt: allocation ? String(allocation.amountMnt) : "",
+      note: allocation?.note ?? "",
+    });
+    setAllocationDialogOpen(true);
+  }
+
+  async function saveAllocation() {
+    const amountMnt = Number(allocationDraft.amountMnt.replace(/[,\s]/g, ""));
+    if (
+      !allocationDraft.budgetKey ||
+      !allocationDraft.activityKey ||
+      !Number.isSafeInteger(amountMnt) ||
+      amountMnt <= 0
+    ) {
+      toast.error("Choose a budget line, workplan item, and whole tugrik amount.");
+      return;
+    }
+    setAllocationSaving(true);
+    try {
+      const response = await fetch("/api/allocations", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          planYear: selectedYear,
+          budgetKey: allocationDraft.budgetKey,
+          activityKey: allocationDraft.activityKey,
+          amountMnt,
+          note: allocationDraft.note,
+        }),
+      });
+      const result = (await response.json()) as {
+        allocation?: BudgetAllocation;
+        error?: string;
+      };
+      if (!response.ok || !result.allocation) {
+        throw new Error(result.error || "The allocation could not be saved.");
+      }
+      setAllocations((current) => [
+        ...current.filter((item) => item.id !== result.allocation!.id),
+        result.allocation!,
+      ]);
+      setAllocationState("ready");
+      setAllocationDialogOpen(false);
+      toast.success("Budget allocated", {
+        description: formatMnt(result.allocation.amountMnt),
+      });
+    } catch (error) {
+      setAllocationState("unavailable");
+      toast.error(
+        error instanceof Error ? error.message : "The allocation could not be saved.",
+      );
+    } finally {
+      setAllocationSaving(false);
+    }
+  }
+
+  async function removeAllocation() {
+    if (!allocationDraft.id) return;
+    setAllocationSaving(true);
+    try {
+      const response = await fetch("/api/allocations", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: allocationDraft.id }),
+      });
+      const result = (await response.json()) as {
+        deletedId?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.deletedId) {
+        throw new Error(result.error || "The allocation could not be removed.");
+      }
+      setAllocations((current) =>
+        current.filter((item) => item.id !== result.deletedId),
+      );
+      setAllocationDeleteOpen(false);
+      setAllocationDialogOpen(false);
+      toast.success("Budget allocation removed");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The allocation could not be removed.",
+      );
+    } finally {
+      setAllocationSaving(false);
     }
   }
 
@@ -869,7 +1599,7 @@ export default function Home() {
             name: "search_workplan_activities",
             title: "Search workplan activities",
             description:
-              "Find PFP 2026 workplan activities by code, title, workstream, lead, or status.",
+              `Find PFP ${selectedYear} workplan activities by code, title, workstream, lead, or status.`,
             inputSchema: {
               type: "object",
               properties: {
@@ -986,7 +1716,7 @@ export default function Home() {
             name: "add_finance_entry",
             title: "Add finance entry",
             description:
-              "Record a commitment or expenditure against an approved PFP 2026 budget line.",
+              `Record a commitment or expenditure against a PFP ${selectedYear} budget line.`,
             inputSchema: {
               type: "object",
               properties: {
@@ -1050,20 +1780,20 @@ export default function Home() {
       // WebMCP support is optional; the visible interface remains fully usable.
     }
     return () => lifecycle.abort();
-  }, [persistFinanceEntry, persistUpdate]);
+  }, [allActivities, allBudgetLines, persistFinanceEntry, persistUpdate, selectedYear]);
 
   const workstreams = useMemo(
     () =>
       Array.from(
         new Set(allActivities.map((item) => item.workstream).filter(Boolean)),
       ).sort(),
-    [],
+    [allActivities],
   );
 
   const goals = useMemo(
     () =>
       Array.from(new Set(allActivities.map((item) => item.goal).filter(Boolean))).sort(),
-    [],
+    [allActivities],
   );
 
   const memberActivities = useMemo(
@@ -1071,12 +1801,15 @@ export default function Home() {
       allActivities.filter((item) =>
         isAssignedToMember(item, member, updates, teamMembers),
       ),
-    [member, teamMembers, updates],
+    [allActivities, member, teamMembers, updates],
   );
 
   const memberBudgetKeys = useMemo(
-    () => (member === "all" ? null : budgetKeysForActivities(memberActivities)),
-    [member, memberActivities],
+    () =>
+      member === "all"
+        ? null
+        : budgetKeysForActivities(memberActivities, allBudgetLines),
+    [allBudgetLines, member, memberActivities],
   );
 
   const filtered = useMemo(() => {
@@ -1114,7 +1847,17 @@ export default function Home() {
         haystack.includes(normalized)
       );
     });
-  }, [goal, member, query, section, status, teamMembers, workstream, updates]);
+  }, [
+    allActivities,
+    goal,
+    member,
+    query,
+    section,
+    status,
+    teamMembers,
+    workstream,
+    updates,
+  ]);
 
   const filteredBudgetLines = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -1133,7 +1876,7 @@ export default function Home() {
         haystack.includes(normalized)
       );
     });
-  }, [goal, member, memberBudgetKeys, query, section]);
+  }, [allBudgetLines, goal, member, memberBudgetKeys, query, section]);
 
   const financeByBudgetKey = useMemo(() => {
     const totals = new Map<string, { commitment: number; expenditure: number }>();
@@ -1148,9 +1891,36 @@ export default function Home() {
     return totals;
   }, [financeEntries]);
 
+  const allocationByBudgetKey = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const allocation of allocations) {
+      totals.set(
+        allocation.budgetKey,
+        (totals.get(allocation.budgetKey) ?? 0) + allocation.amountMnt,
+      );
+    }
+    return totals;
+  }, [allocations]);
+
+  const allocationByActivityKey = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const allocation of allocations) {
+      totals.set(
+        allocation.activityKey,
+        (totals.get(allocation.activityKey) ?? 0) + allocation.amountMnt,
+      );
+    }
+    return totals;
+  }, [allocations]);
+
   const financeStats = useMemo(() => {
     return summarizeFinance(filteredBudgetLines, financeEntries);
   }, [filteredBudgetLines, financeEntries]);
+
+  const visibleAllocations = useMemo(() => {
+    const keys = new Set(filteredBudgetLines.map((line) => line.id));
+    return allocations.filter((allocation) => keys.has(allocation.budgetKey));
+  }, [allocations, filteredBudgetLines]);
 
   const stats = useMemo(() => {
     const allSubs = filtered.flatMap((item) => item.subactivities);
@@ -1182,7 +1952,7 @@ export default function Home() {
           (goal === "all" || item.goal === goal) &&
           isAssignedToMember(item, member, updates, teamMembers),
       ),
-    [goal, member, section, teamMembers, updates],
+    [allActivities, goal, member, section, teamMembers, updates],
   );
 
   const dashboardBudgetLines = useMemo(
@@ -1193,7 +1963,7 @@ export default function Home() {
           (goal === "all" || line.goal === goal) &&
           (member === "all" || Boolean(memberBudgetKeys?.has(line.id))),
       ),
-    [goal, member, memberBudgetKeys, section],
+    [allBudgetLines, goal, member, memberBudgetKeys, section],
   );
 
   const dashboardFinance = useMemo(
@@ -1211,7 +1981,10 @@ export default function Home() {
     const reported = dashboardActivities.filter(
       (item) => deriveActivityStatus(item, updates) !== "not_reported",
     ).length;
-    const reportingDate = new Date(`${workplan.meta.reportingDate}T00:00:00Z`);
+    const reportingDateValue =
+      workplanYears.find((item) => item.year === selectedYear)?.reportingDate ||
+      `${selectedYear}-12-31`;
+    const reportingDate = new Date(`${reportingDateValue}T00:00:00Z`);
     const overdue = dashboardActivities.filter((item) => {
       if (!item.endDate || deriveActivityStatus(item, updates) === "completed") {
         return false;
@@ -1230,7 +2003,7 @@ export default function Home() {
       atRisk,
       overdue,
     };
-  }, [dashboardActivities, updates]);
+  }, [dashboardActivities, selectedYear, updates, workplanYears]);
 
   const goalRows = useMemo(() => {
     const orderedGoals = [...goals].sort((a, b) => {
@@ -1247,7 +2020,9 @@ export default function Home() {
           isAssignedToMember(item, member, updates, teamMembers),
       );
       const activityBudgetKeys =
-        member === "all" ? null : budgetKeysForActivities(activities);
+        member === "all"
+          ? null
+          : budgetKeysForActivities(activities, allBudgetLines);
       const lines = allBudgetLines.filter(
         (line) =>
           line.goal === goalValue &&
@@ -1270,7 +2045,17 @@ export default function Home() {
         ...finance,
       };
     });
-  }, [financeEntries, goal, goals, member, section, teamMembers, updates]);
+  }, [
+    allActivities,
+    allBudgetLines,
+    financeEntries,
+    goal,
+    goals,
+    member,
+    section,
+    teamMembers,
+    updates,
+  ]);
 
   const teamSummaries = useMemo(
     () =>
@@ -1281,7 +2066,7 @@ export default function Home() {
             (goal === "all" || item.goal === goal) &&
             isAssignedToMember(item, teamMember.id, updates, teamMembers),
         );
-        const budgetKeys = budgetKeysForActivities(activities);
+        const budgetKeys = budgetKeysForActivities(activities, allBudgetLines);
         const lines = allBudgetLines.filter(
           (line) =>
             (section === "all" || line.section === section) &&
@@ -1296,8 +2081,28 @@ export default function Home() {
           ...finance,
         };
       }),
-    [financeEntries, goal, section, teamMembers, updates],
+    [
+      allActivities,
+      allBudgetLines,
+      financeEntries,
+      goal,
+      section,
+      teamMembers,
+      updates,
+    ],
   );
+
+  const currentYearMeta =
+    workplanYears.find((item) => item.year === selectedYear) ?? workplanYears[0];
+  const currentReportingDate =
+    currentYearMeta?.reportingDate || `${selectedYear}-12-31`;
+  const selectedAllocatedMnt = selected
+    ? (allocationByActivityKey.get(selected.id) ?? 0) +
+      selected.subactivities.reduce(
+        (total, item) => total + (allocationByActivityKey.get(item.id) ?? 0),
+        0,
+      )
+    : 0;
 
   return (
     <main className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
@@ -1316,7 +2121,7 @@ export default function Home() {
           <div className="hidden items-center gap-3 sm:flex">
             <div className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm">
               <CalendarDays className="h-4 w-4 text-[#dbf081]" />
-              Reporting date: 30 June 2026
+              Reporting date: {formatDate(currentReportingDate)}
             </div>
             <div
               className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs"
@@ -1342,18 +2147,46 @@ export default function Home() {
       </header>
 
       <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
-        <section className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <section className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[#5d7467]">
-              2026 workplan
+              {selectedYear} workplan · {currentYearMeta?.status || "draft"}
             </p>
             <h1 className="text-3xl font-black tracking-[-0.035em] sm:text-4xl">
               Progress monitoring
             </h1>
           </div>
-          <div className="flex items-center gap-2 text-sm text-[#5d7467]">
-            <span className="h-2 w-2 rounded-full bg-emerald-600" />
-            Source updated through June 2026
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <NativeSelect
+              value={String(selectedYear)}
+              onChange={(event) => setSelectedYear(Number(event.target.value))}
+              className="h-10 min-w-[155px] border-[#ced8cf] bg-white font-bold"
+              aria-label="Select workplan year"
+            >
+              {workplanYears.map((item) => (
+                <NativeSelectOption key={item.year} value={String(item.year)}>
+                  {item.year} workplan
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Button
+              variant="outline"
+              onClick={openYearDialog}
+              className="h-10 border-[#bfcbbf] bg-white"
+            >
+              <CopyPlus className="h-4 w-4" />
+              Create next year
+            </Button>
+            <div className="flex items-center gap-2 px-1 text-sm text-[#5d7467]">
+              <span
+                className={`h-2 w-2 rounded-full ${planState === "ready" ? "bg-emerald-600" : "bg-amber-500"}`}
+              />
+              {planState === "loading"
+                ? "Loading workplan"
+                : planState === "ready"
+                  ? `${allActivities.length} activities`
+                  : "Source view"}
+            </div>
           </div>
         </section>
 
@@ -1401,7 +2234,7 @@ export default function Home() {
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Portfolio dashboard</h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  Goal delivery and financial position as of 30 June 2026
+                  Goal delivery and financial position for {selectedYear}
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-3 lg:flex">
@@ -1649,7 +2482,7 @@ export default function Home() {
             {
               label: "Main activities",
               value: filtered.length,
-              detail: `of ${workplan.meta.activityCount} activities in scope`,
+              detail: `of ${allActivities.length} activities in scope`,
               icon: Clock3,
               accent: "bg-white",
             },
@@ -1699,7 +2532,7 @@ export default function Home() {
             <div className="mb-4 lg:mb-0">
               <h2 className="text-xl font-bold">Workplan activities</h2>
               <p className="text-sm text-[#718178]">
-                {filtered.length} of {workplan.meta.activityCount} activities
+                {filtered.length} of {allActivities.length} activities
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
@@ -1775,6 +2608,13 @@ export default function Home() {
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              <Button
+                onClick={openAddActivity}
+                className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                <Plus className="h-4 w-4" />
+                Add activity
+              </Button>
             </div>
           </div>
 
@@ -1838,14 +2678,24 @@ export default function Home() {
           {filtered.length === 0 && (
             <div className="px-6 py-16 text-center">
               <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
-              <p className="font-bold">No activities match these filters</p>
+              <p className="font-bold">
+                {allActivities.length
+                  ? "No activities match these filters"
+                  : `No activities in the ${selectedYear} draft yet`}
+              </p>
               <p className="mt-1 text-sm text-[#718178]">
-                Try a different status or search term.
+                {allActivities.length
+                  ? "Try a different status or search term."
+                  : "Add the first activity to begin developing this workplan."}
               </p>
               <Button
-                variant="outline"
+                variant={allActivities.length ? "outline" : "default"}
                 className="mt-4"
                 onClick={() => {
+                  if (!allActivities.length) {
+                    openAddActivity();
+                    return;
+                  }
                   setQuery("");
                   setSection("all");
                   setGoal("all");
@@ -1854,7 +2704,7 @@ export default function Home() {
                   setMember("all");
                 }}
               >
-                Clear filters
+                {allActivities.length ? "Clear filters" : "Add first activity"}
               </Button>
             </div>
           )}
@@ -1865,7 +2715,7 @@ export default function Home() {
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 {
-                  label: "2026 budget",
+                  label: `${selectedYear} budget`,
                   value: formatMnt(financeStats.budgetMnt),
                   detail: "Approved budget",
                   icon: WalletCards,
@@ -1923,8 +2773,8 @@ export default function Home() {
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-              <div className="border-b border-[#e2e7e0] p-4 lg:flex lg:items-end lg:justify-between lg:p-5">
-                <div className="mb-4 lg:mb-0">
+              <div className="border-b border-[#e2e7e0] p-4 lg:p-5">
+                <div>
                   <h2 className="text-xl font-bold">Budget monitoring</h2>
                   <p className="text-sm text-[#718178]">
                     {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
@@ -1935,7 +2785,7 @@ export default function Home() {
                     </p>
                   )}
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
                   <label className="relative block min-w-[230px]">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                     <Input
@@ -1983,7 +2833,25 @@ export default function Home() {
                     ))}
                   </NativeSelect>
                   <Button
+                    variant="outline"
+                    onClick={openAddBudgetLine}
+                    className="h-10 border-[#bfcbbf] bg-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Budget line
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => openAllocationDialog()}
+                    disabled={!allBudgetLines.length || !allocationTargets.length}
+                    className="h-10 border-[#bfcbbf] bg-white"
+                  >
+                    <WalletCards className="h-4 w-4" />
+                    Allocate budget
+                  </Button>
+                  <Button
                     onClick={() => openFinanceDialog()}
+                    disabled={!allBudgetLines.length}
                     className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
                   >
                     <Plus className="h-4 w-4" />
@@ -1992,16 +2860,17 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <Table className="min-w-[980px]">
+              <div className="hidden xl:block">
+                <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[44%] pl-5">Budget line</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Committed</TableHead>
-                      <TableHead className="text-right">Expenditure</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="w-24 pr-5 text-right">Entry</TableHead>
+                      <TableHead className="w-[28%] pl-5">Budget line</TableHead>
+                      <TableHead className="w-[12%] text-right">Budget</TableHead>
+                      <TableHead className="w-[12%] text-right">Allocated</TableHead>
+                      <TableHead className="w-[12%] text-right">Committed</TableHead>
+                      <TableHead className="w-[12%] text-right">Expenditure</TableHead>
+                      <TableHead className="w-[12%] text-right">Remaining</TableHead>
+                      <TableHead className="w-[12%] pr-5 text-right">Entry</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2012,47 +2881,68 @@ export default function Home() {
                       };
                       const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
                       const remainingMnt = budgetMnt - totals.expenditure;
+                      const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
                       return (
                         <TableRow key={line.id}>
-                          <TableCell className="pl-5 align-top">
+                          <TableCell className="whitespace-normal pl-5 align-top">
                             <div className="flex items-start gap-3">
-                              <span className="mt-0.5 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                              <span className="mt-0.5 shrink-0 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
                                 {line.code}
                               </span>
-                              <div>
-                                <p className="font-bold leading-5 text-[#183529]">
+                              <div className="min-w-0">
+                                <p className="whitespace-normal break-words font-bold leading-5 text-[#183529]">
                                   {line.title}
                                 </p>
-                                <p className="mt-1 text-xs text-[#718178]">
+                                <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
                                   Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
                                 </p>
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right font-bold tabular-nums">
+                          <TableCell className="whitespace-nowrap text-right text-[13px] font-bold tabular-nums">
                             {formatMnt(Number(line.budgetMntMillion) * 1_000_000)}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">
+                          <TableCell className={`whitespace-nowrap text-right text-[13px] font-bold tabular-nums ${allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#315845]"}`}>
+                            {formatMnt(allocatedMnt)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
                             {formatMnt(totals.commitment)}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">
+                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
                             {formatMnt(totals.expenditure)}
                           </TableCell>
                           <TableCell
-                            className={`text-right font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
+                            className={`whitespace-nowrap text-right text-[13px] font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
                           >
                             {formatMnt(remainingMnt)}
                           </TableCell>
                           <TableCell className="pr-5 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openFinanceDialog(line.id)}
-                              aria-label={`Add finance entry for ${line.code}`}
-                            >
-                              <Plus className="h-4 w-4" />
-                              Add
-                            </Button>
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditBudgetLine(line)}
+                                aria-label={`Edit budget line ${line.code}`}
+                              >
+                                <PencilLine className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openAllocationDialog(line.id)}
+                                aria-label={`Allocate budget from ${line.code}`}
+                              >
+                                <WalletCards className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openFinanceDialog(line.id)}
+                                aria-label={`Add finance entry for ${line.code}`}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -2061,22 +2951,173 @@ export default function Home() {
                 </Table>
               </div>
 
+              <div className="divide-y divide-[#e2e7e0] xl:hidden">
+                {filteredBudgetLines.map((line) => {
+                  const totals = financeByBudgetKey.get(line.id) ?? {
+                    commitment: 0,
+                    expenditure: 0,
+                  };
+                  const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
+                  const remainingMnt = budgetMnt - totals.expenditure;
+                  const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
+                  return (
+                    <article key={line.id} className="p-4 sm:p-5">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <span className="inline-flex rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                            {line.code}
+                          </span>
+                          <h3 className="mt-2 whitespace-normal break-words font-bold leading-6 text-[#183529]">
+                            {line.title}
+                          </h3>
+                          <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
+                            Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditBudgetLine(line)}>
+                            <PencilLine className="h-4 w-4" />
+                            Edit
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openAllocationDialog(line.id)}>
+                            <WalletCards className="h-4 w-4" />
+                            Allocate
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openFinanceDialog(line.id)}>
+                            <Plus className="h-4 w-4" />
+                            Entry
+                          </Button>
+                        </div>
+                      </div>
+                      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                        {[
+                          ["Budget", formatMnt(budgetMnt)],
+                          ["Allocated", formatMnt(allocatedMnt)],
+                          ["Committed", formatMnt(totals.commitment)],
+                          ["Expenditure", formatMnt(totals.expenditure)],
+                          ["Remaining", formatMnt(remainingMnt)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-xl bg-[#f5f8f3] p-3">
+                            <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                            <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums text-[#183529]">
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </article>
+                  );
+                })}
+              </div>
+
               {filteredBudgetLines.length === 0 && (
                 <div className="px-6 py-14 text-center">
                   <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
-                  <p className="font-bold">No budget lines match these filters</p>
+                  <p className="font-bold">
+                    {allBudgetLines.length
+                      ? "No budget lines match these filters"
+                      : `No budget lines in the ${selectedYear} draft yet`}
+                  </p>
                   <Button
-                    variant="outline"
+                    variant={allBudgetLines.length ? "outline" : "default"}
                     className="mt-4"
                     onClick={() => {
+                      if (!allBudgetLines.length) {
+                        openAddBudgetLine();
+                        return;
+                      }
                       setQuery("");
                       setSection("all");
                       setGoal("all");
                       setMember("all");
                     }}
                   >
-                    Clear filters
+                    {allBudgetLines.length ? "Clear filters" : "Add first budget line"}
                   </Button>
+                </div>
+              )}
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+              <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-bold">Budget allocations</h2>
+                  <p className="text-sm text-[#718178]">
+                    Planned budget assigned to main activities and sub-activities
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-[#5d7467]">
+                    {visibleAllocations.length} allocations
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openAllocationDialog()}
+                    disabled={!allBudgetLines.length || !allocationTargets.length}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Allocate
+                  </Button>
+                </div>
+              </div>
+              {allocationState === "unavailable" && (
+                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+                  Saved allocations are temporarily unavailable.
+                </div>
+              )}
+              <div className="divide-y divide-[#e4e9e2]">
+                {visibleAllocations.map((allocation) => {
+                  const line = allBudgetLines.find(
+                    (item) => item.id === allocation.budgetKey,
+                  );
+                  const target = allocationTargets.find(
+                    (item) => item.key === allocation.activityKey,
+                  );
+                  return (
+                    <div
+                      key={allocation.id}
+                      className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_160px_80px] md:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs font-black text-[#2f634c]">
+                          {line?.code ?? "Budget line"}
+                        </p>
+                        <p className="mt-1 whitespace-normal break-words text-sm font-bold leading-5">
+                          {line?.title ?? "Removed budget line"}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="whitespace-normal break-words text-sm leading-5 text-[#53685c]">
+                          {target?.label ?? "Removed workplan item"}
+                        </p>
+                        {allocation.note && (
+                          <p className="mt-1 whitespace-normal break-words text-xs text-[#718178]">
+                            {allocation.note}
+                          </p>
+                        )}
+                      </div>
+                      <p className="whitespace-nowrap text-right font-black tabular-nums text-[#245f47] md:text-left">
+                        {formatMnt(allocation.amountMnt)}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openAllocationDialog(undefined, undefined, allocation)}
+                      >
+                        <PencilLine className="h-4 w-4" />
+                        Edit
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              {allocationState === "ready" && visibleAllocations.length === 0 && (
+                <div className="px-6 py-10 text-center">
+                  <p className="font-bold">No budget allocations yet</p>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Assign planned amounts to an activity or sub-activity.
+                  </p>
                 </div>
               )}
             </section>
@@ -2329,12 +3370,635 @@ export default function Home() {
         </Tabs>
       </div>
 
+      <Dialog open={yearDialogOpen} onOpenChange={setYearDialogOpen}>
+        <DialogContent className="bg-white text-[#14241b] sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create the next workplan</DialogTitle>
+            <DialogDescription>
+              Create a draft year, then edit its activities, sub-activities, and budget lines.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Workplan year</span>
+              <Input
+                type="number"
+                min={selectedYear + 1}
+                max="2100"
+                step="1"
+                value={newYear}
+                onChange={(event) => setNewYear(Number(event.target.value))}
+                className="h-11 border-[#cbd6cc] bg-white"
+              />
+            </label>
+            <label className="flex items-start gap-3 rounded-xl border border-[#d8e0d6] bg-[#f7faf5] p-4">
+              <Checkbox
+                checked={copyCurrentYear}
+                onCheckedChange={(checked) => setCopyCurrentYear(Boolean(checked))}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-bold">Copy the {selectedYear} structure</span>
+                <span className="mt-1 block text-sm leading-5 text-[#718178]">
+                  Copy activities, sub-activities, and budget lines. Progress starts at not started, while planning details and budget amounts remain editable.
+                </span>
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setYearDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={createWorkplanYear}
+              disabled={yearSaving}
+              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+            >
+              {yearSaving ? "Creating…" : `Create ${newYear} workplan`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-4xl!">
+          <DialogHeader>
+            <DialogTitle>
+              {editingPlanKey ? "Edit" : "Add"}{" "}
+              {planRecordType === "activity" ? "activity" : "sub-activity"}
+            </DialogTitle>
+            <DialogDescription>
+              These planning fields update the shared {selectedYear} workplan.
+            </DialogDescription>
+          </DialogHeader>
+
+          {planRecordType === "activity" ? (
+            <div className="grid gap-4 py-2 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Activity code</span>
+                <Input
+                  value={activityPlanDraft.code}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, code: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                  placeholder="A.1.1.1"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Workstream</span>
+                <Input
+                  value={activityPlanDraft.workstream}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, workstream: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Activity title</span>
+                <Textarea
+                  value={activityPlanDraft.title}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, title: event.target.value }))
+                  }
+                  className="min-h-20 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Mongolian title</span>
+                <Textarea
+                  value={activityPlanDraft.titleMn}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, titleMn: event.target.value }))
+                  }
+                  className="min-h-20 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Section</span>
+                <NativeSelect
+                  value={activityPlanDraft.section}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, section: event.target.value }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="A">Section A</NativeSelectOption>
+                  <NativeSelectOption value="B">Section B</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Goal</span>
+                <Input
+                  value={activityPlanDraft.goal}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, goal: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                  placeholder="Goal 1"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Priority</span>
+                <NativeSelect
+                  value={activityPlanDraft.priority}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, priority: event.target.value }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="High">High</NativeSelectOption>
+                  <NativeSelectOption value="Medium">Medium</NativeSelectOption>
+                  <NativeSelectOption value="Low">Low</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Action plan reference</span>
+                <Input
+                  value={activityPlanDraft.actionPlan}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, actionPlan: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Start date</span>
+                <Input
+                  type="date"
+                  value={activityPlanDraft.startDate}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Due date</span>
+                <Input
+                  type="date"
+                  value={activityPlanDraft.endDate}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              {[
+                ["Lead", "lead"],
+                ["Technical lead", "technicalLead"],
+                ["Support", "support"],
+                ["Partners", "partners"],
+              ].map(([label, field]) => (
+                <label key={field} className="block">
+                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
+                  <Textarea
+                    value={activityPlanDraft[field as keyof ActivityPlanDraft]}
+                    onChange={(event) =>
+                      setActivityPlanDraft((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                    className="min-h-20 border-[#cbd6cc] bg-white"
+                  />
+                </label>
+              ))}
+              {[
+                ["Description", "description"],
+                ["Baseline", "baseline"],
+                [`${selectedYear} target`, "target"],
+              ].map(([label, field]) => (
+                <label key={field} className="block sm:col-span-2">
+                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
+                  <Textarea
+                    value={activityPlanDraft[field as keyof ActivityPlanDraft]}
+                    onChange={(event) =>
+                      setActivityPlanDraft((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                    className="min-h-24 border-[#cbd6cc] bg-white"
+                  />
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4 py-2 sm:grid-cols-2">
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Sub-activity title</span>
+                <Textarea
+                  value={subactivityPlanDraft.title}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({ ...current, title: event.target.value }))
+                  }
+                  className="min-h-20 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Owner</span>
+                <Input
+                  list="pcu-team-member-options"
+                  value={subactivityPlanDraft.owner}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({ ...current, owner: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Executor</span>
+                <Input
+                  value={subactivityPlanDraft.executor}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({ ...current, executor: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Start date</span>
+                <Input
+                  type="date"
+                  value={subactivityPlanDraft.startDate}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Due date</span>
+                <Input
+                  type="date"
+                  value={subactivityPlanDraft.endDate}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Initial status</span>
+                <NativeSelect
+                  value={subactivityPlanDraft.status}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({
+                      ...current,
+                      status: event.target.value as StatusKey,
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  {Object.entries(statusMeta).map(([value, meta]) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {meta.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </label>
+              <div />
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Progress summary</span>
+                <Textarea
+                  value={subactivityPlanDraft.progressSummary}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({
+                      ...current,
+                      progressSummary: event.target.value,
+                    }))
+                  }
+                  className="min-h-24 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Ministry support needed</span>
+                <Textarea
+                  value={subactivityPlanDraft.ministrySupport}
+                  onChange={(event) =>
+                    setSubactivityPlanDraft((current) => ({
+                      ...current,
+                      ministrySupport: event.target.value,
+                    }))
+                  }
+                  className="min-h-24 border-[#cbd6cc] bg-white"
+                />
+              </label>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {editingPlanKey && (
+                <Button
+                  variant="outline"
+                  onClick={() => setPlanDeleteOpen(true)}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPlanDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={savePlanRecord}
+                disabled={planSaving}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                {planSaving ? "Saving…" : "Save workplan item"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={planDeleteOpen} onOpenChange={setPlanDeleteOpen}>
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this workplan item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It will be hidden from the {selectedYear} workplan. Progress history and finance records are not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={planSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removePlanRecord}
+              disabled={planSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {planSaving ? "Removing…" : "Remove item"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={budgetLineDialogOpen} onOpenChange={setBudgetLineDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editingBudgetKey ? "Edit" : "Add"} budget line</DialogTitle>
+            <DialogDescription>
+              Budget amounts are entered as whole Mongolian tugrik.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Budget code</span>
+              <Input
+                value={budgetLineDraft.code}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, code: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Amount (MNT)</span>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={budgetLineDraft.amountMnt}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, amountMnt: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="450000000"
+              />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1.5 block text-sm font-bold">Budget line title</span>
+              <Textarea
+                value={budgetLineDraft.title}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, title: event.target.value }))
+                }
+                className="min-h-20 border-[#cbd6cc] bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Section</span>
+              <NativeSelect
+                value={budgetLineDraft.section}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, section: event.target.value }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                <NativeSelectOption value="A">Section A</NativeSelectOption>
+                <NativeSelectOption value="B">Section B</NativeSelectOption>
+              </NativeSelect>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Goal</span>
+              <Input
+                value={budgetLineDraft.goal}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, goal: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Workstream</span>
+              <Input
+                value={budgetLineDraft.workstream}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, workstream: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Budget level</span>
+              <Input
+                value={budgetLineDraft.level}
+                onChange={(event) =>
+                  setBudgetLineDraft((current) => ({ ...current, level: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+              />
+            </label>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {editingBudgetKey && (
+                <Button
+                  variant="outline"
+                  onClick={() => setBudgetLineDeleteOpen(true)}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setBudgetLineDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveBudgetLine}
+                disabled={budgetLineSaving}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                {budgetLineSaving ? "Saving…" : "Save budget line"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={budgetLineDeleteOpen} onOpenChange={setBudgetLineDeleteOpen}>
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this budget line?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It will be hidden from this workplan. Existing finance entries and allocations are retained for audit history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={budgetLineSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removeBudgetLine}
+              disabled={budgetLineSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {budgetLineSaving ? "Removing…" : "Remove budget line"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={allocationDialogOpen} onOpenChange={setAllocationDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{allocationDraft.id ? "Edit" : "Add"} budget allocation</DialogTitle>
+            <DialogDescription>
+              Assign a planned amount from one budget line to a main activity or sub-activity.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Budget line</span>
+              <NativeSelect
+                value={allocationDraft.budgetKey}
+                onChange={(event) =>
+                  setAllocationDraft((current) => ({ ...current, budgetKey: event.target.value }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                {allBudgetLines.map((line) => (
+                  <NativeSelectOption key={line.id} value={line.id}>
+                    {line.code} · {line.title}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Activity or sub-activity</span>
+              <NativeSelect
+                value={allocationDraft.activityKey}
+                onChange={(event) =>
+                  setAllocationDraft((current) => ({ ...current, activityKey: event.target.value }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                {allocationTargets.map((item) => (
+                  <NativeSelectOption key={item.key} value={item.key}>
+                    {item.label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Allocated amount (MNT)</span>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={allocationDraft.amountMnt}
+                onChange={(event) =>
+                  setAllocationDraft((current) => ({ ...current, amountMnt: event.target.value }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="For example, 150000000"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Planning note</span>
+              <Textarea
+                value={allocationDraft.note}
+                onChange={(event) =>
+                  setAllocationDraft((current) => ({ ...current, note: event.target.value }))
+                }
+                className="min-h-24 border-[#cbd6cc] bg-white"
+                placeholder="Purpose, assumptions, or expected procurement"
+              />
+            </label>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {allocationDraft.id && (
+                <Button
+                  variant="outline"
+                  onClick={() => setAllocationDeleteOpen(true)}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setAllocationDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveAllocation}
+                disabled={allocationSaving}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                {allocationSaving ? "Saving…" : "Save allocation"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={allocationDeleteOpen} onOpenChange={setAllocationDeleteOpen}>
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this budget allocation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The planned amount will no longer be assigned to this workplan item.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={allocationSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removeAllocation}
+              disabled={allocationSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {allocationSaving ? "Removing…" : "Remove allocation"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={financeDialogOpen} onOpenChange={setFinanceDialogOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Add finance entry</DialogTitle>
             <DialogDescription>
-              Record a commitment or expenditure against one approved 2026 budget line.
+              Record a commitment or expenditure against one {selectedYear} budget line.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -2590,10 +4254,29 @@ export default function Home() {
                 <DialogDescription className="text-[#718178]">
                   {selected.workstream || "Programme management"}
                 </DialogDescription>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEditActivity(selected)}
+                  >
+                    <PencilLine className="h-4 w-4" />
+                    Edit activity details
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openAllocationDialog(undefined, selected.id)}
+                    disabled={!allBudgetLines.length}
+                  >
+                    <WalletCards className="h-4 w-4" />
+                    Allocate budget
+                  </Button>
+                </div>
               </DialogHeader>
 
               <div className="space-y-6 p-6">
-                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-[#f3f7f1] p-4 text-sm sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-[#f3f7f1] p-4 text-sm sm:grid-cols-5">
                   <div>
                     <p className="text-[#718178]">Status</p>
                     <div className="mt-1">
@@ -2620,14 +4303,39 @@ export default function Home() {
                       {formatDate(selected.endDate)}
                     </p>
                   </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="text-[#718178]">Allocated budget</p>
+                    <p className="mt-1 whitespace-nowrap text-base font-black text-[#245f47]">
+                      {formatMnt(selectedAllocatedMnt)}
+                    </p>
+                  </div>
                 </div>
 
                 <section className="rounded-2xl border border-[#d8e0d6] bg-[#fbfcfa] p-5">
-                  <div className="mb-4">
-                    <h3 className="font-black">Update progress</h3>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Choose the main activity or one of its sub-activities.
-                    </p>
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="font-black">Update progress</h3>
+                      <p className="mt-1 text-sm text-[#718178]">
+                        Choose the main activity or one of its sub-activities.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (activeTarget.kind === "activity") {
+                          openEditActivity(selected);
+                          return;
+                        }
+                        const subactivity = selected.subactivities.find(
+                          (item) => item.id === activeTarget.key,
+                        );
+                        if (subactivity) openEditSubactivity(selected, subactivity);
+                      }}
+                    >
+                      <PencilLine className="h-4 w-4" />
+                      Edit selected item
+                    </Button>
                   </div>
 
                   <div className="space-y-4">
@@ -2786,6 +4494,14 @@ export default function Home() {
                         Select an item to change its status and progress
                       </p>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openAddSubactivity(selected)}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add sub-activity
+                    </Button>
                   </div>
                   <div className="divide-y divide-[#e4e9e2] rounded-2xl border border-[#dbe3d9]">
                     {selected.subactivities.map((sub) => {
@@ -2827,9 +4543,12 @@ export default function Home() {
                               {currentProgress}%
                             </span>
                           </div>
-                          <p className="mt-2 text-xs text-[#718178]">
-                            {saved?.owner || sub.owner || "Owner not recorded"}
-                          </p>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#718178]">
+                            <p>{saved?.owner || sub.owner || "Owner not recorded"}</p>
+                            <p className="font-bold text-[#315845]">
+                              Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
+                            </p>
+                          </div>
                           {(saved?.note || sub.progressSummary) && (
                             <p className="mt-2 line-clamp-2 text-sm leading-5 text-[#53685c]">
                               {saved?.note || sub.progressSummary}
@@ -2870,9 +4589,33 @@ export default function Home() {
                       </dd>
                     </div>
                     <div className="sm:col-span-2">
-                      <dt className="text-[#718178]">2026 target</dt>
+                      <dt className="text-[#718178]">{selectedYear} target</dt>
                       <dd className="mt-1 whitespace-pre-line font-medium leading-6">
                         {selected.target || "—"}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-[#718178]">Description</dt>
+                      <dd className="mt-1 whitespace-pre-line font-medium leading-6">
+                        {selected.description || "—"}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-[#718178]">Baseline</dt>
+                      <dd className="mt-1 whitespace-pre-line font-medium leading-6">
+                        {selected.baseline || "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[#718178]">Support</dt>
+                      <dd className="mt-1 whitespace-pre-line font-medium leading-6">
+                        {selected.support || "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[#718178]">Partners</dt>
+                      <dd className="mt-1 whitespace-pre-line font-medium leading-6">
+                        {selected.partners || "—"}
                       </dd>
                     </div>
                   </dl>

@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { activityUpdates } from "@/db/schema";
+import { activityUpdates, workplanRecords } from "@/db/schema";
 import workplan from "@/lib/workplan-data.json";
 
 const allowedStatuses = new Set([
@@ -19,6 +19,28 @@ const validActivityKeys = new Set(
     ...activity.subactivities.map((subactivity) => subactivity.id),
   ]),
 );
+
+async function isValidActivityKey(activityKey: string) {
+  if (validActivityKeys.has(activityKey)) return true;
+  const rows = await getDb()
+    .select({
+      type: workplanRecords.recordType,
+      deleted: workplanRecords.isDeleted,
+    })
+    .from(workplanRecords)
+    .where(
+      and(
+        eq(workplanRecords.recordKey, activityKey),
+        eq(workplanRecords.isDeleted, 0),
+      ),
+    )
+    .limit(1);
+  return Boolean(
+    rows[0] &&
+      !rows[0].deleted &&
+      ["activity", "subactivity"].includes(rows[0].type),
+  );
+}
 
 function message(error: unknown) {
   const text = error instanceof Error ? error.message : "Unexpected error";
@@ -55,7 +77,7 @@ export async function PUT(request: Request) {
     if (
       !activityKey ||
       activityKey.length > 160 ||
-      !validActivityKeys.has(activityKey)
+      !(await isValidActivityKey(activityKey))
     ) {
       return Response.json({ error: "A valid activity key is required." }, { status: 400 });
     }

@@ -1,11 +1,26 @@
-import { desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { financeEntries } from "@/db/schema";
+import { financeEntries, workplanRecords } from "@/db/schema";
 import workplan from "@/lib/workplan-data.json";
 
 const validBudgetKeys = new Set(workplan.budgetLines.map((line) => line.id));
 const validEntryTypes = new Set(["commitment", "expenditure"]);
+
+async function isValidBudgetKey(budgetKey: string) {
+  if (validBudgetKeys.has(budgetKey)) return true;
+  const rows = await getDb()
+    .select({ key: workplanRecords.recordKey, deleted: workplanRecords.isDeleted })
+    .from(workplanRecords)
+    .where(
+      and(
+        eq(workplanRecords.recordType, "budget"),
+        eq(workplanRecords.recordKey, budgetKey),
+      ),
+    )
+    .limit(1);
+  return Boolean(rows[0] && !rows[0].deleted);
+}
 
 function message(error: unknown) {
   const text = error instanceof Error ? error.message : "Unexpected error";
@@ -43,7 +58,7 @@ export async function POST(request: Request) {
     const amountMnt = Number(payload.amountMnt);
     const entryDate = payload.entryDate?.trim() ?? "";
 
-    if (!validBudgetKeys.has(budgetKey)) {
+    if (!(await isValidBudgetKey(budgetKey))) {
       return Response.json({ error: "Choose a valid budget line." }, { status: 400 });
     }
     if (!validEntryTypes.has(entryType)) {
