@@ -15,6 +15,13 @@
       "when": 1790564622588,
       "tag": "0001_dry_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790590360347,
+      "tag": "0002_calm_chronomancer",
+      "breakpoints": true
     }
   ]
 }

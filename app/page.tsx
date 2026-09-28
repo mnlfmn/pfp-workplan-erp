@@ -19,13 +19,25 @@ import {
   Search,
   SlidersHorizontal,
   Target,
+  Trash2,
   TrendingUp,
+  UserPlus,
   Users,
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -40,13 +52,6 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -59,6 +64,10 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  defaultTeamMembers,
+  type TeamMember,
+} from "@/lib/team-members";
 import workplan from "@/lib/workplan-data.json";
 
 type Activity = (typeof workplan.activities)[number];
@@ -117,18 +126,17 @@ type FinanceEntry = {
 type FinanceDraft = {
   budgetKey: string;
   entryType: "commitment" | "expenditure";
-  amountMillion: string;
+  amountMnt: string;
   entryDate: string;
   description: string;
   vendor: string;
 };
 
-type TeamMember = {
-  id: string;
+type TeamDraft = {
   name: string;
   role: string;
   group: "PCU" | "Workplan";
-  aliases: string[];
+  aliasesText: string;
 };
 
 const statusMeta: Record<
@@ -176,93 +184,6 @@ const statusMeta: Record<
 const allActivities = workplan.activities as Activity[];
 const allBudgetLines = workplan.budgetLines as BudgetLine[];
 
-const teamMembers: TeamMember[] = [
-  {
-    id: "tuvshinjargal-p",
-    name: "Tuvshinjargal.P",
-    role: "Coordinator",
-    group: "PCU",
-    aliases: ["Tuvshinjargal", "Түвшинжаргал"],
-  },
-  {
-    id: "ochirkhuyag-j",
-    name: "Ochirkhuyag.J",
-    role: "PA Management senior officer",
-    group: "PCU",
-    aliases: ["Ochirkhuyag", "Ж.Очирхуяг", "Очирхуяг"],
-  },
-  {
-    id: "namuunaa-m",
-    name: "Namuunaa.M",
-    role: "PA expansion officer",
-    group: "PCU",
-    aliases: ["Namuunaa", "М.Намуунаа", "Намуунаа"],
-  },
-  {
-    id: "khulan-s",
-    name: "Khulan.S",
-    role: "Project and partnership officer",
-    group: "PCU",
-    aliases: ["Khulan", "С.Хулан", "Ш.Хулан", "Хулан"],
-  },
-  {
-    id: "enkhsaikhan-u",
-    name: "Enkhsaikhan.U",
-    role: "Sustainable finance officer",
-    group: "PCU",
-    aliases: ["Enkhsaikhan", "Энхсайхан"],
-  },
-  {
-    id: "amartuvshin-s",
-    name: "Amartuvshin.S",
-    role: "PCU workplan member",
-    group: "PCU",
-    aliases: ["Amartuvshin", "С.Амартүвшин", "Амартүвшин"],
-  },
-  {
-    id: "bolormaa",
-    name: "Bolormaa",
-    role: "PCU workplan member",
-    group: "PCU",
-    aliases: ["Bolormaa", "Болормаа"],
-  },
-  {
-    id: "tsenguun",
-    name: "Tsenguun",
-    role: "PCU workplan member",
-    group: "PCU",
-    aliases: ["Tsenguun", "Цэнгүүн"],
-  },
-  {
-    id: "namjilmaa-ch",
-    name: "Namjilmaa.Ch",
-    role: "Additional workplan member",
-    group: "Workplan",
-    aliases: ["Namjilmaa", "Ч.Намжилмаа", "Намжилмаа"],
-  },
-  {
-    id: "munkhjin-ts",
-    name: "Munkhjin.Ts",
-    role: "Additional workplan member",
-    group: "Workplan",
-    aliases: ["Munkhjin", "Ц.Мөнхжин", "Мөнхжин"],
-  },
-  {
-    id: "tugsbuyan-m",
-    name: "Tugsbuyan.M",
-    role: "Additional workplan member",
-    group: "Workplan",
-    aliases: ["Tugsbuyan", "М.Төгсбуян", "Төгсбуян"],
-  },
-  {
-    id: "battogtokh-n",
-    name: "Battogtokh.N",
-    role: "Additional workplan member",
-    group: "Workplan",
-    aliases: ["Battogtokh", "Н.Баттогтох", "Баттогтох"],
-  },
-];
-
 function todayForInput() {
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -271,18 +192,10 @@ function todayForInput() {
   }).format(new Date());
 }
 
-function formatMntMillion(amountMnt: number) {
-  return new Intl.NumberFormat("en", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
-  }).format(amountMnt / 1_000_000);
-}
-
-function formatBudgetMillion(value: number) {
-  return new Intl.NumberFormat("en", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
-  }).format(value);
+function formatMnt(amountMnt: number) {
+  return `₮${new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(Math.round(amountMnt))}`;
 }
 
 function formatDate(value: string) {
@@ -315,13 +228,16 @@ function StatusPill({ status }: { status: StatusKey }) {
   );
 }
 
-function targetForActivity(activity: Activity): EditableTarget {
+function targetForActivity(
+  activity: Activity,
+  updates: Record<string, UpdateRecord>,
+): EditableTarget {
   return {
     key: activity.id,
     label: `${activity.code || activity.uid} · Main activity`,
     kind: "activity",
-    baseStatus: activity.status as StatusKey,
-    baseProgress: activity.progress,
+    baseStatus: deriveActivityStatus(activity, updates),
+    baseProgress: deriveActivityProgress(activity, updates),
     baseOwner: activity.technicalLead || activity.lead,
     baseNote: "",
     baseSupport: "",
@@ -361,9 +277,8 @@ function deriveActivityStatus(
   activity: Activity,
   updates: Record<string, UpdateRecord>,
 ) {
-  if (updates[activity.id]) return updates[activity.id].status;
-  if (!activity.subactivities.some((item) => updates[item.id])) {
-    return activity.status as StatusKey;
+  if (!activity.subactivities.length) {
+    return updates[activity.id]?.status ?? (activity.status as StatusKey);
   }
   const statuses = activity.subactivities.map((item) =>
     recordStatus(item.id, item.status as StatusKey, updates),
@@ -382,8 +297,9 @@ function deriveActivityProgress(
   activity: Activity,
   updates: Record<string, UpdateRecord>,
 ) {
-  if (updates[activity.id]) return updates[activity.id].progress;
-  if (!activity.subactivities.length) return activity.progress;
+  if (!activity.subactivities.length) {
+    return updates[activity.id]?.progress ?? activity.progress;
+  }
   return Math.round(
     activity.subactivities.reduce(
       (total, item) =>
@@ -422,12 +338,13 @@ function isAssignedToMember(
   activity: Activity,
   memberId: string,
   updates: Record<string, UpdateRecord>,
+  members: TeamMember[],
 ) {
   if (memberId === "all") return true;
-  const member = teamMembers.find((item) => item.id === memberId);
+  const member = members.find((item) => item.id === memberId);
   if (!member) return false;
   const assignmentText = activityAssignmentText(activity, updates);
-  return member.aliases.some((alias) =>
+  return [member.name, ...member.aliases].some((alias) =>
     assignmentText.includes(alias.toLocaleLowerCase()),
   );
 }
@@ -511,6 +428,22 @@ export default function Home() {
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updates, setUpdates] = useState<Record<string, UpdateRecord>>({});
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
+    defaultTeamMembers,
+  );
+  const [teamState, setTeamState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+  const [teamDeleteOpen, setTeamDeleteOpen] = useState(false);
+  const [teamSaving, setTeamSaving] = useState(false);
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [teamDraft, setTeamDraft] = useState<TeamDraft>({
+    name: "",
+    role: "",
+    group: "PCU",
+    aliasesText: "",
+  });
   const [syncState, setSyncState] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
@@ -532,7 +465,7 @@ export default function Home() {
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: allBudgetLines[0]?.id ?? "",
     entryType: "commitment",
-    amountMillion: "",
+    amountMnt: "",
     entryDate: todayForInput(),
     description: "",
     vendor: "",
@@ -546,23 +479,37 @@ export default function Home() {
   const selectableTargets = useMemo(() => {
     if (!selected) return [];
     return [
-      targetForActivity(selected),
+      targetForActivity(selected, updates),
       ...selected.subactivities.map(targetForSubactivity),
     ];
-  }, [selected]);
+  }, [selected, updates]);
 
   const activeTarget = useMemo(
     () => selectableTargets.find((item) => item.key === editKey) ?? null,
     [editKey, selectableTargets],
   );
 
+  const activeMainIsAuto = Boolean(
+    selected &&
+      activeTarget?.kind === "activity" &&
+      selected.subactivities.length,
+  );
+
   const loadTarget = useCallback(
     (target: EditableTarget) => {
       const saved = updates[target.key];
+      const calculatedMain =
+        target.kind === "activity" &&
+        Boolean(
+          allActivities.find((activity) => activity.id === target.key)
+            ?.subactivities.length,
+        );
       setEditKey(target.key);
       setDraft({
-        status: saved?.status ?? target.baseStatus,
-        progress: saved?.progress ?? target.baseProgress,
+        status: calculatedMain ? target.baseStatus : saved?.status ?? target.baseStatus,
+        progress: calculatedMain
+          ? target.baseProgress
+          : saved?.progress ?? target.baseProgress,
         owner: saved?.owner || target.baseOwner,
         note: saved?.note ?? target.baseNote,
         supportNeeded: saved?.supportNeeded || target.baseSupport,
@@ -574,9 +521,9 @@ export default function Home() {
   const openActivity = useCallback(
     (activity: Activity) => {
       setSelectedId(activity.id);
-      loadTarget(targetForActivity(activity));
+      loadTarget(targetForActivity(activity, updates));
     },
-    [loadTarget],
+    [loadTarget, updates],
   );
 
   useEffect(() => {
@@ -621,6 +568,26 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/team")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Team store unavailable");
+        return (await response.json()) as { members: TeamMember[] };
+      })
+      .then((payload) => {
+        if (!active) return;
+        setTeamMembers(payload.members);
+        setTeamState("ready");
+      })
+      .catch(() => {
+        if (active) setTeamState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const persistUpdate = useCallback(
     async (payload: {
       activityKey: string;
@@ -654,11 +621,25 @@ export default function Home() {
 
   async function saveDraft() {
     if (!activeTarget) return;
+    const autoCalculatedMain =
+      activeTarget.kind === "activity" && Boolean(selected?.subactivities.length);
+    const statusToSave =
+      autoCalculatedMain && selected
+        ? deriveActivityStatus(selected, updates)
+        : draft.status;
+    const progressToSave =
+      autoCalculatedMain && selected
+        ? deriveActivityProgress(selected, updates)
+        : draft.progress;
     setSaving(true);
     try {
       const update = await persistUpdate({
         activityKey: activeTarget.key,
-        ...draft,
+        status: statusToSave,
+        progress: progressToSave,
+        owner: draft.owner,
+        note: draft.note,
+        supportNeeded: draft.supportNeeded,
       });
       toast.success("Workplan update saved", {
         description: `${statusMeta[update.status].label} · ${update.progress}%`,
@@ -677,7 +658,7 @@ export default function Home() {
     setFinanceDraft({
       budgetKey: budgetKey ?? allBudgetLines[0]?.id ?? "",
       entryType: "commitment",
-      amountMillion: "",
+      amountMnt: "",
       entryDate: todayForInput(),
       description: "",
       vendor: "",
@@ -714,9 +695,9 @@ export default function Home() {
   );
 
   async function saveFinanceEntry() {
-    const amountMillion = Number(financeDraft.amountMillion);
-    if (!Number.isFinite(amountMillion) || amountMillion <= 0) {
-      toast.error("Enter an amount greater than zero.");
+    const amountMnt = Number(financeDraft.amountMnt.replace(/[,\s]/g, ""));
+    if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
+      toast.error("Enter a whole tugrik amount greater than zero.");
       return;
     }
     setFinanceSaving(true);
@@ -724,7 +705,7 @@ export default function Home() {
       const entry = await persistFinanceEntry({
         budgetKey: financeDraft.budgetKey,
         entryType: financeDraft.entryType,
-        amountMnt: Math.round(amountMillion * 1_000_000),
+        amountMnt,
         entryDate: financeDraft.entryDate,
         description: financeDraft.description,
         vendor: financeDraft.vendor,
@@ -734,7 +715,7 @@ export default function Home() {
         financeDraft.entryType === "commitment"
           ? "Commitment added"
           : "Expenditure added",
-        { description: `${formatMntMillion(entry.amountMnt)} mln MNT` },
+        { description: formatMnt(entry.amountMnt) },
       );
     } catch (error) {
       setFinanceState("unavailable");
@@ -745,6 +726,115 @@ export default function Home() {
       );
     } finally {
       setFinanceSaving(false);
+    }
+  }
+
+  function openAddTeamMember() {
+    setEditingTeamId(null);
+    setTeamDraft({
+      name: "",
+      role: "",
+      group: "PCU",
+      aliasesText: "",
+    });
+    setTeamDialogOpen(true);
+  }
+
+  function openEditTeamMember(teamMember: TeamMember) {
+    setEditingTeamId(teamMember.id);
+    setTeamDraft({
+      name: teamMember.name,
+      role: teamMember.role,
+      group: teamMember.group,
+      aliasesText: teamMember.aliases.join(", "),
+    });
+    setTeamDialogOpen(true);
+  }
+
+  async function saveTeamMember() {
+    const name = teamDraft.name.trim();
+    if (!name) {
+      toast.error("Enter the team member's name.");
+      return;
+    }
+    const aliases = teamDraft.aliasesText
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setTeamSaving(true);
+    try {
+      const response = await fetch("/api/team", {
+        method: editingTeamId ? "PUT" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: editingTeamId ?? undefined,
+          name,
+          role: teamDraft.role,
+          group: teamDraft.group,
+          aliases,
+        }),
+      });
+      const result = (await response.json()) as {
+        member?: TeamMember;
+        error?: string;
+      };
+      if (!response.ok || !result.member) {
+        throw new Error(result.error || "The team member could not be saved.");
+      }
+      setTeamMembers((current) =>
+        [...current.filter((item) => item.id !== result.member!.id), result.member!].sort(
+          (a, b) =>
+            a.group.localeCompare(b.group) || a.name.localeCompare(b.name),
+        ),
+      );
+      setTeamState("ready");
+      setTeamDialogOpen(false);
+      toast.success(editingTeamId ? "Team member updated" : "Team member added");
+    } catch (error) {
+      setTeamState("unavailable");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The team member could not be saved.",
+      );
+    } finally {
+      setTeamSaving(false);
+    }
+  }
+
+  async function removeTeamMember() {
+    if (!editingTeamId) return;
+    setTeamSaving(true);
+    try {
+      const response = await fetch("/api/team", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: editingTeamId }),
+      });
+      const result = (await response.json()) as {
+        deletedId?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.deletedId) {
+        throw new Error(result.error || "The team member could not be removed.");
+      }
+      setTeamMembers((current) =>
+        current.filter((item) => item.id !== result.deletedId),
+      );
+      if (member === result.deletedId) setMember("all");
+      setTeamState("ready");
+      setTeamDeleteOpen(false);
+      setTeamDialogOpen(false);
+      toast.success("Team member removed");
+    } catch (error) {
+      setTeamState("unavailable");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The team member could not be removed.",
+      );
+    } finally {
+      setTeamSaving(false);
     }
   }
 
@@ -908,7 +998,11 @@ export default function Home() {
                   type: "string",
                   enum: ["commitment", "expenditure"],
                 },
-                amountMntMillion: { type: "number", exclusiveMinimum: 0 },
+                amountMnt: {
+                  type: "integer",
+                  exclusiveMinimum: 0,
+                  description: "Whole tugrik amount, for example 450000000.",
+                },
                 entryDate: { type: "string", format: "date" },
                 description: { type: "string" },
                 vendor: { type: "string" },
@@ -916,7 +1010,7 @@ export default function Home() {
               required: [
                 "budgetKey",
                 "entryType",
-                "amountMntMillion",
+                "amountMnt",
                 "entryDate",
               ],
               additionalProperties: false,
@@ -928,13 +1022,13 @@ export default function Home() {
             async execute(input) {
               const budgetKey = String(input.budgetKey ?? "");
               const entryType = String(input.entryType ?? "") as FinanceDraft["entryType"];
-              const amountMntMillion = Number(input.amountMntMillion);
+              const amountMnt = Number(input.amountMnt);
               const entryDate = String(input.entryDate ?? "");
               if (
                 !allBudgetLines.some((line) => line.id === budgetKey) ||
                 !["commitment", "expenditure"].includes(entryType) ||
-                !Number.isFinite(amountMntMillion) ||
-                amountMntMillion <= 0 ||
+                !Number.isSafeInteger(amountMnt) ||
+                amountMnt <= 0 ||
                 !/^\d{4}-\d{2}-\d{2}$/.test(entryDate)
               ) {
                 throw new Error("Invalid finance entry.");
@@ -942,7 +1036,7 @@ export default function Home() {
               return persistFinanceEntry({
                 budgetKey,
                 entryType,
-                amountMnt: Math.round(amountMntMillion * 1_000_000),
+                amountMnt,
                 entryDate,
                 description: String(input.description ?? ""),
                 vendor: String(input.vendor ?? ""),
@@ -974,8 +1068,10 @@ export default function Home() {
 
   const memberActivities = useMemo(
     () =>
-      allActivities.filter((item) => isAssignedToMember(item, member, updates)),
-    [member, updates],
+      allActivities.filter((item) =>
+        isAssignedToMember(item, member, updates, teamMembers),
+      ),
+    [member, teamMembers, updates],
   );
 
   const memberBudgetKeys = useMemo(
@@ -992,7 +1088,12 @@ export default function Home() {
       const matchesStatus = status === "all" || currentStatus === status;
       const matchesWorkstream =
         workstream === "all" || item.workstream === workstream;
-      const matchesMember = isAssignedToMember(item, member, updates);
+      const matchesMember = isAssignedToMember(
+        item,
+        member,
+        updates,
+        teamMembers,
+      );
       const haystack = [
         item.code,
         item.title,
@@ -1013,7 +1114,7 @@ export default function Home() {
         haystack.includes(normalized)
       );
     });
-  }, [goal, member, query, section, status, workstream, updates]);
+  }, [goal, member, query, section, status, teamMembers, workstream, updates]);
 
   const filteredBudgetLines = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -1079,9 +1180,9 @@ export default function Home() {
         (item) =>
           (section === "all" || item.section === section) &&
           (goal === "all" || item.goal === goal) &&
-          isAssignedToMember(item, member, updates),
+          isAssignedToMember(item, member, updates, teamMembers),
       ),
-    [goal, member, section, updates],
+    [goal, member, section, teamMembers, updates],
   );
 
   const dashboardBudgetLines = useMemo(
@@ -1143,7 +1244,7 @@ export default function Home() {
         (item) =>
           item.goal === goalValue &&
           (section === "all" || item.section === section) &&
-          isAssignedToMember(item, member, updates),
+          isAssignedToMember(item, member, updates, teamMembers),
       );
       const activityBudgetKeys =
         member === "all" ? null : budgetKeysForActivities(activities);
@@ -1169,7 +1270,7 @@ export default function Home() {
         ...finance,
       };
     });
-  }, [financeEntries, goal, goals, member, section, updates]);
+  }, [financeEntries, goal, goals, member, section, teamMembers, updates]);
 
   const teamSummaries = useMemo(
     () =>
@@ -1178,7 +1279,7 @@ export default function Home() {
           (item) =>
             (section === "all" || item.section === section) &&
             (goal === "all" || item.goal === goal) &&
-            isAssignedToMember(item, teamMember.id, updates),
+            isAssignedToMember(item, teamMember.id, updates, teamMembers),
         );
         const budgetKeys = budgetKeysForActivities(activities);
         const lines = allBudgetLines.filter(
@@ -1195,7 +1296,7 @@ export default function Home() {
           ...finance,
         };
       }),
-    [financeEntries, goal, section, updates],
+    [financeEntries, goal, section, teamMembers, updates],
   );
 
   return (
@@ -1347,29 +1448,29 @@ export default function Home() {
               {[
                 {
                   label: "Budget",
-                  value: formatMntMillion(dashboardFinance.budgetMnt),
-                  detail: "million MNT in selected scope",
+                  value: formatMnt(dashboardFinance.budgetMnt),
+                  detail: "Approved budget in selected scope",
                   icon: WalletCards,
                   accent: "bg-[#0c3b2d] text-white",
                 },
                 {
                   label: "Commitments",
-                  value: formatMntMillion(dashboardFinance.commitmentMnt),
+                  value: formatMnt(dashboardFinance.commitmentMnt),
                   detail: `${dashboardFinance.commitmentPercent}% of budget committed`,
                   icon: HandCoins,
                   accent: "bg-white",
                 },
                 {
                   label: "Expenditure",
-                  value: formatMntMillion(dashboardFinance.expenditureMnt),
+                  value: formatMnt(dashboardFinance.expenditureMnt),
                   detail: `${dashboardFinance.spentPercent}% of budget spent`,
                   icon: ReceiptText,
                   accent: "bg-white",
                 },
                 {
                   label: "Remaining",
-                  value: formatMntMillion(dashboardFinance.remainingMnt),
-                  detail: "budget less expenditure, million MNT",
+                  value: formatMnt(dashboardFinance.remainingMnt),
+                  detail: "Budget less expenditure",
                   icon: Banknote,
                   accent:
                     dashboardFinance.remainingMnt < 0
@@ -1504,20 +1605,20 @@ export default function Home() {
                           />
                         </TableCell>
                         <TableCell className="text-right font-bold tabular-nums">
-                          {formatMntMillion(row.budgetMnt)}
+                          {formatMnt(row.budgetMnt)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          <p className="font-bold">{formatMntMillion(row.commitmentMnt)}</p>
+                          <p className="font-bold">{formatMnt(row.commitmentMnt)}</p>
                           <p className="text-xs text-[#718178]">{row.commitmentPercent}%</p>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          <p className="font-bold">{formatMntMillion(row.expenditureMnt)}</p>
+                          <p className="font-bold">{formatMnt(row.expenditureMnt)}</p>
                           <p className="text-xs text-[#718178]">{row.spentPercent}%</p>
                         </TableCell>
                         <TableCell
                           className={`text-right font-black tabular-nums ${row.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
                         >
-                          {formatMntMillion(row.remainingMnt)}
+                          {formatMnt(row.remainingMnt)}
                         </TableCell>
                         <TableCell className="pr-5 text-right">
                           <span
@@ -1765,29 +1866,29 @@ export default function Home() {
               {[
                 {
                   label: "2026 budget",
-                  value: formatMntMillion(financeStats.budgetMnt),
-                  detail: "million MNT",
+                  value: formatMnt(financeStats.budgetMnt),
+                  detail: "Approved budget",
                   icon: WalletCards,
                   accent: "bg-[#0c3b2d] text-white",
                 },
                 {
                   label: "Commitments",
-                  value: formatMntMillion(financeStats.commitmentMnt),
-                  detail: `${formatMntMillion(financeStats.uncommittedMnt)} mln MNT uncommitted`,
+                  value: formatMnt(financeStats.commitmentMnt),
+                  detail: `${formatMnt(financeStats.uncommittedMnt)} uncommitted`,
                   icon: HandCoins,
                   accent: "bg-white",
                 },
                 {
                   label: "Expenditure",
-                  value: formatMntMillion(financeStats.expenditureMnt),
+                  value: formatMnt(financeStats.expenditureMnt),
                   detail: `${financeStats.spentPercent}% of filtered budget`,
                   icon: ReceiptText,
                   accent: "bg-white",
                 },
                 {
                   label: "Budget remaining",
-                  value: formatMntMillion(financeStats.remainingMnt),
-                  detail: "Budget less expenditure, million MNT",
+                  value: formatMnt(financeStats.remainingMnt),
+                  detail: "Budget less expenditure",
                   icon: Banknote,
                   accent:
                     financeStats.remainingMnt < 0
@@ -1929,18 +2030,18 @@ export default function Home() {
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-bold tabular-nums">
-                            {formatBudgetMillion(Number(line.budgetMntMillion))}
+                            {formatMnt(Number(line.budgetMntMillion) * 1_000_000)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {formatMntMillion(totals.commitment)}
+                            {formatMnt(totals.commitment)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {formatMntMillion(totals.expenditure)}
+                            {formatMnt(totals.expenditure)}
                           </TableCell>
                           <TableCell
                             className={`text-right font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
                           >
-                            {formatMntMillion(remainingMnt)}
+                            {formatMnt(remainingMnt)}
                           </TableCell>
                           <TableCell className="pr-5 text-right">
                             <Button
@@ -2005,7 +2106,7 @@ export default function Home() {
                       <TableHead>Budget line</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Description</TableHead>
-                      <TableHead className="pr-5 text-right">Amount (mln MNT)</TableHead>
+                      <TableHead className="pr-5 text-right">Amount (MNT)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2041,7 +2142,7 @@ export default function Home() {
                             )}
                           </TableCell>
                           <TableCell className="pr-5 text-right font-black tabular-nums">
-                            {formatMntMillion(entry.amountMnt)}
+                            {formatMnt(entry.amountMnt)}
                           </TableCell>
                         </TableRow>
                       );
@@ -2076,7 +2177,7 @@ export default function Home() {
                   The five confirmed PCU roles are included with additional names found in the workplan.
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:flex">
+              <div className="grid gap-2 sm:grid-cols-3 lg:flex">
                 <NativeSelect
                   value={section}
                   onChange={(event) => setSection(event.target.value)}
@@ -2100,8 +2201,21 @@ export default function Home() {
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
+                <Button
+                  onClick={openAddTeamMember}
+                  className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Add member
+                </Button>
               </div>
             </section>
+
+            {teamState === "unavailable" && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Saved roster changes are temporarily unavailable. The default team list remains visible.
+              </div>
+            )}
 
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2116,7 +2230,7 @@ export default function Home() {
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <Table className="min-w-[1180px]">
+                <Table className="min-w-[1320px]">
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="w-[270px] pl-5">Team member</TableHead>
@@ -2125,7 +2239,7 @@ export default function Home() {
                       <TableHead className="text-right">Commitment</TableHead>
                       <TableHead className="text-right">Expenditure</TableHead>
                       <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="w-24 pr-5 text-right">Report</TableHead>
+                      <TableHead className="w-44 pr-5 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2167,30 +2281,40 @@ export default function Home() {
                           />
                         </TableCell>
                         <TableCell className="text-right font-bold tabular-nums">
-                          {formatMntMillion(item.budgetMnt)}
+                          {formatMnt(item.budgetMnt)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatMntMillion(item.commitmentMnt)}
+                          {formatMnt(item.commitmentMnt)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatMntMillion(item.expenditureMnt)}
+                          {formatMnt(item.expenditureMnt)}
                         </TableCell>
                         <TableCell
                           className={`text-right font-black tabular-nums ${item.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
                         >
-                          {formatMntMillion(item.remainingMnt)}
+                          {formatMnt(item.remainingMnt)}
                         </TableCell>
-                        <TableCell className="pr-5 text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setMember(item.id);
-                              setActiveView("dashboard");
-                            }}
-                          >
-                            View
-                          </Button>
+                        <TableCell className="pr-5">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditTeamMember(item)}
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setMember(item.id);
+                                setActiveView("dashboard");
+                              }}
+                            >
+                              View
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2266,21 +2390,21 @@ export default function Home() {
               </label>
             </div>
             <label className="block">
-              <span className="mb-1.5 block text-sm font-bold">Amount (million MNT)</span>
+              <span className="mb-1.5 block text-sm font-bold">Amount (MNT)</span>
               <Input
                 type="number"
-                min="0.001"
-                step="0.001"
-                inputMode="decimal"
-                value={financeDraft.amountMillion}
+                min="1"
+                step="1"
+                inputMode="numeric"
+                value={financeDraft.amountMnt}
                 onChange={(event) =>
                   setFinanceDraft((current) => ({
                     ...current,
-                    amountMillion: event.target.value,
+                    amountMnt: event.target.value,
                   }))
                 }
                 className="h-11 border-[#cbd6cc] bg-white"
-                placeholder="For example, 25.5"
+                placeholder="For example, 450000000"
               />
             </label>
             <label className="block">
@@ -2327,29 +2451,146 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <Sheet
+      <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTeamId ? "Edit team member" : "Add team member"}
+            </DialogTitle>
+            <DialogDescription>
+              Names and aliases are used to connect the member with workplan assignments.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Name</span>
+              <Input
+                value={teamDraft.name}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="For example, Tuvshinjargal.P"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Position or role</span>
+              <Input
+                value={teamDraft.role}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    role: event.target.value,
+                  }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="Coordinator, officer, or other role"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Member type</span>
+              <NativeSelect
+                value={teamDraft.group}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    group: event.target.value as TeamDraft["group"],
+                  }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                <NativeSelectOption value="PCU">PCU member</NativeSelectOption>
+                <NativeSelectOption value="Workplan">Additional workplan member</NativeSelectOption>
+              </NativeSelect>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Other recorded names</span>
+              <Textarea
+                value={teamDraft.aliasesText}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    aliasesText: event.target.value,
+                  }))
+                }
+                className="min-h-24 border-[#cbd6cc] bg-white"
+                placeholder="Separate English, Mongolian, or abbreviated names with commas"
+              />
+            </label>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {editingTeamId && (
+                <Button
+                  variant="outline"
+                  onClick={() => setTeamDeleteOpen(true)}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setTeamDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveTeamMember}
+                disabled={teamSaving || teamState === "loading"}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                {teamSaving ? "Saving…" : "Save member"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={teamDeleteOpen} onOpenChange={setTeamDeleteOpen}>
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this team member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The member will disappear from team reports and filters. Existing activity notes and finance records will remain unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={teamSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removeTeamMember}
+              disabled={teamSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {teamSaving ? "Removing…" : "Remove member"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
         open={Boolean(selected)}
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}
       >
-        <SheetContent
-          className="w-full gap-0 overflow-y-auto bg-white p-0 text-[#14241b] sm:max-w-2xl"
-          side="right"
-        >
+        <DialogContent className="max-h-[92vh] w-[96vw] gap-0 overflow-y-auto bg-white p-0 text-[#14241b] sm:max-w-5xl!">
           {selected && activeTarget && (
             <>
-              <SheetHeader className="sticky top-0 z-10 border-b border-[#dce3da] bg-white/95 px-6 py-5 pr-14 backdrop-blur">
+              <DialogHeader className="sticky top-0 z-10 border-b border-[#dce3da] bg-white/95 px-6 py-5 pr-14 text-left backdrop-blur">
                 <p className="font-mono text-sm font-black text-[#2f634c]">
                   {selected.code || selected.uid}
                 </p>
-                <SheetTitle className="text-xl font-black leading-tight tracking-[-0.025em]">
+                <DialogTitle className="text-xl font-black leading-tight tracking-[-0.025em] sm:text-2xl">
                   {selected.title}
-                </SheetTitle>
-                <SheetDescription className="text-[#718178]">
+                </DialogTitle>
+                <DialogDescription className="text-[#718178]">
                   {selected.workstream || "Programme management"}
-                </SheetDescription>
-              </SheetHeader>
+                </DialogDescription>
+              </DialogHeader>
 
               <div className="space-y-6 p-6">
                 <div className="grid grid-cols-2 gap-3 rounded-2xl bg-[#f3f7f1] p-4 text-sm sm:grid-cols-4">
@@ -2414,6 +2655,12 @@ export default function Home() {
                       </NativeSelect>
                     </label>
 
+                    {activeMainIsAuto && (
+                      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+                        Main activity status and progress are calculated automatically from its sub-activities. Complete or update the sub-activities below to change these results.
+                      </div>
+                    )}
+
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
                         <span className="mb-1.5 block text-sm font-bold">
@@ -2421,6 +2668,7 @@ export default function Home() {
                         </span>
                         <NativeSelect
                           value={draft.status}
+                          disabled={activeMainIsAuto}
                           onChange={(event) =>
                             setDraft((current) => ({
                               ...current,
@@ -2464,6 +2712,7 @@ export default function Home() {
                       </div>
                       <Slider
                         value={[draft.progress]}
+                        disabled={activeMainIsAuto}
                         min={0}
                         max={100}
                         step={5}
@@ -2631,8 +2880,8 @@ export default function Home() {
               </div>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
       <datalist id="pcu-team-member-options">
         {teamMembers.map((item) => (
           <option key={item.id} value={item.name}>

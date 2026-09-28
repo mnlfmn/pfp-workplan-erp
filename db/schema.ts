@@ -23,3 +23,15 @@ export const financeEntries = sqliteTable("finance_entries", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   createdBy: text("created_by").notNull().default(""),
 });
+
+export const teamMembers = sqliteTable("team_members", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  role: text("role").notNull().default(""),
+  group: text("group_name").notNull().default("PCU"),
+  aliases: text("aliases").notNull().default("[]"),
+  isDeleted: integer("is_deleted").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedBy: text("updated_by").notNull().default(""),
+});
