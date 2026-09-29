@@ -21,6 +21,7 @@ export const activityUpdates = sqliteTable("activity_updates", {
 export const financeEntries = sqliteTable("finance_entries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   budgetKey: text("budget_key").notNull(),
+  activityKey: text("activity_key").notNull().default(""),
   entryType: text("entry_type").notNull(),
   amountMnt: integer("amount_mnt").notNull(),
   entryDate: text("entry_date").notNull(),

@@ -7,6 +7,31 @@ import workplan from "@/lib/workplan-data.json";
 const validBudgetKeys = new Set(workplan.budgetLines.map((line) => line.id));
 const validEntryTypes = new Set(["commitment", "expenditure"]);
 
+function safePayload(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function codesShareBudgetLine(activityCode: string, budgetCode: string) {
+  const normalize = (value: string) =>
+    value.replace(/\s/g, "").replace(/\.+$/, "");
+  const activity = normalize(activityCode);
+  const budget = normalize(budgetCode);
+  return Boolean(
+    activity &&
+      budget &&
+      (activity === budget ||
+        activity.startsWith(`${budget}.`) ||
+        budget.startsWith(`${activity}.`)),
+  );
+}
+
 async function isValidBudgetKey(budgetKey: string) {
   if (validBudgetKeys.has(budgetKey)) return true;
   const rows = await getDb()
@@ -20,6 +45,67 @@ async function isValidBudgetKey(budgetKey: string) {
     )
     .limit(1);
   return Boolean(rows[0] && !rows[0].deleted);
+}
+
+async function isValidFinanceTarget(budgetKey: string, activityKey: string) {
+  if (!activityKey) return false;
+  let budgetCode =
+    workplan.budgetLines.find((line) => line.id === budgetKey)?.code ?? "";
+  let activityCode = "";
+
+  for (const activity of workplan.activities) {
+    if (activity.id === activityKey) activityCode = activity.code;
+    if (activity.subactivities.some((item) => item.id === activityKey)) {
+      activityCode = activity.code;
+    }
+  }
+
+  const db = getDb();
+  if (!budgetCode) {
+    const [record] = await db
+      .select()
+      .from(workplanRecords)
+      .where(
+        and(
+          eq(workplanRecords.recordType, "budget"),
+          eq(workplanRecords.recordKey, budgetKey),
+          eq(workplanRecords.isDeleted, 0),
+        ),
+      )
+      .limit(1);
+    budgetCode = String(record ? safePayload(record.payload).code ?? "" : "");
+  }
+
+  if (!activityCode) {
+    const [record] = await db
+      .select()
+      .from(workplanRecords)
+      .where(
+        and(
+          eq(workplanRecords.recordKey, activityKey),
+          eq(workplanRecords.isDeleted, 0),
+        ),
+      )
+      .limit(1);
+    if (record?.recordType === "activity") {
+      activityCode = String(safePayload(record.payload).code ?? "");
+    } else if (record?.recordType === "subactivity" && record.parentKey) {
+      const [parent] = await db
+        .select()
+        .from(workplanRecords)
+        .where(
+          and(
+            eq(workplanRecords.recordType, "activity"),
+            eq(workplanRecords.recordKey, record.parentKey),
+            eq(workplanRecords.isDeleted, 0),
+          ),
+        )
+        .limit(1);
+      activityCode = String(parent ? safePayload(parent.payload).code ?? "" : "");
+    }
+  }
+
+  return codesShareBudgetLine(activityCode, budgetCode);
 }
 
 function message(error: unknown) {
@@ -47,6 +133,7 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as {
       budgetKey?: string;
+      activityKey?: string;
       entryType?: string;
       amountMnt?: number;
       entryDate?: string;
@@ -54,12 +141,19 @@ export async function POST(request: Request) {
       vendor?: string;
     };
     const budgetKey = payload.budgetKey?.trim() ?? "";
+    const activityKey = payload.activityKey?.trim() ?? "";
     const entryType = payload.entryType?.trim() ?? "";
     const amountMnt = Number(payload.amountMnt);
     const entryDate = payload.entryDate?.trim() ?? "";
 
     if (!(await isValidBudgetKey(budgetKey))) {
       return Response.json({ error: "Choose a valid budget line." }, { status: 400 });
+    }
+    if (!(await isValidFinanceTarget(budgetKey, activityKey))) {
+      return Response.json(
+        { error: "Choose an activity that belongs to this budget line." },
+        { status: 400 },
+      );
     }
     if (!validEntryTypes.has(entryType)) {
       return Response.json({ error: "Choose commitment or expenditure." }, { status: 400 });
@@ -79,6 +173,7 @@ export async function POST(request: Request) {
       .insert(financeEntries)
       .values({
         budgetKey,
+        activityKey,
         entryType,
         amountMnt,
         entryDate,

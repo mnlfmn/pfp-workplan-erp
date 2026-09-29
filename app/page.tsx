@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Banknote,
   CalendarDays,
+  ChevronRight,
   CircleCheck,
   Clock3,
   Cloud,
@@ -48,6 +49,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   NativeSelect,
@@ -102,7 +109,6 @@ type EditableTarget = {
   baseProgress: number;
   baseOwner: string;
   baseNote: string;
-  baseSupport: string;
 };
 
 type Draft = {
@@ -110,12 +116,12 @@ type Draft = {
   progress: number;
   owner: string;
   note: string;
-  supportNeeded: string;
 };
 
 type FinanceEntry = {
   id: number;
   budgetKey: string;
+  activityKey: string;
   entryType: "commitment" | "expenditure";
   amountMnt: number;
   entryDate: string;
@@ -127,6 +133,7 @@ type FinanceEntry = {
 
 type FinanceDraft = {
   budgetKey: string;
+  activityKey: string;
   entryType: "commitment" | "expenditure";
   amountMnt: string;
   entryDate: string;
@@ -188,7 +195,6 @@ type SubactivityPlanDraft = {
   endDate: string;
   status: StatusKey;
   progressSummary: string;
-  ministrySupport: string;
 };
 
 type BudgetLineDraft = {
@@ -207,6 +213,14 @@ type AllocationDraft = {
   activityKey: string;
   amountMnt: string;
   note: string;
+};
+
+type BudgetTarget = {
+  key: string;
+  activityId: string;
+  code: string;
+  label: string;
+  kind: "activity" | "subactivity";
 };
 
 const statusMeta: Record<
@@ -251,6 +265,15 @@ const statusMeta: Record<
   },
 };
 
+const statusChartColors: Record<StatusKey, string> = {
+  completed: "#16825d",
+  in_progress: "#2878c8",
+  delayed: "#c44757",
+  on_hold: "#d39222",
+  not_started: "#829089",
+  not_reported: "#c4ccc7",
+};
+
 const baseActivities = workplan.activities as Activity[];
 const baseBudgetLines = workplan.budgetLines as BudgetLine[];
 
@@ -282,7 +305,6 @@ const emptySubactivityDraft: SubactivityPlanDraft = {
   endDate: "",
   status: "not_started",
   progressSummary: "",
-  ministrySupport: "",
 };
 
 const emptyBudgetLineDraft: BudgetLineDraft = {
@@ -307,6 +329,11 @@ function formatMnt(amountMnt: number) {
   return `₮${new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
   }).format(Math.round(amountMnt))}`;
+}
+
+function formatNumberInput(value: string | number) {
+  const digits = String(value).replace(/[^\d]/g, "");
+  return digits ? new Intl.NumberFormat("en-US").format(Number(digits)) : "";
 }
 
 function formatDate(value: string) {
@@ -351,7 +378,6 @@ function targetForActivity(
     baseProgress: deriveActivityProgress(activity, updates),
     baseOwner: activity.technicalLead || activity.lead,
     baseNote: "",
-    baseSupport: "",
   };
 }
 
@@ -364,7 +390,6 @@ function targetForSubactivity(subactivity: Subactivity): EditableTarget {
     baseProgress: statusMeta[subactivity.status as StatusKey].weight,
     baseOwner: subactivity.owner,
     baseNote: "",
-    baseSupport: subactivity.ministrySupport,
   };
 }
 
@@ -394,14 +419,45 @@ function deriveActivityStatus(
   const statuses = activity.subactivities.map((item) =>
     recordStatus(item.id, item.status as StatusKey, updates),
   );
-  if (statuses.includes("delayed")) return "delayed";
   if (statuses.every((item) => item === "completed")) return "completed";
+  if (updates[activity.id]) return updates[activity.id].status;
+  if (statuses.includes("delayed")) return "delayed";
   if (statuses.some((item) => item === "in_progress" || item === "completed")) {
     return "in_progress";
   }
   if (statuses.includes("on_hold")) return "on_hold";
   if (statuses.includes("not_started")) return "not_started";
   return "not_reported";
+}
+
+function activityOwner(
+  activity: Activity,
+  updates: Record<string, UpdateRecord>,
+) {
+  return updates[activity.id]
+    ? updates[activity.id].owner
+    : activity.technicalLead || activity.lead || "";
+}
+
+function subactivityOwner(
+  subactivity: Subactivity,
+  updates: Record<string, UpdateRecord>,
+) {
+  return updates[subactivity.id]
+    ? updates[subactivity.id].owner
+    : subactivity.owner || "";
+}
+
+function canonicalOwnerName(value: string, members: TeamMember[]) {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (!normalized) return "";
+  return (
+    members.find((member) =>
+      [member.name, ...member.aliases].some((alias) =>
+        normalized.includes(alias.toLocaleLowerCase()),
+      ),
+    )?.name ?? ""
+  );
 }
 
 function deriveActivityProgress(
@@ -430,15 +486,8 @@ function activityAssignmentText(
   updates: Record<string, UpdateRecord>,
 ) {
   return [
-    activity.lead,
-    activity.technicalLead,
-    activity.support,
-    updates[activity.id]?.owner,
-    ...activity.subactivities.flatMap((item) => [
-      item.owner,
-      item.executor,
-      updates[item.id]?.owner,
-    ]),
+    activityOwner(activity, updates),
+    ...activity.subactivities.map((item) => subactivityOwner(item, updates)),
   ]
     .filter(Boolean)
     .join(" ")
@@ -452,12 +501,49 @@ function isAssignedToMember(
   members: TeamMember[],
 ) {
   if (memberId === "all") return true;
+  if (memberId === "no_owner") {
+    return (
+      !canonicalOwnerName(activityOwner(activity, updates), members) ||
+      activity.subactivities.some(
+        (item) => !canonicalOwnerName(subactivityOwner(item, updates), members),
+      )
+    );
+  }
   const member = members.find((item) => item.id === memberId);
   if (!member) return false;
   const assignmentText = activityAssignmentText(activity, updates);
   return [member.name, ...member.aliases].some((alias) =>
     assignmentText.includes(alias.toLocaleLowerCase()),
   );
+}
+
+function targetsForBudgetLine(
+  line: BudgetLine | undefined,
+  activities: Activity[],
+): BudgetTarget[] {
+  if (!line) return [];
+  return activities
+    .filter(
+      (activity) =>
+        activity.section === line.section &&
+        codesShareBudgetLine(activity.code, line.code),
+    )
+    .flatMap((activity) => [
+      {
+        key: activity.id,
+        activityId: activity.id,
+        code: activity.code || activity.uid,
+        label: activity.title,
+        kind: "activity" as const,
+      },
+      ...activity.subactivities.map((subactivity) => ({
+        key: subactivity.id,
+        activityId: activity.id,
+        code: activity.code || activity.uid,
+        label: subactivity.title,
+        kind: "subactivity" as const,
+      })),
+    ]);
 }
 
 function codesShareBudgetLine(activityCode: string, budgetCode: string) {
@@ -585,7 +671,6 @@ export default function Home() {
     progress: 0,
     owner: "",
     note: "",
-    supportNeeded: "",
   });
   const [saving, setSaving] = useState(false);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
@@ -596,6 +681,7 @@ export default function Home() {
   const [financeSaving, setFinanceSaving] = useState(false);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
+    activityKey: "",
     entryType: "commitment",
     amountMnt: "",
     entryDate: todayForInput(),
@@ -635,6 +721,7 @@ export default function Home() {
     useState<BudgetLineDraft>(emptyBudgetLineDraft);
   const [budgetLineSaving, setBudgetLineSaving] = useState(false);
   const [budgetLineDeleteOpen, setBudgetLineDeleteOpen] = useState(false);
+  const [selectedBudgetKey, setSelectedBudgetKey] = useState<string | null>(null);
 
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
@@ -654,7 +741,7 @@ export default function Home() {
     [editKey, selectableTargets],
   );
 
-  const activeMainIsAuto = Boolean(
+  const activeMainProgressAuto = Boolean(
     selected &&
       activeTarget?.kind === "activity" &&
       selected.subactivities.length,
@@ -675,9 +762,8 @@ export default function Home() {
         progress: calculatedMain
           ? target.baseProgress
           : saved?.progress ?? target.baseProgress,
-        owner: saved?.owner || target.baseOwner,
+        owner: saved ? saved.owner : target.baseOwner,
         note: saved?.note ?? target.baseNote,
-        supportNeeded: saved?.supportNeeded || target.baseSupport,
       });
     },
     [allActivities, updates],
@@ -855,25 +941,21 @@ export default function Home() {
 
   async function saveDraft() {
     if (!activeTarget) return;
-    const autoCalculatedMain =
+    const autoCalculatedMainProgress =
       activeTarget.kind === "activity" && Boolean(selected?.subactivities.length);
-    const statusToSave =
-      autoCalculatedMain && selected
-        ? deriveActivityStatus(selected, updates)
-        : draft.status;
     const progressToSave =
-      autoCalculatedMain && selected
+      autoCalculatedMainProgress && selected
         ? deriveActivityProgress(selected, updates)
         : draft.progress;
     setSaving(true);
     try {
       const update = await persistUpdate({
         activityKey: activeTarget.key,
-        status: statusToSave,
+        status: draft.status,
         progress: progressToSave,
         owner: draft.owner,
         note: draft.note,
-        supportNeeded: draft.supportNeeded,
+        supportNeeded: updates[activeTarget.key]?.supportNeeded ?? "",
       });
       toast.success("Workplan update saved", {
         description: `${statusMeta[update.status].label} · ${update.progress}%`,
@@ -888,10 +970,35 @@ export default function Home() {
     }
   }
 
+  async function saveOwnerForTarget(
+    target: { key: string; status: StatusKey; progress: number; note: string },
+    owner: string,
+  ) {
+    try {
+      await persistUpdate({
+        activityKey: target.key,
+        status: target.status,
+        progress: target.progress,
+        owner,
+        note: target.note,
+        supportNeeded: updates[target.key]?.supportNeeded ?? "",
+      });
+      if (editKey === target.key) {
+        setDraft((current) => ({ ...current, owner }));
+      }
+      toast.success(owner ? `Owner changed to ${owner}` : "Owner cleared");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The owner could not be changed.",
+      );
+    }
+  }
+
   const openFinanceDialog = useCallback(
-    (budgetKey?: string) => {
+    (budgetKey: string, activityKey: string) => {
       setFinanceDraft({
-        budgetKey: budgetKey ?? allBudgetLines[0]?.id ?? "",
+        budgetKey,
+        activityKey,
         entryType: "commitment",
         amountMnt: "",
         entryDate: todayForInput(),
@@ -900,12 +1007,13 @@ export default function Home() {
       });
       setFinanceDialogOpen(true);
     },
-    [allBudgetLines],
+    [],
   );
 
   const persistFinanceEntry = useCallback(
     async (payload: {
       budgetKey: string;
+      activityKey: string;
       entryType: FinanceDraft["entryType"];
       amountMnt: number;
       entryDate: string;
@@ -941,6 +1049,7 @@ export default function Home() {
     try {
       const entry = await persistFinanceEntry({
         budgetKey: financeDraft.budgetKey,
+        activityKey: financeDraft.activityKey,
         entryType: financeDraft.entryType,
         amountMnt,
         entryDate: financeDraft.entryDate,
@@ -1093,7 +1202,6 @@ export default function Home() {
       endDate: subactivity.endDate,
       status: subactivity.status as StatusKey,
       progressSummary: subactivity.progressSummary,
-      ministrySupport: subactivity.ministrySupport,
     });
     setPlanDialogOpen(true);
   }
@@ -1251,7 +1359,9 @@ export default function Home() {
       goal: line.goal,
       workstream: line.workstream,
       level: line.level,
-      amountMnt: String(Math.round(Number(line.budgetMntMillion) * 1_000_000)),
+      amountMnt: formatNumberInput(
+        Math.round(Number(line.budgetMntMillion) * 1_000_000),
+      ),
     });
     setBudgetLineDialogOpen(true);
   }
@@ -1347,19 +1457,32 @@ export default function Home() {
     }
   }
 
-  const allocationTargets = useMemo(
+  const allocationTargets = useMemo(() => {
+    const line = allBudgetLines.find(
+      (item) => item.id === allocationDraft.budgetKey,
+    );
+    return targetsForBudgetLine(line, allActivities);
+  }, [allActivities, allBudgetLines, allocationDraft.budgetKey]);
+
+  const allocationBudgetLine = useMemo(
     () =>
-      allActivities.flatMap((activity) => [
-        {
-          key: activity.id,
-          label: `${activity.code || activity.uid} · ${activity.title}`,
-        },
-        ...activity.subactivities.map((subactivity) => ({
-          key: subactivity.id,
-          label: `${activity.code || activity.uid} · Sub-activity · ${subactivity.title}`,
-        })),
-      ]),
-    [allActivities],
+      allBudgetLines.find((item) => item.id === allocationDraft.budgetKey) ??
+      null,
+    [allBudgetLines, allocationDraft.budgetKey],
+  );
+
+  const financeBudgetLine = useMemo(
+    () =>
+      allBudgetLines.find((item) => item.id === financeDraft.budgetKey) ?? null,
+    [allBudgetLines, financeDraft.budgetKey],
+  );
+
+  const financeTarget = useMemo(
+    () =>
+      targetsForBudgetLine(financeBudgetLine ?? undefined, allActivities).find(
+        (item) => item.key === financeDraft.activityKey,
+      ) ?? null,
+    [allActivities, financeBudgetLine, financeDraft.activityKey],
   );
 
   function openAllocationDialog(
@@ -1367,12 +1490,18 @@ export default function Home() {
     activityKey?: string,
     allocation?: BudgetAllocation,
   ) {
+    const nextBudgetKey =
+      allocation?.budgetKey ?? budgetKey ?? selectedBudgetKey ?? "";
+    const scopedTargets = targetsForBudgetLine(
+      allBudgetLines.find((item) => item.id === nextBudgetKey),
+      allActivities,
+    );
     setAllocationDraft({
       id: allocation?.id ?? "",
-      budgetKey: allocation?.budgetKey ?? budgetKey ?? allBudgetLines[0]?.id ?? "",
+      budgetKey: nextBudgetKey,
       activityKey:
-        allocation?.activityKey ?? activityKey ?? allocationTargets[0]?.key ?? "",
-      amountMnt: allocation ? String(allocation.amountMnt) : "",
+        allocation?.activityKey ?? activityKey ?? scopedTargets[0]?.key ?? "",
+      amountMnt: allocation ? formatNumberInput(allocation.amountMnt) : "",
       note: allocation?.note ?? "",
     });
     setAllocationDialogOpen(true);
@@ -1543,6 +1672,7 @@ export default function Home() {
       });
       const result = (await response.json()) as {
         deletedId?: string;
+        clearedUpdates?: UpdateRecord[];
         error?: string;
       };
       if (!response.ok || !result.deletedId) {
@@ -1551,11 +1681,23 @@ export default function Home() {
       setTeamMembers((current) =>
         current.filter((item) => item.id !== result.deletedId),
       );
+      if (result.clearedUpdates?.length) {
+        setUpdates((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            result.clearedUpdates!.map((update) => [update.activityKey, update]),
+          ),
+        }));
+      }
       if (member === result.deletedId) setMember("all");
       setTeamState("ready");
       setTeamDeleteOpen(false);
       setTeamDialogOpen(false);
-      toast.success("Team member removed");
+      toast.success("Team member removed", {
+        description: result.clearedUpdates?.length
+          ? `${result.clearedUpdates.length} owned workplan items now need an owner.`
+          : "No owned workplan items needed reassignment.",
+      });
     } catch (error) {
       setTeamState("unavailable");
       toast.error(
@@ -1670,7 +1812,6 @@ export default function Home() {
                 },
                 owner: { type: "string" },
                 note: { type: "string" },
-                supportNeeded: { type: "string" },
               },
               required: ["activityKey", "status", "progress"],
               additionalProperties: false,
@@ -1703,7 +1844,7 @@ export default function Home() {
                 progress,
                 owner: String(input.owner ?? ""),
                 note: String(input.note ?? ""),
-                supportNeeded: String(input.supportNeeded ?? ""),
+                supportNeeded: updates[activityKey]?.supportNeeded ?? "",
               });
             },
           },
@@ -1724,6 +1865,7 @@ export default function Home() {
                   type: "string",
                   enum: allBudgetLines.map((line) => line.id),
                 },
+                activityKey: { type: "string" },
                 entryType: {
                   type: "string",
                   enum: ["commitment", "expenditure"],
@@ -1739,6 +1881,7 @@ export default function Home() {
               },
               required: [
                 "budgetKey",
+                "activityKey",
                 "entryType",
                 "amountMnt",
                 "entryDate",
@@ -1751,11 +1894,16 @@ export default function Home() {
             },
             async execute(input) {
               const budgetKey = String(input.budgetKey ?? "");
+              const activityKey = String(input.activityKey ?? "");
               const entryType = String(input.entryType ?? "") as FinanceDraft["entryType"];
               const amountMnt = Number(input.amountMnt);
               const entryDate = String(input.entryDate ?? "");
               if (
                 !allBudgetLines.some((line) => line.id === budgetKey) ||
+                !targetsForBudgetLine(
+                  allBudgetLines.find((line) => line.id === budgetKey),
+                  allActivities,
+                ).some((target) => target.key === activityKey) ||
                 !["commitment", "expenditure"].includes(entryType) ||
                 !Number.isSafeInteger(amountMnt) ||
                 amountMnt <= 0 ||
@@ -1765,6 +1913,7 @@ export default function Home() {
               }
               return persistFinanceEntry({
                 budgetKey,
+                activityKey,
                 entryType,
                 amountMnt,
                 entryDate,
@@ -1891,6 +2040,20 @@ export default function Home() {
     return totals;
   }, [financeEntries]);
 
+  const financeByActivityKey = useMemo(() => {
+    const totals = new Map<string, { commitment: number; expenditure: number }>();
+    for (const entry of financeEntries) {
+      if (!entry.activityKey) continue;
+      const current = totals.get(entry.activityKey) ?? {
+        commitment: 0,
+        expenditure: 0,
+      };
+      current[entry.entryType] += entry.amountMnt;
+      totals.set(entry.activityKey, current);
+    }
+    return totals;
+  }, [financeEntries]);
+
   const allocationByBudgetKey = useMemo(() => {
     const totals = new Map<string, number>();
     for (const allocation of allocations) {
@@ -1913,6 +2076,16 @@ export default function Home() {
     return totals;
   }, [allocations]);
 
+  const selectedBudgetLine = useMemo(
+    () => allBudgetLines.find((line) => line.id === selectedBudgetKey) ?? null,
+    [allBudgetLines, selectedBudgetKey],
+  );
+
+  const selectedBudgetTargets = useMemo(
+    () => targetsForBudgetLine(selectedBudgetLine ?? undefined, allActivities),
+    [allActivities, selectedBudgetLine],
+  );
+
   const financeStats = useMemo(() => {
     return summarizeFinance(filteredBudgetLines, financeEntries);
   }, [filteredBudgetLines, financeEntries]);
@@ -1932,16 +2105,13 @@ export default function Home() {
       const current = recordStatus(item.id, item.status as StatusKey, updates);
       return current === "delayed" || current === "on_hold";
     }).length;
-    const support = allSubs.filter(
-      (item) => updates[item.id]?.supportNeeded || item.ministrySupport,
-    ).length;
     const overall = Math.round(
       filtered.reduce(
         (total, item) => total + deriveActivityProgress(item, updates),
         0,
       ) / Math.max(filtered.length, 1),
     );
-    return { completed, attention, support, overall };
+    return { completed, attention, overall };
   }, [filtered, updates]);
 
   const dashboardActivities = useMemo(
@@ -2004,6 +2174,31 @@ export default function Home() {
       overdue,
     };
   }, [dashboardActivities, selectedYear, updates, workplanYears]);
+
+  const overallStatusSummary = useMemo(() => {
+    const counts = Object.fromEntries(
+      Object.keys(statusMeta).map((key) => [key, 0]),
+    ) as Record<StatusKey, number>;
+    for (const activity of dashboardActivities) {
+      counts[deriveActivityStatus(activity, updates)] += 1;
+    }
+    const total = dashboardActivities.length;
+    let cursor = 0;
+    const segments = (Object.keys(statusMeta) as StatusKey[]).flatMap((key) => {
+      const start = cursor;
+      cursor += total ? (counts[key] / total) * 100 : 0;
+      return counts[key]
+        ? [`${statusChartColors[key]} ${start}% ${cursor}%`]
+        : [];
+    });
+    return {
+      counts,
+      total,
+      background: total
+        ? `conic-gradient(${segments.join(", ")})`
+        : "conic-gradient(#e1e6e2 0 100%)",
+    };
+  }, [dashboardActivities, updates]);
 
   const goalRows = useMemo(() => {
     const orderedGoals = [...goals].sort((a, b) => {
@@ -2169,14 +2364,27 @@ export default function Home() {
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            <Button
-              variant="outline"
-              onClick={openYearDialog}
-              className="h-10 border-[#bfcbbf] bg-white"
-            >
-              <CopyPlus className="h-4 w-4" />
-              Create next year
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="h-10 border-[#bfcbbf] bg-white"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Planning
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuItem onClick={openYearDialog}>
+                  <CopyPlus className="h-4 w-4" />
+                  Create next year&apos;s workplan
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setActiveView("workplan")}>
+                  <PencilLine className="h-4 w-4" />
+                  Edit current workplan
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex items-center gap-2 px-1 text-sm text-[#5d7467]">
               <span
                 className={`h-2 w-2 rounded-full ${planState === "ready" ? "bg-emerald-600" : "bg-amber-500"}`}
@@ -2394,6 +2602,62 @@ export default function Home() {
               ))}
             </section>
 
+            <section className="grid gap-5 rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_12px_32px_rgba(20,36,27,0.05)] lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center">
+              <div>
+                <h2 className="text-xl font-black">Overall activity status</h2>
+                <p className="mt-1 text-sm leading-6 text-[#718178]">
+                  Status distribution for the selected Section A, Section B, goal, and owner filters.
+                </p>
+                <div className="mt-5 flex justify-center">
+                  <div
+                    className="relative grid h-48 w-48 place-items-center rounded-full"
+                    style={{ background: overallStatusSummary.background }}
+                    role="img"
+                    aria-label={`Status chart for ${overallStatusSummary.total} activities`}
+                  >
+                    <div className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-inner">
+                      <div>
+                        <p className="text-3xl font-black">{overallStatusSummary.total}</p>
+                        <p className="text-xs font-semibold text-[#718178]">activities</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(Object.keys(statusMeta) as StatusKey[]).map((key) => {
+                  const count = overallStatusSummary.counts[key];
+                  const percent = overallStatusSummary.total
+                    ? Math.round((count / overallStatusSummary.total) * 100)
+                    : 0;
+                  return (
+                    <div key={key} className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: statusChartColors[key] }}
+                          />
+                          <span className="text-sm font-bold">{statusMeta[key].label}</span>
+                        </div>
+                        <span className="text-lg font-black">{count}</span>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e3e8e4]">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${percent}%`,
+                            backgroundColor: statusChartColors[key],
+                          }}
+                        />
+                      </div>
+                      <p className="mt-1 text-right text-xs font-semibold text-[#718178]">{percent}%</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="border-b border-[#e2e7e0] px-5 py-4">
                 <h2 className="text-xl font-black">Progress and finance by goal</h2>
@@ -2496,7 +2760,7 @@ export default function Home() {
             {
               label: "Need attention",
               value: stats.attention,
-              detail: `${stats.support} request ministry support`,
+              detail: "Sub-activities delayed or on hold",
               icon: AlertTriangle,
               accent: "bg-[#fff7e7]",
             },
@@ -2607,6 +2871,7 @@ export default function Home() {
                     {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
                   </NativeSelectOption>
                 ))}
+                <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
               </NativeSelect>
               <Button
                 onClick={openAddActivity}
@@ -2618,10 +2883,11 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="hidden grid-cols-[110px_minmax(340px,1.5fr)_minmax(190px,.7fr)_120px_120px_42px] gap-4 border-b border-[#e2e7e0] bg-[#f7f9f5] px-5 py-3 text-xs font-bold uppercase tracking-[0.08em] text-[#718178] lg:grid">
+          <div className="hidden grid-cols-[100px_minmax(300px,1.4fr)_minmax(150px,.6fr)_180px_120px_120px_42px] gap-4 border-b border-[#e2e7e0] bg-[#f7f9f5] px-5 py-3 text-xs font-bold uppercase tracking-[0.08em] text-[#718178] lg:grid">
             <span>Code</span>
             <span>Activity</span>
             <span>Workstream</span>
+            <span>Owner</span>
             <span>Status</span>
             <span>Progress</span>
             <span>Update</span>
@@ -2630,12 +2896,24 @@ export default function Home() {
             {filtered.map((item) => {
               const currentStatus = deriveActivityStatus(item, updates);
               const currentProgress = deriveActivityProgress(item, updates);
+              const currentOwner = canonicalOwnerName(
+                activityOwner(item, updates),
+                teamMembers,
+              );
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openActivity(item)}
-                  className="grid w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-[#f7faf5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2b7357] lg:grid-cols-[110px_minmax(340px,1.5fr)_minmax(190px,.7fr)_120px_120px_42px] lg:items-center lg:gap-4 lg:px-5"
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openActivity(item);
+                    }
+                  }}
+                  className="grid w-full cursor-pointer gap-3 px-4 py-4 text-left transition-colors hover:bg-[#f7faf5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2b7357] lg:grid-cols-[100px_minmax(300px,1.4fr)_minmax(150px,.6fr)_180px_120px_120px_42px] lg:items-center lg:gap-4 lg:px-5"
                 >
                   <div className="flex items-center justify-between lg:block">
                     <span className="font-mono text-sm font-black text-[#2f634c]">
@@ -2653,10 +2931,41 @@ export default function Home() {
                       {item.subactivities.length} sub-activities · due{" "}
                       {formatDate(item.endDate)}
                     </p>
+                    {!currentOwner && (
+                      <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-rose-700">
+                        <span className="h-2 w-2 rounded-full bg-rose-600" />
+                        Owner required
+                      </p>
+                    )}
                   </div>
                   <p className="line-clamp-2 text-sm font-medium text-[#53685c]">
                     {item.workstream || "Programme management"}
                   </p>
+                  <div onClick={(event) => event.stopPropagation()}>
+                    <NativeSelect
+                      value={currentOwner}
+                      onChange={(event) =>
+                        void saveOwnerForTarget(
+                          {
+                            key: item.id,
+                            status: currentStatus,
+                            progress: currentProgress,
+                            note: updates[item.id]?.note ?? "",
+                          },
+                          event.target.value,
+                        )
+                      }
+                      className={`h-9 w-full bg-white text-sm ${currentOwner ? "border-[#ced8cf]" : "border-rose-300 text-rose-700"}`}
+                      aria-label={`Change owner for ${item.code || item.uid}`}
+                    >
+                      <NativeSelectOption value="">No owner</NativeSelectOption>
+                      {teamMembers.map((teamMember) => (
+                        <NativeSelectOption key={teamMember.id} value={teamMember.name}>
+                          {teamMember.name}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </div>
                   <div>
                     <StatusPill status={currentStatus} />
                   </div>
@@ -2671,7 +2980,7 @@ export default function Home() {
                     />
                   </div>
                   <PencilLine className="hidden h-5 w-5 text-[#4f725f] lg:block" />
-                </button>
+                </div>
               );
             })}
           </div>
@@ -2785,7 +3094,7 @@ export default function Home() {
                     </p>
                   )}
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <label className="relative block min-w-[230px]">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                     <Input
@@ -2832,31 +3141,6 @@ export default function Home() {
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
-                  <Button
-                    variant="outline"
-                    onClick={openAddBudgetLine}
-                    className="h-10 border-[#bfcbbf] bg-white"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Budget line
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => openAllocationDialog()}
-                    disabled={!allBudgetLines.length || !allocationTargets.length}
-                    className="h-10 border-[#bfcbbf] bg-white"
-                  >
-                    <WalletCards className="h-4 w-4" />
-                    Allocate budget
-                  </Button>
-                  <Button
-                    onClick={() => openFinanceDialog()}
-                    disabled={!allBudgetLines.length}
-                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add finance entry
-                  </Button>
                 </div>
               </div>
 
@@ -2870,7 +3154,7 @@ export default function Home() {
                       <TableHead className="w-[12%] text-right">Committed</TableHead>
                       <TableHead className="w-[12%] text-right">Expenditure</TableHead>
                       <TableHead className="w-[12%] text-right">Remaining</TableHead>
-                      <TableHead className="w-[12%] pr-5 text-right">Entry</TableHead>
+                      <TableHead className="w-[12%] pr-5 text-right">Details</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2890,9 +3174,13 @@ export default function Home() {
                                 {line.code}
                               </span>
                               <div className="min-w-0">
-                                <p className="whitespace-normal break-words font-bold leading-5 text-[#183529]">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedBudgetKey(line.id)}
+                                  className="whitespace-normal break-words text-left font-bold leading-5 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                                >
                                   {line.title}
-                                </p>
+                                </button>
                                 <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
                                   Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
                                 </p>
@@ -2917,32 +3205,15 @@ export default function Home() {
                             {formatMnt(remainingMnt)}
                           </TableCell>
                           <TableCell className="pr-5 text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditBudgetLine(line)}
-                                aria-label={`Edit budget line ${line.code}`}
-                              >
-                                <PencilLine className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openAllocationDialog(line.id)}
-                                aria-label={`Allocate budget from ${line.code}`}
-                              >
-                                <WalletCards className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openFinanceDialog(line.id)}
-                                aria-label={`Add finance entry for ${line.code}`}
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedBudgetKey(line.id)}
+                              aria-label={`Open budget line ${line.code}`}
+                            >
+                              Open
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -2967,27 +3238,26 @@ export default function Home() {
                           <span className="inline-flex rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
                             {line.code}
                           </span>
-                          <h3 className="mt-2 whitespace-normal break-words font-bold leading-6 text-[#183529]">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBudgetKey(line.id)}
+                            className="mt-2 whitespace-normal break-words text-left font-bold leading-6 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                          >
                             {line.title}
-                          </h3>
+                          </button>
                           <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
                             Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
                           </p>
                         </div>
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openEditBudgetLine(line)}>
-                            <PencilLine className="h-4 w-4" />
-                            Edit
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openAllocationDialog(line.id)}>
-                            <WalletCards className="h-4 w-4" />
-                            Allocate
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openFinanceDialog(line.id)}>
-                            <Plus className="h-4 w-4" />
-                            Entry
-                          </Button>
-                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedBudgetKey(line.id)}
+                          className="shrink-0"
+                        >
+                          Open line
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
                       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
                         {[
@@ -3038,7 +3308,7 @@ export default function Home() {
               )}
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+            <section className="hidden overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
               <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-lg font-bold">Budget allocations</h2>
@@ -3196,15 +3466,8 @@ export default function Home() {
                   <ReceiptText className="mx-auto mb-3 h-7 w-7 text-[#779083]" />
                   <p className="font-bold">No finance entries yet</p>
                   <p className="mt-1 text-sm text-[#718178]">
-                    Add the first commitment or expenditure to start tracking the balance.
+                    Open a budget line, then choose an activity to add a commitment or expenditure.
                   </p>
-                  <Button
-                    onClick={() => openFinanceDialog()}
-                    className="mt-4 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add finance entry
-                  </Button>
                 </div>
               )}
             </section>
@@ -3599,14 +3862,24 @@ export default function Home() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Owner</span>
-                <Input
-                  list="pcu-team-member-options"
-                  value={subactivityPlanDraft.owner}
+                <NativeSelect
+                  value={canonicalOwnerName(subactivityPlanDraft.owner, teamMembers)}
                   onChange={(event) =>
                     setSubactivityPlanDraft((current) => ({ ...current, owner: event.target.value }))
                   }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
+                  className={`h-11 w-full bg-white ${
+                    canonicalOwnerName(subactivityPlanDraft.owner, teamMembers)
+                      ? "border-[#cbd6cc]"
+                      : "border-rose-300"
+                  }`}
+                >
+                  <NativeSelectOption value="">No owner</NativeSelectOption>
+                  {teamMembers.map((item) => (
+                    <NativeSelectOption key={item.id} value={item.name}>
+                      {item.name} · {item.role}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Executor</span>
@@ -3668,19 +3941,6 @@ export default function Home() {
                     setSubactivityPlanDraft((current) => ({
                       ...current,
                       progressSummary: event.target.value,
-                    }))
-                  }
-                  className="min-h-24 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Ministry support needed</span>
-                <Textarea
-                  value={subactivityPlanDraft.ministrySupport}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({
-                      ...current,
-                      ministrySupport: event.target.value,
                     }))
                   }
                   className="min-h-24 border-[#cbd6cc] bg-white"
@@ -3761,15 +4021,17 @@ export default function Home() {
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Amount (MNT)</span>
               <Input
-                type="number"
-                min="0"
-                step="1"
+                type="text"
+                inputMode="numeric"
                 value={budgetLineDraft.amountMnt}
                 onChange={(event) =>
-                  setBudgetLineDraft((current) => ({ ...current, amountMnt: event.target.value }))
+                  setBudgetLineDraft((current) => ({
+                    ...current,
+                    amountMnt: formatNumberInput(event.target.value),
+                  }))
                 }
                 className="h-11 border-[#cbd6cc] bg-white"
-                placeholder="450000000"
+                placeholder="450,000,000"
               />
             </label>
             <label className="block sm:col-span-2">
@@ -3876,6 +4138,186 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog
+        open={Boolean(selectedBudgetLine)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedBudgetKey(null);
+        }}
+      >
+        <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-5xl!">
+          {selectedBudgetLine && (
+            <>
+              <DialogHeader className="text-left">
+                <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-mono text-sm font-black text-[#2f634c]">
+                      {selectedBudgetLine.code}
+                    </p>
+                    <DialogTitle className="mt-1 text-2xl font-black leading-tight">
+                      {selectedBudgetLine.title}
+                    </DialogTitle>
+                    <DialogDescription className="mt-2">
+                      Open an activity below to allocate planned budget and record its finance entries.
+                    </DialogDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEditBudgetLine(selectedBudgetLine)}
+                  >
+                    <PencilLine className="h-4 w-4" />
+                    Edit budget line
+                  </Button>
+                </div>
+              </DialogHeader>
+
+              {(() => {
+                const totals = financeByBudgetKey.get(selectedBudgetLine.id) ?? {
+                  commitment: 0,
+                  expenditure: 0,
+                };
+                const budgetMnt =
+                  Number(selectedBudgetLine.budgetMntMillion) * 1_000_000;
+                const generalEntries = financeEntries.filter(
+                  (entry) =>
+                    entry.budgetKey === selectedBudgetLine.id && !entry.activityKey,
+                );
+                return (
+                  <>
+                    <dl className="grid grid-cols-2 gap-3 py-2 sm:grid-cols-5">
+                      {[
+                        ["Budget", formatMnt(budgetMnt)],
+                        [
+                          "Allocated",
+                          formatMnt(allocationByBudgetKey.get(selectedBudgetLine.id) ?? 0),
+                        ],
+                        ["Committed", formatMnt(totals.commitment)],
+                        ["Expenditure", formatMnt(totals.expenditure)],
+                        ["Remaining", formatMnt(budgetMnt - totals.expenditure)],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-xl bg-[#f3f7f1] p-3">
+                          <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                          <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums">
+                            {value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {generalEntries.length > 0 && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        {generalEntries.length} existing budget-level finance {generalEntries.length === 1 ? "entry is" : "entries are"} retained. New entries are recorded under a specific activity.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              <div className="space-y-3">
+                {selectedBudgetTargets.map((target) => {
+                  const activity = allActivities.find(
+                    (item) => item.id === target.activityId,
+                  );
+                  const subactivity = activity?.subactivities.find(
+                    (item) => item.id === target.key,
+                  );
+                  const ownerValue = subactivity
+                    ? subactivityOwner(subactivity, updates)
+                    : activity
+                      ? activityOwner(activity, updates)
+                      : "";
+                  const ownerName = canonicalOwnerName(ownerValue, teamMembers);
+                  const allocation = allocations.find(
+                    (item) =>
+                      item.budgetKey === selectedBudgetLine.id &&
+                      item.activityKey === target.key,
+                  );
+                  const targetFinance = financeByActivityKey.get(target.key) ?? {
+                    commitment: 0,
+                    expenditure: 0,
+                  };
+                  const allocatedMnt = allocation?.amountMnt ?? 0;
+                  return (
+                    <article
+                      key={target.key}
+                      className={`rounded-2xl border p-4 ${target.kind === "subactivity" ? "ml-3 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cad8cd] bg-white shadow-sm"}`}
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${target.kind === "activity" ? "bg-[#dfeeda] text-[#235f46]" : "bg-[#eef3ec] text-[#597066]"}`}>
+                            <ListChecks className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#718178]">
+                              {target.kind === "activity" ? "Main activity" : "Sub-activity"}
+                            </p>
+                            <h3 className="mt-1 text-sm font-black leading-6">
+                              {target.kind === "activity" ? `${target.code} · ` : ""}
+                              {target.label}
+                            </h3>
+                            <p className={`mt-2 flex items-center gap-2 text-xs font-semibold ${ownerName ? "text-[#5d7467]" : "text-rose-700"}`}>
+                              <span className={`h-2 w-2 rounded-full ${ownerName ? "bg-emerald-600" : "bg-rose-600"}`} />
+                              {ownerName || "Owner required"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              openAllocationDialog(
+                                selectedBudgetLine.id,
+                                target.key,
+                                allocation,
+                              )
+                            }
+                          >
+                            <WalletCards className="h-4 w-4" />
+                            {allocation ? "Edit allocation" : "Allocate"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              openFinanceDialog(selectedBudgetLine.id, target.key)
+                            }
+                            className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add finance entry
+                          </Button>
+                        </div>
+                      </div>
+                      <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {[
+                          ["Allocated", formatMnt(allocatedMnt)],
+                          ["Committed", formatMnt(targetFinance.commitment)],
+                          ["Expenditure", formatMnt(targetFinance.expenditure)],
+                          ["Available", formatMnt(allocatedMnt - targetFinance.expenditure)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
+                            <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                            <dd className="mt-1 text-sm font-black tabular-nums">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </article>
+                  );
+                })}
+                {selectedBudgetTargets.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-5 py-8 text-center">
+                    <AlertTriangle className="mx-auto h-6 w-6 text-amber-700" />
+                    <p className="mt-2 font-bold text-amber-950">No matching activities</p>
+                    <p className="mt-1 text-sm text-amber-900">
+                      Activity codes under this budget line need to begin with {selectedBudgetLine.code}.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={allocationDialogOpen} onOpenChange={setAllocationDialogOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-2xl">
           <DialogHeader>
@@ -3885,22 +4327,16 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-bold">Budget line</span>
-              <NativeSelect
-                value={allocationDraft.budgetKey}
-                onChange={(event) =>
-                  setAllocationDraft((current) => ({ ...current, budgetKey: event.target.value }))
-                }
-                className="h-11 w-full border-[#cbd6cc] bg-white"
-              >
-                {allBudgetLines.map((line) => (
-                  <NativeSelectOption key={line.id} value={line.id}>
-                    {line.code} · {line.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
+            <div className="rounded-xl border border-[#d8e0d6] bg-[#f5f8f3] px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#718178]">
+                Budget line
+              </p>
+              <p className="mt-1 font-bold leading-6">
+                {allocationBudgetLine
+                  ? `${allocationBudgetLine.code} · ${allocationBudgetLine.title}`
+                  : "Budget line unavailable"}
+              </p>
+            </div>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Activity or sub-activity</span>
               <NativeSelect
@@ -3920,15 +4356,17 @@ export default function Home() {
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Allocated amount (MNT)</span>
               <Input
-                type="number"
-                min="1"
-                step="1"
+                type="text"
+                inputMode="numeric"
                 value={allocationDraft.amountMnt}
                 onChange={(event) =>
-                  setAllocationDraft((current) => ({ ...current, amountMnt: event.target.value }))
+                  setAllocationDraft((current) => ({
+                    ...current,
+                    amountMnt: formatNumberInput(event.target.value),
+                  }))
                 }
                 className="h-11 border-[#cbd6cc] bg-white"
-                placeholder="For example, 150000000"
+                placeholder="150,000,000"
               />
             </label>
             <label className="block">
@@ -3998,29 +4436,28 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle>Add finance entry</DialogTitle>
             <DialogDescription>
-              Record a commitment or expenditure against one {selectedYear} budget line.
+              Record a commitment or expenditure for the selected workplan item.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-bold">Budget line</span>
-              <NativeSelect
-                value={financeDraft.budgetKey}
-                onChange={(event) =>
-                  setFinanceDraft((current) => ({
-                    ...current,
-                    budgetKey: event.target.value,
-                  }))
-                }
-                className="h-11 w-full border-[#cbd6cc] bg-white"
-              >
-                {allBudgetLines.map((line) => (
-                  <NativeSelectOption key={line.id} value={line.id}>
-                    {line.code} · {line.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
+            <div className="rounded-xl border border-[#d8e0d6] bg-[#f5f8f3] px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#718178]">
+                Budget line
+              </p>
+              <p className="mt-1 font-bold leading-6">
+                {financeBudgetLine
+                  ? `${financeBudgetLine.code} · ${financeBudgetLine.title}`
+                  : "Budget line unavailable"}
+              </p>
+              <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-[#718178]">
+                Activity or sub-activity
+              </p>
+              <p className="mt-1 text-sm leading-6">
+                {financeTarget
+                  ? `${financeTarget.code} · ${financeTarget.label}`
+                  : "Workplan item unavailable"}
+              </p>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Entry type</span>
@@ -4056,19 +4493,17 @@ export default function Home() {
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Amount (MNT)</span>
               <Input
-                type="number"
-                min="1"
-                step="1"
+                type="text"
                 inputMode="numeric"
                 value={financeDraft.amountMnt}
                 onChange={(event) =>
                   setFinanceDraft((current) => ({
                     ...current,
-                    amountMnt: event.target.value,
+                    amountMnt: formatNumberInput(event.target.value),
                   }))
                 }
                 className="h-11 border-[#cbd6cc] bg-white"
-                placeholder="For example, 450000000"
+                placeholder="450,000,000"
               />
             </label>
             <label className="block">
@@ -4219,7 +4654,7 @@ export default function Home() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this team member?</AlertDialogTitle>
             <AlertDialogDescription>
-              The member will disappear from team reports and filters. Existing activity notes and finance records will remain unchanged.
+              The member will disappear from team reports and filters. Their activities and sub-activities will be cleared and marked with a red owner warning until reassigned. Notes and finance records will remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -4261,16 +4696,7 @@ export default function Home() {
                     onClick={() => openEditActivity(selected)}
                   >
                     <PencilLine className="h-4 w-4" />
-                    Edit activity details
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openAllocationDialog(undefined, selected.id)}
-                    disabled={!allBudgetLines.length}
-                  >
-                    <WalletCards className="h-4 w-4" />
-                    Allocate budget
+                    Edit activity
                   </Button>
                 </div>
               </DialogHeader>
@@ -4363,9 +4789,9 @@ export default function Home() {
                       </NativeSelect>
                     </label>
 
-                    {activeMainIsAuto && (
+                    {activeMainProgressAuto && (
                       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
-                        Main activity status and progress are calculated automatically from its sub-activities. Complete or update the sub-activities below to change these results.
+                        Main activity progress is calculated automatically from its sub-activities. You can still update the main activity status manually.
                       </div>
                     )}
 
@@ -4376,7 +4802,6 @@ export default function Home() {
                         </span>
                         <NativeSelect
                           value={draft.status}
-                          disabled={activeMainIsAuto}
                           onChange={(event) =>
                             setDraft((current) => ({
                               ...current,
@@ -4396,18 +4821,33 @@ export default function Home() {
                         <span className="mb-1.5 block text-sm font-bold">
                           Owner
                         </span>
-                        <Input
-                          list="pcu-team-member-options"
-                          value={draft.owner}
+                        <NativeSelect
+                          value={canonicalOwnerName(draft.owner, teamMembers)}
                           onChange={(event) =>
                             setDraft((current) => ({
                               ...current,
                               owner: event.target.value,
                             }))
                           }
-                          className="h-11 border-[#cbd6cc] bg-white"
-                          placeholder="Responsible person"
-                        />
+                          className={`h-11 w-full bg-white ${
+                            canonicalOwnerName(draft.owner, teamMembers)
+                              ? "border-[#cbd6cc]"
+                              : "border-rose-300"
+                          }`}
+                        >
+                          <NativeSelectOption value="">No owner</NativeSelectOption>
+                          {teamMembers.map((item) => (
+                            <NativeSelectOption key={item.id} value={item.name}>
+                              {item.name} · {item.role}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                        {!canonicalOwnerName(draft.owner, teamMembers) && (
+                          <span className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-rose-700">
+                            <span className="h-2 w-2 rounded-full bg-rose-600" />
+                            Owner required
+                          </span>
+                        )}
                       </label>
                     </div>
 
@@ -4420,7 +4860,7 @@ export default function Home() {
                       </div>
                       <Slider
                         value={[draft.progress]}
-                        disabled={activeMainIsAuto}
+                        disabled={activeMainProgressAuto}
                         min={0}
                         max={100}
                         step={5}
@@ -4449,23 +4889,6 @@ export default function Home() {
                         }
                         className="min-h-24 border-[#cbd6cc] bg-white"
                         placeholder="What changed, what was completed, or what comes next?"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <span className="mb-1.5 block text-sm font-bold">
-                        Support needed
-                      </span>
-                      <Textarea
-                        value={draft.supportNeeded}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            supportNeeded: event.target.value,
-                          }))
-                        }
-                        className="min-h-20 border-[#cbd6cc] bg-white"
-                        placeholder="Decision, coordination, or ministry support required"
                       />
                     </label>
 
@@ -4503,7 +4926,7 @@ export default function Home() {
                       Add sub-activity
                     </Button>
                   </div>
-                  <div className="divide-y divide-[#e4e9e2] rounded-2xl border border-[#dbe3d9]">
+                  <div className="space-y-3">
                     {selected.subactivities.map((sub) => {
                       const currentStatus = recordStatus(
                         sub.id,
@@ -4516,22 +4939,39 @@ export default function Home() {
                         updates,
                       );
                       const saved = updates[sub.id];
+                      const currentOwner = canonicalOwnerName(
+                        subactivityOwner(sub, updates),
+                        teamMembers,
+                      );
                       return (
-                        <button
-                          type="button"
+                        <article
                           key={sub.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => loadTarget(targetForSubactivity(sub))}
-                          className={`block w-full p-4 text-left transition-colors hover:bg-[#f6f9f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2b7357] ${editKey === sub.id ? "bg-[#f0f6ed]" : ""}`}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              loadTarget(targetForSubactivity(sub));
+                            }
+                          }}
+                          className={`rounded-2xl border p-4 text-left transition-colors hover:bg-[#f6f9f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2b7357] ${
+                            editKey === sub.id
+                              ? "border-[#8eaf9a] bg-[#f0f6ed]"
+                              : "border-[#dbe3d9] bg-white"
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <p className="text-sm font-bold leading-5">
-                              {sub.title}
-                            </p>
+                            <div className="flex min-w-0 items-start gap-3">
+                              <span className="rounded-lg bg-[#e8f1e6] p-2 text-[#2c795a]">
+                                <ListChecks className="h-4 w-4" />
+                              </span>
+                              <p className="pt-1 text-sm font-bold leading-5">
+                                {sub.title}
+                              </p>
+                            </div>
                             <div className="flex items-center gap-2">
                               <StatusPill status={currentStatus} />
-                              <span className="hidden text-xs font-bold text-[#416552] sm:inline">
-                                Edit
-                              </span>
                             </div>
                           </div>
                           <div className="mt-3 flex items-center gap-3">
@@ -4543,8 +4983,46 @@ export default function Home() {
                               {currentProgress}%
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#718178]">
-                            <p>{saved?.owner || sub.owner || "Owner not recorded"}</p>
+                          <div className="mt-3 flex flex-col gap-3 border-t border-[#e4e9e2] pt-3 sm:flex-row sm:items-end sm:justify-between">
+                            <label
+                              className="min-w-0 flex-1"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <span className="mb-1 flex items-center gap-1.5 text-xs font-bold text-[#718178]">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${
+                                    currentOwner ? "bg-emerald-600" : "bg-rose-600"
+                                  }`}
+                                />
+                                {currentOwner ? "Owner" : "Owner required"}
+                              </span>
+                              <NativeSelect
+                                value={currentOwner}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  void saveOwnerForTarget(
+                                    {
+                                      key: sub.id,
+                                      status: currentStatus,
+                                      progress: currentProgress,
+                                      note: saved?.note ?? "",
+                                    },
+                                    event.target.value,
+                                  );
+                                }}
+                                className={`h-9 w-full bg-white text-xs ${
+                                  currentOwner ? "border-[#cbd6cc]" : "border-rose-300"
+                                }`}
+                              >
+                                <NativeSelectOption value="">No owner</NativeSelectOption>
+                                {teamMembers.map((item) => (
+                                  <NativeSelectOption key={item.id} value={item.name}>
+                                    {item.name} · {item.role}
+                                  </NativeSelectOption>
+                                ))}
+                              </NativeSelect>
+                            </label>
                             <p className="font-bold text-[#315845]">
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                             </p>
@@ -4554,11 +5032,11 @@ export default function Home() {
                               {saved?.note || sub.progressSummary}
                             </p>
                           )}
-                        </button>
+                        </article>
                       );
                     })}
                     {selected.subactivities.length === 0 && (
-                      <p className="p-4 text-sm text-[#718178]">
+                      <p className="rounded-2xl border border-dashed border-[#dbe3d9] p-4 text-sm text-[#718178]">
                         No sub-activities were reported in the June progress sheet.
                       </p>
                     )}
@@ -4625,13 +5103,6 @@ export default function Home() {
           )}
         </DialogContent>
       </Dialog>
-      <datalist id="pcu-team-member-options">
-        {teamMembers.map((item) => (
-          <option key={item.id} value={item.name}>
-            {item.role}
-          </option>
-        ))}
-      </datalist>
     </main>
   );
 }

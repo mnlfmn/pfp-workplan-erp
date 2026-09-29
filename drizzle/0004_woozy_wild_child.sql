@@ -1,0 +1,1 @@
+ALTER TABLE `finance_entries` ADD `activity_key` text DEFAULT '' NOT NULL;

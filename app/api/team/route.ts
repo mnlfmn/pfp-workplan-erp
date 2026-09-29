@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { teamMembers } from "@/db/schema";
+import { activityUpdates, teamMembers, workplanRecords } from "@/db/schema";
 import {
   defaultTeamMembers,
   type TeamMember,
 } from "@/lib/team-members";
+import workplan from "@/lib/workplan-data.json";
 
 type TeamMemberRow = typeof teamMembers.$inferSelect;
 
@@ -92,6 +93,34 @@ function authenticatedUser(request: Request) {
     ""
   );
 }
+
+function safePayload(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function matchesMember(value: string, member: TeamMember) {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (!normalized) return false;
+  return [member.name, ...member.aliases].some((alias) =>
+    normalized.includes(alias.toLocaleLowerCase()),
+  );
+}
+
+const statusWeight: Record<string, number> = {
+  completed: 100,
+  in_progress: 55,
+  delayed: 35,
+  on_hold: 20,
+  not_started: 0,
+  not_reported: 0,
+};
 
 export async function GET() {
   try {
@@ -225,7 +254,89 @@ export async function DELETE(request: Request) {
       .insert(teamMembers)
       .values(stored)
       .onConflictDoUpdate({ target: teamMembers.id, set: stored });
-    return Response.json({ deletedId: id });
+
+    const [savedUpdates, planRecords] = await Promise.all([
+      db.select().from(activityUpdates),
+      db.select().from(workplanRecords),
+    ]);
+    const updateMap = new Map(savedUpdates.map((item) => [item.activityKey, item]));
+    const candidates = new Map<
+      string,
+      { owner: string; status: string; progress: number }
+    >();
+
+    for (const activity of workplan.activities) {
+      candidates.set(activity.id, {
+        owner: activity.technicalLead || activity.lead || "",
+        status: activity.status,
+        progress: activity.progress,
+      });
+      for (const subactivity of activity.subactivities) {
+        candidates.set(subactivity.id, {
+          owner: subactivity.owner || "",
+          status: subactivity.status,
+          progress: statusWeight[subactivity.status] ?? 0,
+        });
+      }
+    }
+
+    for (const record of planRecords) {
+      if (
+        record.isDeleted ||
+        !["activity", "subactivity"].includes(record.recordType)
+      ) {
+        continue;
+      }
+      const data = safePayload(record.payload);
+      const current = candidates.get(record.recordKey);
+      const status = String(data.status ?? current?.status ?? "not_reported");
+      candidates.set(record.recordKey, {
+        owner:
+          record.recordType === "activity"
+            ? String(data.technicalLead ?? data.lead ?? current?.owner ?? "")
+            : String(data.owner ?? current?.owner ?? ""),
+        status: status in statusWeight ? status : "not_reported",
+        progress: Number(data.progress ?? current?.progress ?? statusWeight[status] ?? 0),
+      });
+    }
+
+    const clearedUpdates: Array<typeof activityUpdates.$inferSelect> = [];
+    const candidateKeys = new Set([
+      ...candidates.keys(),
+      ...savedUpdates.map((item) => item.activityKey),
+    ]);
+    for (const activityKey of candidateKeys) {
+      const existingUpdate = updateMap.get(activityKey);
+      const candidate = candidates.get(activityKey);
+      const effectiveOwner = existingUpdate
+        ? existingUpdate.owner
+        : candidate?.owner ?? "";
+      if (!matchesMember(effectiveOwner, member)) continue;
+      const values = {
+        activityKey,
+        status: existingUpdate?.status ?? candidate?.status ?? "not_reported",
+        progress: Math.max(
+          0,
+          Math.min(100, Math.round(existingUpdate?.progress ?? candidate?.progress ?? 0)),
+        ),
+        note: existingUpdate?.note ?? "",
+        supportNeeded: existingUpdate?.supportNeeded ?? "",
+        owner: "",
+        updatedAt: now,
+        updatedBy: authenticatedUser(request),
+      };
+      const [cleared] = await db
+        .insert(activityUpdates)
+        .values(values)
+        .onConflictDoUpdate({
+          target: activityUpdates.activityKey,
+          set: values,
+        })
+        .returning();
+      clearedUpdates.push(cleared);
+    }
+
+    return Response.json({ deletedId: id, clearedUpdates });
   } catch (error) {
     console.error("Unable to remove team member", error);
     return Response.json({ error: message(error) }, { status: 503 });
