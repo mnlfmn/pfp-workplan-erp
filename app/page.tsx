@@ -725,6 +725,10 @@ export default function Home() {
   const [budgetLineSaving, setBudgetLineSaving] = useState(false);
   const [budgetLineDeleteOpen, setBudgetLineDeleteOpen] = useState(false);
   const [selectedBudgetKey, setSelectedBudgetKey] = useState<string | null>(null);
+  const [expandedFinanceActivityKeys, setExpandedFinanceActivityKeys] =
+    useState<Set<string>>(new Set());
+  const [expandedFinanceRecordKeys, setExpandedFinanceRecordKeys] =
+    useState<Set<string>>(new Set());
 
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
@@ -2124,6 +2128,30 @@ export default function Home() {
     [allActivities, selectedBudgetLine],
   );
 
+  function openFinanceBudgetLine(budgetKey: string) {
+    setExpandedFinanceActivityKeys(new Set());
+    setExpandedFinanceRecordKeys(new Set());
+    setSelectedBudgetKey(budgetKey);
+  }
+
+  function toggleFinanceActivity(activityKey: string) {
+    setExpandedFinanceActivityKeys((current) => {
+      const next = new Set(current);
+      if (next.has(activityKey)) next.delete(activityKey);
+      else next.add(activityKey);
+      return next;
+    });
+  }
+
+  function toggleFinanceRecords(targetKey: string) {
+    setExpandedFinanceRecordKeys((current) => {
+      const next = new Set(current);
+      if (next.has(targetKey)) next.delete(targetKey);
+      else next.add(targetKey);
+      return next;
+    });
+  }
+
   const financeStats = useMemo(() => {
     return summarizeFinance(filteredBudgetLines, financeEntries);
   }, [filteredBudgetLines, financeEntries]);
@@ -3208,7 +3236,7 @@ export default function Home() {
                               <div className="min-w-0">
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedBudgetKey(line.id)}
+                                  onClick={() => openFinanceBudgetLine(line.id)}
                                   className="whitespace-normal break-words text-left font-bold leading-5 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
                                 >
                                   {line.title}
@@ -3240,7 +3268,7 @@ export default function Home() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setSelectedBudgetKey(line.id)}
+                              onClick={() => openFinanceBudgetLine(line.id)}
                               aria-label={`Open budget line ${line.code}`}
                             >
                               Open
@@ -3272,7 +3300,7 @@ export default function Home() {
                           </span>
                           <button
                             type="button"
-                            onClick={() => setSelectedBudgetKey(line.id)}
+                            onClick={() => openFinanceBudgetLine(line.id)}
                             className="mt-2 whitespace-normal break-words text-left font-bold leading-6 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
                           >
                             {line.title}
@@ -3284,7 +3312,7 @@ export default function Home() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setSelectedBudgetKey(line.id)}
+                          onClick={() => openFinanceBudgetLine(line.id)}
                           className="shrink-0"
                         >
                           Open line
@@ -4207,7 +4235,11 @@ export default function Home() {
       <Dialog
         open={Boolean(selectedBudgetLine)}
         onOpenChange={(open) => {
-          if (!open) setSelectedBudgetKey(null);
+          if (!open) {
+            setSelectedBudgetKey(null);
+            setExpandedFinanceActivityKeys(new Set());
+            setExpandedFinanceRecordKeys(new Set());
+          }
         }}
       >
         <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-5xl!">
@@ -4223,7 +4255,7 @@ export default function Home() {
                       {selectedBudgetLine.title}
                     </DialogTitle>
                     <DialogDescription className="mt-2">
-                      Open an activity below to allocate planned budget and record its finance entries.
+                      Main activities are shown first. Open one to view its sub-activities, allocations, and finance records.
                     </DialogDescription>
                   </div>
                   <Button
@@ -4279,7 +4311,13 @@ export default function Home() {
               })()}
 
               <div className="space-y-3">
-                {selectedBudgetTargets.map((target) => {
+                {selectedBudgetTargets
+                  .filter(
+                    (target) =>
+                      target.kind === "activity" ||
+                      expandedFinanceActivityKeys.has(target.activityId),
+                  )
+                  .map((target) => {
                   const activity = allActivities.find(
                     (item) => item.id === target.activityId,
                   );
@@ -4310,6 +4348,21 @@ export default function Home() {
                     { commitment: 0, expenditure: 0 },
                   );
                   const allocatedMnt = allocation?.amountMnt ?? 0;
+                  const commitmentEntryCount = targetEntries.filter(
+                    (entry) => entry.entryType === "commitment",
+                  ).length;
+                  const expenditureEntryCount = targetEntries.filter(
+                    (entry) => entry.entryType === "expenditure",
+                  ).length;
+                  const subactivityCount = selectedBudgetTargets.filter(
+                    (item) =>
+                      item.activityId === target.activityId &&
+                      item.kind === "subactivity",
+                  ).length;
+                  const activityExpanded = expandedFinanceActivityKeys.has(
+                    target.activityId,
+                  );
+                  const recordsExpanded = expandedFinanceRecordKeys.has(target.key);
                   return (
                     <article
                       key={target.key}
@@ -4349,6 +4402,36 @@ export default function Home() {
                             <WalletCards className="h-4 w-4" />
                             {allocation ? "Edit allocation" : "Allocate"}
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => toggleFinanceRecords(target.key)}
+                            aria-expanded={recordsExpanded}
+                          >
+                            <ReceiptText className="h-4 w-4" />
+                            {recordsExpanded ? "Hide finance records" : "See finance records"}
+                            {targetEntries.length > 0 && (
+                              <span className="rounded-full bg-[#e8f0e8] px-1.5 py-0.5 text-[11px] font-black text-[#285d45]">
+                                {targetEntries.length}
+                              </span>
+                            )}
+                          </Button>
+                          {target.kind === "activity" && subactivityCount > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleFinanceActivity(target.activityId)}
+                              aria-expanded={activityExpanded}
+                              className="border-[#8cad96] bg-white text-[#245f47] hover:bg-[#f2f7f1] hover:text-[#174d3a]"
+                            >
+                              <ChevronRight
+                                className={`h-4 w-4 transition-transform ${activityExpanded ? "rotate-90" : ""}`}
+                              />
+                              {activityExpanded
+                                ? "Hide sub-activities"
+                                : `View sub-activities (${subactivityCount})`}
+                            </Button>
+                          )}
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -4380,7 +4463,7 @@ export default function Home() {
                             {formatMnt(targetFinance.commitment)}
                           </p>
                           <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
-                            Edit records below
+                            {commitmentEntryCount} {commitmentEntryCount === 1 ? "record" : "records"}
                           </span>
                         </div>
                         <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
@@ -4389,7 +4472,7 @@ export default function Home() {
                             {formatMnt(targetFinance.expenditure)}
                           </p>
                           <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
-                            Edit records below
+                            {expenditureEntryCount} {expenditureEntryCount === 1 ? "record" : "records"}
                           </span>
                         </div>
                         <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
@@ -4402,6 +4485,7 @@ export default function Home() {
                           </span>
                         </div>
                       </div>
+                      {recordsExpanded && (
                       <div className="mt-3 rounded-xl border border-[#dfe7dc] bg-white/80 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -4487,6 +4571,7 @@ export default function Home() {
                           </div>
                         )}
                       </div>
+                      )}
                     </article>
                   );
                 })}
