@@ -679,6 +679,9 @@ export default function Home() {
   >("loading");
   const [financeDialogOpen, setFinanceDialogOpen] = useState(false);
   const [financeSaving, setFinanceSaving] = useState(false);
+  const [editingFinanceId, setEditingFinanceId] = useState<number | null>(null);
+  const [financeDeleteEntry, setFinanceDeleteEntry] =
+    useState<FinanceEntry | null>(null);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
     activityKey: "",
@@ -995,15 +998,16 @@ export default function Home() {
   }
 
   const openFinanceDialog = useCallback(
-    (budgetKey: string, activityKey: string) => {
+    (budgetKey: string, activityKey: string, entry?: FinanceEntry) => {
+      setEditingFinanceId(entry?.id ?? null);
       setFinanceDraft({
         budgetKey,
         activityKey,
-        entryType: "commitment",
-        amountMnt: "",
-        entryDate: todayForInput(),
-        description: "",
-        vendor: "",
+        entryType: entry?.entryType ?? "commitment",
+        amountMnt: entry ? formatNumberInput(entry.amountMnt) : "",
+        entryDate: entry?.entryDate ?? todayForInput(),
+        description: entry?.description ?? "",
+        vendor: entry?.vendor ?? "",
       });
       setFinanceDialogOpen(true);
     },
@@ -1019,11 +1023,11 @@ export default function Home() {
       entryDate: string;
       description?: string;
       vendor?: string;
-    }) => {
+    }, id?: number) => {
       const response = await fetch("/api/finance", {
-        method: "POST",
+        method: id ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(id ? { ...payload, id } : payload),
       });
       const result = (await response.json()) as {
         entry?: FinanceEntry;
@@ -1032,7 +1036,13 @@ export default function Home() {
       if (!response.ok || !result.entry) {
         throw new Error(result.error || "The finance entry could not be saved.");
       }
-      setFinanceEntries((current) => [result.entry!, ...current]);
+      setFinanceEntries((current) =>
+        id
+          ? current.map((entry) =>
+              entry.id === result.entry!.id ? result.entry! : entry,
+            )
+          : [result.entry!, ...current],
+      );
       setFinanceState("ready");
       return result.entry;
     },
@@ -1047,20 +1057,26 @@ export default function Home() {
     }
     setFinanceSaving(true);
     try {
-      const entry = await persistFinanceEntry({
-        budgetKey: financeDraft.budgetKey,
-        activityKey: financeDraft.activityKey,
-        entryType: financeDraft.entryType,
-        amountMnt,
-        entryDate: financeDraft.entryDate,
-        description: financeDraft.description,
-        vendor: financeDraft.vendor,
-      });
+      const entry = await persistFinanceEntry(
+        {
+          budgetKey: financeDraft.budgetKey,
+          activityKey: financeDraft.activityKey,
+          entryType: financeDraft.entryType,
+          amountMnt,
+          entryDate: financeDraft.entryDate,
+          description: financeDraft.description,
+          vendor: financeDraft.vendor,
+        },
+        editingFinanceId ?? undefined,
+      );
       setFinanceDialogOpen(false);
+      setEditingFinanceId(null);
       toast.success(
-        financeDraft.entryType === "commitment"
-          ? "Commitment added"
-          : "Expenditure added",
+        editingFinanceId
+          ? "Finance entry updated"
+          : financeDraft.entryType === "commitment"
+            ? "Commitment added"
+            : "Expenditure added",
         { description: formatMnt(entry.amountMnt) },
       );
     } catch (error) {
@@ -1069,6 +1085,42 @@ export default function Home() {
         error instanceof Error
           ? error.message
           : "The finance entry could not be saved.",
+      );
+    } finally {
+      setFinanceSaving(false);
+    }
+  }
+
+  async function removeFinanceEntry() {
+    if (!financeDeleteEntry) return;
+    setFinanceSaving(true);
+    try {
+      const response = await fetch("/api/finance", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: financeDeleteEntry.id }),
+      });
+      const result = (await response.json()) as {
+        deletedId?: number;
+        error?: string;
+      };
+      if (!response.ok || !result.deletedId) {
+        throw new Error(result.error || "The finance entry could not be removed.");
+      }
+      setFinanceEntries((current) =>
+        current.filter((entry) => entry.id !== result.deletedId),
+      );
+      setFinanceDeleteEntry(null);
+      if (editingFinanceId === result.deletedId) {
+        setFinanceDialogOpen(false);
+        setEditingFinanceId(null);
+      }
+      toast.success("Finance entry removed");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The finance entry could not be removed.",
       );
     } finally {
       setFinanceSaving(false);
@@ -2036,20 +2088,6 @@ export default function Home() {
       };
       current[entry.entryType] += entry.amountMnt;
       totals.set(entry.budgetKey, current);
-    }
-    return totals;
-  }, [financeEntries]);
-
-  const financeByActivityKey = useMemo(() => {
-    const totals = new Map<string, { commitment: number; expenditure: number }>();
-    for (const entry of financeEntries) {
-      if (!entry.activityKey) continue;
-      const current = totals.get(entry.activityKey) ?? {
-        commitment: 0,
-        expenditure: 0,
-      };
-      current[entry.entryType] += entry.amountMnt;
-      totals.set(entry.activityKey, current);
     }
     return totals;
   }, [financeEntries]);
@@ -3412,6 +3450,7 @@ export default function Home() {
                       <TableHead>Type</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead className="pr-5 text-right">Amount (MNT)</TableHead>
+                      <TableHead className="pr-5 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -3448,6 +3487,39 @@ export default function Home() {
                           </TableCell>
                           <TableCell className="pr-5 text-right font-black tabular-nums">
                             {formatMnt(entry.amountMnt)}
+                          </TableCell>
+                          <TableCell className="pr-5">
+                            {entry.activityKey ? (
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() =>
+                                    openFinanceDialog(
+                                      entry.budgetKey,
+                                      entry.activityKey,
+                                      entry,
+                                    )
+                                  }
+                                  aria-label="Edit finance entry"
+                                >
+                                  <PencilLine className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => setFinanceDeleteEntry(entry)}
+                                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                                  aria-label="Remove finance entry"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="block text-right text-xs text-[#718178]">
+                                Legacy entry
+                              </span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -4225,10 +4297,18 @@ export default function Home() {
                       item.budgetKey === selectedBudgetLine.id &&
                       item.activityKey === target.key,
                   );
-                  const targetFinance = financeByActivityKey.get(target.key) ?? {
-                    commitment: 0,
-                    expenditure: 0,
-                  };
+                  const targetEntries = financeEntries.filter(
+                    (entry) =>
+                      entry.budgetKey === selectedBudgetLine.id &&
+                      entry.activityKey === target.key,
+                  );
+                  const targetFinance = targetEntries.reduce(
+                    (totals, entry) => ({
+                      ...totals,
+                      [entry.entryType]: totals[entry.entryType] + entry.amountMnt,
+                    }),
+                    { commitment: 0, expenditure: 0 },
+                  );
                   const allocatedMnt = allocation?.amountMnt ?? 0;
                   return (
                     <article
@@ -4281,19 +4361,142 @@ export default function Home() {
                           </Button>
                         </div>
                       </div>
-                      <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {[
-                          ["Allocated", formatMnt(allocatedMnt)],
-                          ["Committed", formatMnt(targetFinance.commitment)],
-                          ["Expenditure", formatMnt(targetFinance.expenditure)],
-                          ["Available", formatMnt(allocatedMnt - targetFinance.expenditure)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
-                            <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                            <dd className="mt-1 text-sm font-black tabular-nums">{value}</dd>
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openAllocationDialog(
+                              selectedBudgetLine.id,
+                              target.key,
+                              allocation,
+                            )
+                          }
+                          className="rounded-xl border border-transparent bg-[#f3f7f1] px-3 py-2.5 text-left transition hover:border-[#86aa91] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                        >
+                          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[#718178]">
+                            Allocated
+                            <PencilLine className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="mt-1 block text-sm font-black tabular-nums">
+                            {formatMnt(allocatedMnt)}
+                          </span>
+                          <span className="mt-1 block text-[11px] font-bold text-[#2f634c]">
+                            {allocation ? "Edit or remove" : "Add allocation"}
+                          </span>
+                        </button>
+                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
+                          <p className="text-xs font-semibold text-[#718178]">Committed</p>
+                          <p className="mt-1 text-sm font-black tabular-nums">
+                            {formatMnt(targetFinance.commitment)}
+                          </p>
+                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
+                            Edit records below
+                          </span>
+                        </div>
+                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
+                          <p className="text-xs font-semibold text-[#718178]">Expenditure</p>
+                          <p className="mt-1 text-sm font-black tabular-nums">
+                            {formatMnt(targetFinance.expenditure)}
+                          </p>
+                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
+                            Edit records below
+                          </span>
+                        </div>
+                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
+                          <p className="text-xs font-semibold text-[#718178]">Available</p>
+                          <p className="mt-1 text-sm font-black tabular-nums">
+                            {formatMnt(allocatedMnt - targetFinance.expenditure)}
+                          </p>
+                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
+                            Calculated automatically
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded-xl border border-[#dfe7dc] bg-white/80 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-[0.08em] text-[#496458]">
+                              Finance records
+                            </p>
+                            <p className="mt-0.5 text-xs text-[#718178]">
+                              {targetEntries.length
+                                ? `${targetEntries.length} saved ${targetEntries.length === 1 ? "entry" : "entries"}`
+                                : "No commitment or expenditure entries yet"}
+                            </p>
                           </div>
-                        ))}
-                      </dl>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              openFinanceDialog(selectedBudgetLine.id, target.key)
+                            }
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add
+                          </Button>
+                        </div>
+                        {targetEntries.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {targetEntries.map((entry) => (
+                              <div
+                                key={entry.id}
+                                className="flex flex-col gap-3 rounded-lg border border-[#e2e7e0] bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${entry.entryType === "commitment" ? "bg-blue-50 text-blue-800" : "bg-emerald-50 text-emerald-800"}`}
+                                    >
+                                      {entry.entryType === "commitment"
+                                        ? "Commitment"
+                                        : "Expenditure"}
+                                    </span>
+                                    <span className="text-xs font-semibold text-[#718178]">
+                                      {formatDate(entry.entryDate)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 break-words text-sm font-semibold">
+                                    {entry.description || entry.vendor || "No description"}
+                                  </p>
+                                  {entry.vendor && entry.description && (
+                                    <p className="mt-0.5 break-words text-xs text-[#718178]">
+                                      {entry.vendor}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+                                  <p className="mr-1 text-sm font-black tabular-nums">
+                                    {formatMnt(entry.amountMnt)}
+                                  </p>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() =>
+                                      openFinanceDialog(
+                                        selectedBudgetLine.id,
+                                        target.key,
+                                        entry,
+                                      )
+                                    }
+                                    aria-label="Edit finance entry"
+                                  >
+                                    <PencilLine className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setFinanceDeleteEntry(entry)}
+                                    className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                                    aria-label="Remove finance entry"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </article>
                   );
                 })}
@@ -4428,9 +4631,13 @@ export default function Home() {
       <Dialog open={financeDialogOpen} onOpenChange={setFinanceDialogOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Add finance entry</DialogTitle>
+            <DialogTitle>
+              {editingFinanceId ? "Edit finance entry" : "Add finance entry"}
+            </DialogTitle>
             <DialogDescription>
-              Record a commitment or expenditure for the selected workplan item.
+              {editingFinanceId
+                ? "Update or remove this commitment or expenditure record."
+                : "Record a commitment or expenditure for the selected workplan item."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -4529,20 +4736,69 @@ export default function Home() {
               />
             </label>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFinanceDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={saveFinanceEntry}
-              disabled={financeSaving || financeState === "loading"}
-              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-            >
-              {financeSaving ? "Saving…" : "Save entry"}
-            </Button>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {editingFinanceId && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const entry = financeEntries.find(
+                      (item) => item.id === editingFinanceId,
+                    );
+                    if (entry) setFinanceDeleteEntry(entry);
+                  }}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setFinanceDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveFinanceEntry}
+                disabled={financeSaving || financeState === "loading"}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+              >
+                {financeSaving
+                  ? "Saving…"
+                  : editingFinanceId
+                    ? "Save changes"
+                    : "Save entry"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(financeDeleteEntry)}
+        onOpenChange={(open) => {
+          if (!open) setFinanceDeleteEntry(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this finance entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The {financeDeleteEntry?.entryType ?? "finance"} record for {financeDeleteEntry ? formatMnt(financeDeleteEntry.amountMnt) : "this amount"} will be deleted and the totals will update automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={financeSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removeFinanceEntry}
+              disabled={financeSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {financeSaving ? "Removing…" : "Remove entry"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">

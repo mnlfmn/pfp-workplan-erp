@@ -190,3 +190,89 @@ export async function POST(request: Request) {
     return Response.json({ error: message(error) }, { status: 503 });
   }
 }
+
+export async function PUT(request: Request) {
+  try {
+    const payload = (await request.json()) as {
+      id?: number;
+      budgetKey?: string;
+      activityKey?: string;
+      entryType?: string;
+      amountMnt?: number;
+      entryDate?: string;
+      description?: string;
+      vendor?: string;
+    };
+    const id = Number(payload.id);
+    const budgetKey = payload.budgetKey?.trim() ?? "";
+    const activityKey = payload.activityKey?.trim() ?? "";
+    const entryType = payload.entryType?.trim() ?? "";
+    const amountMnt = Number(payload.amountMnt);
+    const entryDate = payload.entryDate?.trim() ?? "";
+
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return Response.json({ error: "Choose a valid finance entry." }, { status: 400 });
+    }
+    if (!(await isValidBudgetKey(budgetKey))) {
+      return Response.json({ error: "Choose a valid budget line." }, { status: 400 });
+    }
+    if (!(await isValidFinanceTarget(budgetKey, activityKey))) {
+      return Response.json(
+        { error: "Choose an activity that belongs to this budget line." },
+        { status: 400 },
+      );
+    }
+    if (!validEntryTypes.has(entryType)) {
+      return Response.json({ error: "Choose commitment or expenditure." }, { status: 400 });
+    }
+    if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
+      return Response.json({ error: "Enter an amount greater than zero." }, { status: 400 });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
+      return Response.json({ error: "Choose a valid entry date." }, { status: 400 });
+    }
+
+    const [entry] = await getDb()
+      .update(financeEntries)
+      .set({
+        budgetKey,
+        activityKey,
+        entryType,
+        amountMnt,
+        entryDate,
+        description: (payload.description ?? "").trim().slice(0, 2000),
+        vendor: (payload.vendor ?? "").trim().slice(0, 500),
+      })
+      .where(eq(financeEntries.id, id))
+      .returning();
+
+    if (!entry) {
+      return Response.json({ error: "Finance entry not found." }, { status: 404 });
+    }
+    return Response.json({ entry });
+  } catch (error) {
+    console.error("Unable to update finance entry", error);
+    return Response.json({ error: message(error) }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = (await request.json()) as { id?: number };
+    const id = Number(payload.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return Response.json({ error: "Choose a valid finance entry." }, { status: 400 });
+    }
+    const [deleted] = await getDb()
+      .delete(financeEntries)
+      .where(eq(financeEntries.id, id))
+      .returning({ id: financeEntries.id });
+    if (!deleted) {
+      return Response.json({ error: "Finance entry not found." }, { status: 404 });
+    }
+    return Response.json({ deletedId: deleted.id });
+  } catch (error) {
+    console.error("Unable to remove finance entry", error);
+    return Response.json({ error: message(error) }, { status: 503 });
+  }
+}
