@@ -4239,18 +4239,18 @@ export default function Home() {
                   return (
                     <article
                       key={target.key}
-                      className={`rounded-2xl border p-4 ${target.kind === "subactivity" ? "ml-3 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cad8cd] bg-white shadow-sm"}`}
+                      className={`rounded-2xl border p-4 ${target.kind === "subactivity" ? "ml-3 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-2 border-[#6f9a7f] bg-[#e7f1e5] shadow-[0_6px_18px_rgba(20,65,47,0.12)]"}`}
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex min-w-0 items-start gap-3">
-                          <div className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${target.kind === "activity" ? "bg-[#dfeeda] text-[#235f46]" : "bg-[#eef3ec] text-[#597066]"}`}>
+                          <div className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${target.kind === "activity" ? "bg-[#236447] text-white shadow-sm" : "bg-[#eef3ec] text-[#597066]"}`}>
                             <ListChecks className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#718178]">
+                            <p className={`text-xs font-bold uppercase tracking-[0.08em] ${target.kind === "activity" ? "text-[#1f6046]" : "text-[#718178]"}`}>
                               {target.kind === "activity" ? "Main activity" : "Sub-activity"}
                             </p>
-                            <h3 className="mt-1 text-sm font-black leading-6">
+                            <h3 className={`mt-1 text-sm font-black leading-6 ${target.kind === "activity" ? "text-[#143d2e]" : ""}`}>
                               {target.kind === "activity" ? `${target.code} · ` : ""}
                               {target.label}
                             </h3>
