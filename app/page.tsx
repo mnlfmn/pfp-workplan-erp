@@ -4349,16 +4349,6 @@ export default function Home() {
                             <WalletCards className="h-4 w-4" />
                             {allocation ? "Edit allocation" : "Allocate"}
                           </Button>
-                          <Button
-                            size="sm"
-                            onClick={() =>
-                              openFinanceDialog(selectedBudgetLine.id, target.key)
-                            }
-                            className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                          >
-                            <Plus className="h-4 w-4" />
-                            Add finance entry
-                          </Button>
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
