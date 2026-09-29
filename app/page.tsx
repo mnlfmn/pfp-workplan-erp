@@ -144,7 +144,7 @@ type FinanceDraft = {
 type TeamDraft = {
   name: string;
   role: string;
-  group: "PCU" | "Workplan";
+  group: "PCU" | "MNLF" | "Workplan";
   aliasesText: string;
 };
 
@@ -2478,15 +2478,16 @@ export default function Home() {
                   <NativeSelectOption value="all">All team members</NativeSelectOption>
                   {teamMembers.map((item) => (
                     <NativeSelectOption key={item.id} value={item.id}>
-                      {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
+                      {item.group} · {item.name}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
               </div>
             </section>
 
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {[
+            <section className="rounded-3xl border border-[#cbd8cd] bg-[#edf3ec] p-3 shadow-[0_10px_28px_rgba(20,36,27,0.05)] sm:p-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
                 {
                   label: "Budget",
                   value: formatMnt(dashboardFinance.budgetMnt),
@@ -2518,31 +2519,32 @@ export default function Home() {
                       ? "bg-[#fff0f1] text-[#8f1d2c]"
                       : "bg-[#edf6e8]",
                 },
-              ].map((metric) => (
-                <article
-                  key={metric.label}
-                  className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <p
-                      className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
-                    >
-                      {metric.label}
-                    </p>
-                    <metric.icon
-                      className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
-                    />
-                  </div>
-                  <p className="text-3xl font-black tracking-[-0.03em]">
-                    {metric.value}
-                  </p>
-                  <p
-                    className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
+                ].map((metric) => (
+                  <article
+                    key={metric.label}
+                    className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
                   >
-                    {metric.detail}
-                  </p>
-                </article>
-              ))}
+                    <div className="mb-5 flex items-center justify-between">
+                      <p
+                        className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
+                      >
+                        {metric.label}
+                      </p>
+                      <metric.icon
+                        className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
+                      />
+                    </div>
+                    <p className="text-3xl font-black tracking-[-0.03em]">
+                      {metric.value}
+                    </p>
+                    <p
+                      className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
+                    >
+                      {metric.detail}
+                    </p>
+                  </article>
+                ))}
+              </div>
             </section>
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -2666,7 +2668,7 @@ export default function Home() {
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <Table className="min-w-[1050px]">
+                <Table className="min-w-[930px]">
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="w-[235px] pl-5">Goal</TableHead>
@@ -2675,7 +2677,6 @@ export default function Home() {
                       <TableHead className="text-right">Commitment</TableHead>
                       <TableHead className="text-right">Expenditure</TableHead>
                       <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="pr-5 text-right">At risk</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2716,13 +2717,6 @@ export default function Home() {
                           className={`text-right font-black tabular-nums ${row.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
                         >
                           {formatMnt(row.remainingMnt)}
-                        </TableCell>
-                        <TableCell className="pr-5 text-right">
-                          <span
-                            className={`inline-flex min-w-8 justify-center rounded-full px-2.5 py-1 text-xs font-black ${row.atRisk ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}
-                          >
-                            {row.atRisk}
-                          </span>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2868,7 +2862,7 @@ export default function Home() {
                 <NativeSelectOption value="all">All team members</NativeSelectOption>
                 {teamMembers.map((item) => (
                   <NativeSelectOption key={item.id} value={item.id}>
-                    {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
+                    {item.group} · {item.name}
                   </NativeSelectOption>
                 ))}
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
@@ -3137,7 +3131,7 @@ export default function Home() {
                     <NativeSelectOption value="all">All team members</NativeSelectOption>
                     {teamMembers.map((item) => (
                       <NativeSelectOption key={item.id} value={item.id}>
-                        {item.group === "PCU" ? "PCU" : "Workplan"} · {item.name}
+                        {item.group} · {item.name}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -3476,7 +3470,7 @@ export default function Home() {
           <TabsContent value="team" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">PCU team performance</h2>
+                <h2 className="text-xl font-black">Team Performance</h2>
                 <p className="mt-1 text-sm text-[#718178]">
                   The five confirmed PCU roles are included with additional names found in the workplan.
                 </p>
@@ -3530,7 +3524,7 @@ export default function Home() {
                   </p>
                 </div>
                 <span className="text-sm font-semibold text-[#5d7467]">
-                  {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
+                  {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "MNLF").length} MNLF members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -3563,7 +3557,7 @@ export default function Home() {
                               <div className="flex items-center gap-2">
                                 <p className="font-black">{item.name}</p>
                                 <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-600"}`}
+                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : item.group === "MNLF" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
                                 >
                                   {item.group}
                                 </span>
@@ -4602,6 +4596,7 @@ export default function Home() {
                 className="h-11 w-full border-[#cbd6cc] bg-white"
               >
                 <NativeSelectOption value="PCU">PCU member</NativeSelectOption>
+                <NativeSelectOption value="MNLF">MNLF member</NativeSelectOption>
                 <NativeSelectOption value="Workplan">Additional workplan member</NativeSelectOption>
               </NativeSelect>
             </label>

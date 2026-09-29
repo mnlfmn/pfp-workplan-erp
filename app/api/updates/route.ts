@@ -92,17 +92,31 @@ export async function PUT(request: Request) {
       request.headers.get("oai-authenticated-user-email") ??
       request.headers.get("oai-authenticated-user-id") ??
       "";
+    const db = getDb();
+    const [existing] = await db
+      .select()
+      .from(activityUpdates)
+      .where(eq(activityUpdates.activityKey, activityKey))
+      .limit(1);
     const values = {
       activityKey,
       status,
       progress,
-      note: (payload.note ?? "").trim().slice(0, 4000),
-      supportNeeded: (payload.supportNeeded ?? "").trim().slice(0, 4000),
-      owner: (payload.owner ?? "").trim().slice(0, 500),
+      note:
+        payload.note === undefined
+          ? existing?.note ?? ""
+          : payload.note.trim().slice(0, 4000),
+      supportNeeded:
+        payload.supportNeeded === undefined
+          ? existing?.supportNeeded ?? ""
+          : payload.supportNeeded.trim().slice(0, 4000),
+      owner:
+        payload.owner === undefined
+          ? existing?.owner ?? ""
+          : payload.owner.trim().slice(0, 500),
       updatedAt: new Date().toISOString(),
       updatedBy,
     };
-    const db = getDb();
     await db
       .insert(activityUpdates)
       .values(values)

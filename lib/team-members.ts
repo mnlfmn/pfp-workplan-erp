@@ -2,7 +2,7 @@ export type TeamMember = {
   id: string;
   name: string;
   role: string;
-  group: "PCU" | "Workplan";
+  group: "PCU" | "MNLF" | "Workplan";
   aliases: string[];
 };
 

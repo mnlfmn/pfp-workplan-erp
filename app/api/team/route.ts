@@ -34,7 +34,12 @@ function rowToMember(row: TeamMemberRow): TeamMember {
     id: row.id,
     name: row.name,
     role: row.role,
-    group: row.group === "Workplan" ? "Workplan" : "PCU",
+    group:
+      row.group === "MNLF"
+        ? "MNLF"
+        : row.group === "Workplan"
+          ? "Workplan"
+          : "PCU",
     aliases: parseAliases(row.aliases),
   };
 }
@@ -64,7 +69,12 @@ function normalizePayload(payload: {
 }) {
   const name = String(payload.name ?? "").trim();
   const role = String(payload.role ?? "").trim();
-  const group = payload.group === "Workplan" ? "Workplan" : "PCU";
+  const group =
+    payload.group === "MNLF"
+      ? "MNLF"
+      : payload.group === "Workplan"
+        ? "Workplan"
+        : "PCU";
   const aliases = Array.isArray(payload.aliases)
     ? Array.from(
         new Set(
