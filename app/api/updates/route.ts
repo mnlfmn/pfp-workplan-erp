@@ -105,7 +105,7 @@ export async function PUT(request: Request) {
       note:
         payload.note === undefined
           ? existing?.note ?? ""
-          : payload.note.trim().slice(0, 4000),
+          : payload.note.trim().slice(0, 16000),
       supportNeeded:
         payload.supportNeeded === undefined
           ? existing?.supportNeeded ?? ""

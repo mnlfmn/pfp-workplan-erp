@@ -118,6 +118,15 @@ type Draft = {
   note: string;
 };
 
+type QuarterKey = "Q1" | "Q2" | "Q3" | "Q4";
+
+type QuarterlyProgressNotes = {
+  version: 1;
+  year: number;
+  quarters: Record<QuarterKey, string>;
+  legacy: string;
+};
+
 type FinanceEntry = {
   id: number;
   budgetKey: string;
@@ -443,6 +452,70 @@ function todayForInput() {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+const quarterKeys: QuarterKey[] = ["Q1", "Q2", "Q3", "Q4"];
+
+function quarterForDate(value: string): QuarterKey {
+  const month = Number(value.split("-")[1] ?? 1);
+  return `Q${Math.min(4, Math.max(1, Math.ceil(month / 3)))}` as QuarterKey;
+}
+
+function emptyQuarterlyNotes(year: number): QuarterlyProgressNotes {
+  return {
+    version: 1,
+    year,
+    quarters: { Q1: "", Q2: "", Q3: "", Q4: "" },
+    legacy: "",
+  };
+}
+
+function parseQuarterlyNotes(raw: string, year: number): QuarterlyProgressNotes {
+  if (!raw.trim()) return emptyQuarterlyNotes(year);
+  try {
+    const parsed = JSON.parse(raw) as Partial<QuarterlyProgressNotes>;
+    if (parsed.version === 1 && parsed.quarters) {
+      return {
+        version: 1,
+        year: Number(parsed.year) || year,
+        quarters: {
+          Q1: String(parsed.quarters.Q1 ?? ""),
+          Q2: String(parsed.quarters.Q2 ?? ""),
+          Q3: String(parsed.quarters.Q3 ?? ""),
+          Q4: String(parsed.quarters.Q4 ?? ""),
+        },
+        legacy: String(parsed.legacy ?? ""),
+      };
+    }
+  } catch {
+    // Existing plain-text notes are retained as legacy notes.
+  }
+  return { ...emptyQuarterlyNotes(year), legacy: raw };
+}
+
+function updateQuarterlyNote(
+  raw: string,
+  year: number,
+  quarter: QuarterKey,
+  value: string,
+) {
+  const notes = parseQuarterlyNotes(raw, year);
+  notes.year = year;
+  notes.quarters[quarter] = value;
+  return JSON.stringify(notes);
+}
+
+function quarterlyNoteCount(raw: string, year: number) {
+  const notes = parseQuarterlyNotes(raw, year);
+  return quarterKeys.filter((quarter) => notes.quarters[quarter].trim()).length;
+}
+
+function latestProgressNote(raw: string, year: number) {
+  const notes = parseQuarterlyNotes(raw, year);
+  for (const quarter of [...quarterKeys].reverse()) {
+    if (notes.quarters[quarter].trim()) return `${quarter}: ${notes.quarters[quarter]}`;
+  }
+  return notes.legacy;
 }
 
 function formatMnt(amountMnt: number) {
@@ -827,6 +900,9 @@ export default function Home() {
     owner: "",
     note: "",
   });
+  const [noteQuarter, setNoteQuarter] = useState<QuarterKey>(() =>
+    quarterForDate(todayForInput()),
+  );
   const [saving, setSaving] = useState(false);
   const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
   const [financeState, setFinanceState] = useState<
@@ -925,6 +1001,11 @@ export default function Home() {
       selected.subactivities.length,
   );
 
+  const activeQuarterlyNotes = useMemo(
+    () => parseQuarterlyNotes(draft.note, selectedYear),
+    [draft.note, selectedYear],
+  );
+
   const loadTarget = useCallback(
     (target: EditableTarget) => {
       const saved = updates[target.key];
@@ -945,6 +1026,18 @@ export default function Home() {
       });
     },
     [allActivities, updates],
+  );
+
+  const openUpdateEditor = useCallback(
+    (target: EditableTarget) => {
+      loadTarget(target);
+      requestAnimationFrame(() => {
+        document
+          .getElementById("progress-update-editor")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    },
+    [loadTarget],
   );
 
   const openActivity = useCallback(
@@ -1171,30 +1264,6 @@ export default function Home() {
       );
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function saveOwnerForTarget(
-    target: { key: string; status: StatusKey; progress: number; note: string },
-    owner: string,
-  ) {
-    try {
-      await persistUpdate({
-        activityKey: target.key,
-        status: target.status,
-        progress: target.progress,
-        owner,
-        note: target.note,
-        supportNeeded: updates[target.key]?.supportNeeded ?? "",
-      });
-      if (editKey === target.key) {
-        setDraft((current) => ({ ...current, owner }));
-      }
-      toast.success(owner ? `Owner changed to ${owner}` : "Owner cleared");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "The owner could not be changed.",
-      );
     }
   }
 
@@ -3590,31 +3659,18 @@ export default function Home() {
                   <p className="line-clamp-2 text-sm font-medium text-[#53685c]">
                     {item.workstream || "Programme management"}
                   </p>
-                  <div onClick={(event) => event.stopPropagation()}>
-                    <NativeSelect
-                      value={currentOwner}
-                      onChange={(event) =>
-                        void saveOwnerForTarget(
-                          {
-                            key: item.id,
-                            status: currentStatus,
-                            progress: currentProgress,
-                            note: updates[item.id]?.note ?? "",
-                          },
-                          event.target.value,
-                        )
-                      }
-                      className={`h-9 w-full bg-white text-sm ${currentOwner ? "border-[#ced8cf]" : "border-rose-300 text-rose-700"}`}
-                      aria-label={`Change owner for ${item.code || item.uid}`}
-                    >
-                      <NativeSelectOption value="">No owner</NativeSelectOption>
-                      {teamMembers.map((teamMember) => (
-                        <NativeSelectOption key={teamMember.id} value={teamMember.name}>
-                          {teamMember.name}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </div>
+                  <p
+                    className={`flex items-center gap-2 text-sm font-semibold ${
+                      currentOwner ? "text-[#315845]" : "text-rose-700"
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        currentOwner ? "bg-emerald-600" : "bg-rose-600"
+                      }`}
+                    />
+                    {currentOwner || "Owner required"}
+                  </p>
                   <div>
                     <StatusPill status={currentStatus} />
                   </div>
@@ -6308,9 +6364,9 @@ export default function Home() {
               </DialogHeader>
 
               <div className="space-y-6 p-6">
-                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-[#f3f7f1] p-4 text-sm sm:grid-cols-5">
+                <div className="grid grid-cols-2 gap-3 rounded-2xl border-2 border-[#0b372a] bg-[#114b39] p-4 text-sm text-white shadow-[0_10px_28px_rgba(12,59,45,0.2)] sm:grid-cols-5">
                   <div>
-                    <p className="text-[#718178]">Status</p>
+                    <p className="text-emerald-100/75">Main activity status</p>
                     <div className="mt-1">
                       <StatusPill
                         status={deriveActivityStatus(selected, updates)}
@@ -6318,35 +6374,46 @@ export default function Home() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-[#718178]">Progress</p>
+                    <p className="text-emerald-100/75">Overall progress</p>
                     <p className="mt-1 text-lg font-black">
                       {deriveActivityProgress(selected, updates)}%
                     </p>
                   </div>
                   <div>
-                    <p className="text-[#718178]">Start</p>
+                    <p className="text-emerald-100/75">Start</p>
                     <p className="mt-1 font-bold">
                       {formatDate(selected.startDate)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[#718178]">Due</p>
+                    <p className="text-emerald-100/75">Due</p>
                     <p className="mt-1 font-bold">
                       {formatDate(selected.endDate)}
                     </p>
                   </div>
                   <div className="col-span-2 sm:col-span-1">
-                    <p className="text-[#718178]">Allocated budget</p>
-                    <p className="mt-1 whitespace-nowrap text-base font-black text-[#245f47]">
+                    <p className="text-emerald-100/75">Allocated budget</p>
+                    <p className="mt-1 whitespace-nowrap text-base font-black text-[#dbf081]">
                       {formatMnt(selectedAllocatedMnt)}
                     </p>
                   </div>
                 </div>
 
-                <section className="rounded-2xl border border-[#d8e0d6] bg-[#fbfcfa] p-5">
+                <section
+                  id="progress-update-editor"
+                  className={`scroll-mt-4 rounded-2xl border p-5 ${
+                    activeTarget.kind === "activity"
+                      ? "border-2 border-[#4c8166] bg-[#e9f3e6]"
+                      : "border-[#d8e0d6] bg-[#fbfcfa]"
+                  }`}
+                >
                   <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h3 className="font-black">Update progress</h3>
+                      <h3 className="font-black">
+                        {activeTarget.kind === "activity"
+                          ? "Update main activity"
+                          : "Update sub-activity"}
+                      </h3>
                       <p className="mt-1 text-sm text-[#718178]">
                         Choose the main activity or one of its sub-activities.
                       </p>
@@ -6460,16 +6527,39 @@ export default function Home() {
                     <div>
                       <div className="mb-3 flex items-center justify-between">
                         <span className="text-sm font-bold">Progress</span>
-                        <span className="rounded-full bg-[#e6efe2] px-2.5 py-1 text-sm font-black text-[#315845]">
-                          {draft.progress}%
-                        </span>
+                        {activeMainProgressAuto ? (
+                          <span className="rounded-full bg-[#e6efe2] px-2.5 py-1 text-sm font-black text-[#315845]">
+                            {draft.progress}% · calculated average
+                          </span>
+                        ) : (
+                          <label className="flex items-center gap-1.5 text-sm font-bold text-[#315845]">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={draft.progress}
+                              onChange={(event) =>
+                                setDraft((current) => ({
+                                  ...current,
+                                  progress: Math.min(
+                                    100,
+                                    Math.max(0, Number(event.target.value) || 0),
+                                  ),
+                                }))
+                              }
+                              className="h-9 w-20 border-[#b9cabb] bg-white text-right font-black"
+                              aria-label="Progress percentage value"
+                            />
+                            %
+                          </label>
+                        )}
                       </div>
                       <Slider
                         value={[draft.progress]}
                         disabled={activeMainProgressAuto}
                         min={0}
                         max={100}
-                        step={5}
+                        step={1}
                         onValueChange={(value) =>
                           setDraft((current) => ({
                             ...current,
@@ -6481,22 +6571,67 @@ export default function Home() {
                       />
                     </div>
 
-                    <label className="block">
-                      <span className="mb-1.5 block text-sm font-bold">
-                        Progress note
-                      </span>
-                      <Textarea
-                        value={draft.note}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            note: event.target.value,
-                          }))
-                        }
-                        className="min-h-24 border-[#cbd6cc] bg-white"
-                        placeholder="What changed, what was completed, or what comes next?"
-                      />
-                    </label>
+                    <details className="group rounded-xl border border-[#d7e0d5] bg-white">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold marker:hidden">
+                        <span className="flex items-center gap-2">
+                          <ReceiptText className="h-4 w-4 text-[#2f634c]" />
+                          Quarterly progress notes
+                        </span>
+                        <span className="flex items-center gap-2 text-xs text-[#5d7467]">
+                          {quarterlyNoteCount(draft.note, selectedYear)} of 4 updated
+                          <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+                        </span>
+                      </summary>
+                      <div className="border-t border-[#e2e7e0] p-4">
+                        <div className="grid gap-4 sm:grid-cols-[150px_1fr]">
+                          <label className="block">
+                            <span className="mb-1.5 block text-sm font-bold">Quarter</span>
+                            <NativeSelect
+                              value={noteQuarter}
+                              onChange={(event) =>
+                                setNoteQuarter(event.target.value as QuarterKey)
+                              }
+                              className="h-11 w-full border-[#cbd6cc] bg-white"
+                            >
+                              {quarterKeys.map((quarter) => (
+                                <NativeSelectOption key={quarter} value={quarter}>
+                                  {quarter} · {activeQuarterlyNotes.quarters[quarter].trim()
+                                    ? "Updated"
+                                    : "Not updated"}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                          </label>
+                          <label className="block">
+                            <span className="mb-1.5 block text-sm font-bold">
+                              {noteQuarter} progress update
+                            </span>
+                            <Textarea
+                              value={activeQuarterlyNotes.quarters[noteQuarter]}
+                              onChange={(event) =>
+                                setDraft((current) => ({
+                                  ...current,
+                                  note: updateQuarterlyNote(
+                                    current.note,
+                                    selectedYear,
+                                    noteQuarter,
+                                    event.target.value,
+                                  ),
+                                }))
+                              }
+                              className="min-h-28 border-[#cbd6cc] bg-white"
+                              placeholder="What changed this quarter, what was completed, and what comes next?"
+                            />
+                          </label>
+                        </div>
+                        {activeQuarterlyNotes.legacy && (
+                          <div className="mt-4 rounded-lg bg-[#f3f6f1] px-3 py-2.5 text-sm leading-6 text-[#53685c]">
+                            <span className="font-bold text-[#315845]">Earlier note: </span>
+                            {activeQuarterlyNotes.legacy}
+                          </div>
+                        )}
+                      </div>
+                    </details>
 
                     <div className="flex flex-col gap-2 border-t border-[#e2e7e0] pt-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-xs text-[#718178]">
@@ -6554,11 +6689,11 @@ export default function Home() {
                           key={sub.id}
                           role="button"
                           tabIndex={0}
-                          onClick={() => loadTarget(targetForSubactivity(sub))}
+                          onClick={() => openUpdateEditor(targetForSubactivity(sub))}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              loadTarget(targetForSubactivity(sub));
+                              openUpdateEditor(targetForSubactivity(sub));
                             }
                           }}
                           className={`rounded-2xl border p-4 text-left transition-colors hover:bg-[#f6f9f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2b7357] ${
@@ -6578,6 +6713,18 @@ export default function Home() {
                             </div>
                             <div className="flex items-center gap-2">
                               <StatusPill status={currentStatus} />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openUpdateEditor(targetForSubactivity(sub));
+                                }}
+                                className="bg-white"
+                              >
+                                <PencilLine className="h-3.5 w-3.5" />
+                                Edit update
+                              </Button>
                             </div>
                           </div>
                           <div className="mt-3 flex items-center gap-3">
@@ -6589,53 +6736,27 @@ export default function Home() {
                               {currentProgress}%
                             </span>
                           </div>
-                          <div className="mt-3 flex flex-col gap-3 border-t border-[#e4e9e2] pt-3 sm:flex-row sm:items-end sm:justify-between">
-                            <label
-                              className="min-w-0 flex-1"
-                              onClick={(event) => event.stopPropagation()}
+                          <div className="mt-3 flex flex-col gap-3 border-t border-[#e4e9e2] pt-3 sm:flex-row sm:items-center sm:justify-between">
+                            <p
+                              className={`flex min-w-0 items-center gap-2 text-sm font-semibold ${
+                                currentOwner ? "text-[#315845]" : "text-rose-700"
+                              }`}
                             >
-                              <span className="mb-1 flex items-center gap-1.5 text-xs font-bold text-[#718178]">
-                                <span
-                                  className={`h-2 w-2 rounded-full ${
-                                    currentOwner ? "bg-emerald-600" : "bg-rose-600"
-                                  }`}
-                                />
-                                {currentOwner ? "Owner" : "Owner required"}
-                              </span>
-                              <NativeSelect
-                                value={currentOwner}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={(event) => {
-                                  event.stopPropagation();
-                                  void saveOwnerForTarget(
-                                    {
-                                      key: sub.id,
-                                      status: currentStatus,
-                                      progress: currentProgress,
-                                      note: saved?.note ?? "",
-                                    },
-                                    event.target.value,
-                                  );
-                                }}
-                                className={`h-9 w-full bg-white text-xs ${
-                                  currentOwner ? "border-[#cbd6cc]" : "border-rose-300"
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${
+                                  currentOwner ? "bg-emerald-600" : "bg-rose-600"
                                 }`}
-                              >
-                                <NativeSelectOption value="">No owner</NativeSelectOption>
-                                {teamMembers.map((item) => (
-                                  <NativeSelectOption key={item.id} value={item.name}>
-                                    {item.name} · {item.role}
-                                  </NativeSelectOption>
-                                ))}
-                              </NativeSelect>
-                            </label>
+                              />
+                              {currentOwner || "Owner required"}
+                            </p>
                             <p className="font-bold text-[#315845]">
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                             </p>
                           </div>
                           {(saved?.note || sub.progressSummary) && (
                             <p className="mt-2 line-clamp-2 text-sm leading-5 text-[#53685c]">
-                              {saved?.note || sub.progressSummary}
+                              {latestProgressNote(saved?.note ?? "", selectedYear) ||
+                                sub.progressSummary}
                             </p>
                           )}
                         </article>
