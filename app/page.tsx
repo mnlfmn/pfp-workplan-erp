@@ -3071,9 +3071,18 @@ export default function Home() {
             budgetKeys.has(line.id),
         );
         const finance = summarizeFinance(lines, financeEntries, contracts);
+        const statusCounts = Object.fromEntries(
+          (Object.keys(statusMeta) as StatusKey[]).map((key) => [
+            key,
+            activities.filter(
+              (activity) => deriveActivityStatus(activity, updates) === key,
+            ).length,
+          ]),
+        ) as Record<StatusKey, number>;
         return {
           ...teamMember,
           activityCount: activities.length,
+          statusCounts,
           progress: averageActivityProgress(activities, updates),
           ...finance,
         };
@@ -3088,6 +3097,14 @@ export default function Home() {
       teamMembers,
       updates,
     ],
+  );
+
+  const accessMembers = useMemo(
+    () =>
+      currentSession?.isAdmin
+        ? teamMembers
+        : teamMembers.filter((item) => item.id === currentSession?.memberId),
+    [currentSession, teamMembers],
   );
 
   const currentYearMeta =
@@ -3221,7 +3238,14 @@ export default function Home() {
               className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
             >
               <Users className="h-4 w-4" />
-              Team
+              Team Performance
+            </TabsTrigger>
+            <TabsTrigger
+              value="access"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              User Access
             </TabsTrigger>
           </TabsList>
 
@@ -4532,10 +4556,10 @@ export default function Home() {
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Team Performance</h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  Add member emails, prepare invitations, and manage administrator access.
+                  Workplan responsibilities, activity status, delivery progress, and financial position by team member.
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
+              <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:justify-end">
                 <NativeSelect
                   value={section}
                   onChange={(event) => setSection(event.target.value)}
@@ -4559,30 +4583,6 @@ export default function Home() {
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
-                {currentSession && (
-                  <>
-                    <div className="flex h-10 items-center gap-2 rounded-xl border border-[#ced8cf] bg-[#f8faf7] px-3 text-sm font-semibold text-[#315845]">
-                      {currentSession.isAdmin && <ShieldCheck className="h-4 w-4" />}
-                      {currentSession.memberName} · {currentSession.isAdmin ? "Admin" : "Member"}
-                    </div>
-                    <a
-                      href="/signout-with-chatgpt?return_to=%2F"
-                      target="_top"
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-[#ced8cf] bg-white px-3 text-sm font-bold text-[#315845] hover:bg-[#f5f8f4]"
-                    >
-                      Sign out
-                    </a>
-                  </>
-                )}
-                {currentSession?.isAdmin && (
-                  <Button
-                    onClick={openAddTeamMember}
-                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    Add member
-                  </Button>
-                )}
               </div>
             </section>
 
@@ -4595,9 +4595,9 @@ export default function Home() {
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-black">Team activity and finance report</h2>
+                  <h2 className="text-lg font-black">Team workplan and finance report</h2>
                   <p className="mt-1 text-sm text-[#718178]">
-                    Financial values use the budget lines linked to each member&apos;s assigned activities.
+                    Activity counts and status use each member&apos;s assigned main activities. Financial values use the linked budget lines.
                   </p>
                 </div>
                 <span className="text-sm font-semibold text-[#5d7467]">
@@ -4605,24 +4605,18 @@ export default function Home() {
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <Table
-                  className={currentSession?.isAdmin ? "min-w-[1640px]" : "min-w-[1260px]"}
-                >
+                <Table className="min-w-[1580px]">
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="w-[270px] pl-5">Team member</TableHead>
-                      {currentSession?.isAdmin && (
-                        <>
-                          <TableHead className="w-[250px]">Email and invitation</TableHead>
-                          <TableHead className="w-[120px]">Access</TableHead>
-                        </>
-                      )}
-                      <TableHead className="w-[190px]">Activity progress</TableHead>
+                      <TableHead className="w-[110px] text-center">Activities</TableHead>
+                      <TableHead className="w-[320px]">Activity status</TableHead>
+                      <TableHead className="w-[180px]">Average progress</TableHead>
                       <TableHead className="text-right">Budget</TableHead>
                       <TableHead className="text-right">Commitment</TableHead>
                       <TableHead className="text-right">Expenditure</TableHead>
                       <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="w-[260px] pr-5 text-right">Actions</TableHead>
+                      <TableHead className="w-[140px] pr-5 text-right">Report</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -4651,40 +4645,36 @@ export default function Home() {
                             </div>
                           </div>
                         </TableCell>
-                        {currentSession?.isAdmin && (
-                          <>
-                            <TableCell>
-                              {item.email ? (
-                                <div>
-                                  <p className="font-semibold text-[#315845]">{item.email}</p>
-                                  <p className="mt-1 text-xs text-[#718178]">
-                                    {item.inviteStatus === "active"
-                                      ? "Signed in"
-                                      : item.inviteStatus === "invited"
-                                        ? "Invitation prepared"
-                                        : "Ready to invite"}
-                                  </p>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-amber-700">Email required</span>
+                        <TableCell className="text-center">
+                          <span className="text-xl font-black tabular-nums text-[#183529]">
+                            {item.activityCount}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-[#718178]">
+                            assigned
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {item.activityCount ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(Object.keys(statusMeta) as StatusKey[]).map((key) =>
+                                item.statusCounts[key] ? (
+                                  <span
+                                    key={key}
+                                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold ${statusMeta[key].tone}`}
+                                  >
+                                    <span className={`h-1.5 w-1.5 rounded-full ${statusMeta[key].dot}`} />
+                                    {statusMeta[key].label} {item.statusCounts[key]}
+                                  </span>
+                                ) : null,
                               )}
-                            </TableCell>
-                            <TableCell>
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${item.accessRole === "admin" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-700"}`}
-                              >
-                                {item.accessRole === "admin" && <ShieldCheck className="h-3.5 w-3.5" />}
-                                {item.accessRole === "admin" ? "Admin" : "Member"}
-                              </span>
-                            </TableCell>
-                          </>
-                        )}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-[#718178]">No assigned activities</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="mb-2 flex items-center justify-between text-sm font-bold">
                             <span>{item.progress}%</span>
-                            <span className="text-xs text-[#718178]">
-                              {item.activityCount} activities
-                            </span>
                           </div>
                           <Progress
                             value={item.progress}
@@ -4706,27 +4696,7 @@ export default function Home() {
                           {formatMnt(item.remainingMnt)}
                         </TableCell>
                         <TableCell className="pr-5">
-                          <div className="flex justify-end gap-2">
-                            {currentSession?.isAdmin && item.email && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void prepareTeamInvite(item)}
-                              >
-                                <Mail className="h-4 w-4" />
-                                Invite
-                              </Button>
-                            )}
-                            {currentSession?.isAdmin && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditTeamMember(item)}
-                              >
-                                <PencilLine className="h-4 w-4" />
-                                Edit
-                              </Button>
-                            )}
+                          <div className="flex justify-end">
                             <Button
                               variant="outline"
                               size="sm"
@@ -4735,7 +4705,7 @@ export default function Home() {
                                 setActiveView("dashboard");
                               }}
                             >
-                              View
+                              View report
                             </Button>
                           </div>
                         </TableCell>
@@ -4745,7 +4715,182 @@ export default function Home() {
                 </Table>
               </div>
               <div className="border-t border-[#e2e7e0] bg-[#f8faf7] px-5 py-3 text-xs leading-5 text-[#718178]">
-                Shared objective-level budget lines can be linked to more than one team member. Team rows should not be added together as a programme total.
+                Shared budget lines can be linked to more than one team member. Use the Dashboard for programme totals; team rows should not be added together.
+              </div>
+            </section>
+          </TabsContent>
+
+          <TabsContent value="access" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+              <div className="mb-4 lg:mb-0">
+                <h2 className="text-xl font-black">User access and registration</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Manage member information, sign-in emails, invitations, and administrator permissions.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {currentSession && (
+                  <div className="flex h-10 items-center gap-2 rounded-xl border border-[#ced8cf] bg-[#f8faf7] px-3 text-sm font-semibold text-[#315845]">
+                    {currentSession.isAdmin && <ShieldCheck className="h-4 w-4" />}
+                    {currentSession.memberName} · {currentSession.isAdmin ? "Admin" : "Member"}
+                  </div>
+                )}
+                <a
+                  href="/signout-with-chatgpt?return_to=%2F"
+                  target="_top"
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-[#ced8cf] bg-white px-3 text-sm font-bold text-[#315845] hover:bg-[#f5f8f4]"
+                >
+                  Sign out
+                </a>
+                {currentSession?.isAdmin && (
+                  <Button
+                    onClick={openAddTeamMember}
+                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Add member
+                  </Button>
+                )}
+              </div>
+            </section>
+
+            {teamState === "unavailable" && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                User registration information is temporarily unavailable.
+              </div>
+            )}
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
+              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-black">
+                    {currentSession?.isAdmin ? "User directory" : "Your account"}
+                  </h2>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    {currentSession?.isAdmin
+                      ? "Administrators can register users, update profiles, prepare invitations, and grant administrator access."
+                      : "Your sign-in and registration information is managed by a workplan administrator."}
+                  </p>
+                </div>
+                {currentSession?.isAdmin && (
+                  <span className="text-sm font-semibold text-[#5d7467]">
+                    {teamMembers.length} registered team records
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[1080px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
+                      <TableHead className="w-[280px] pl-5">Team member</TableHead>
+                      <TableHead className="w-[260px]">Sign-in email</TableHead>
+                      <TableHead className="w-[140px]">Access level</TableHead>
+                      <TableHead className="w-[230px]">Registration</TableHead>
+                      <TableHead className="w-[240px] pr-5 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {accessMembers.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="pl-5">
+                          <div className="flex items-start gap-3">
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e7efe3] text-sm font-black text-[#275b45]">
+                              {item.name
+                                .split(/[.\s]/)
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((part) => part[0])
+                                .join("")}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-black">{item.name}</p>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : item.group === "MNLF" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
+                                >
+                                  {item.group}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-[#718178]">{item.role}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {item.email ? (
+                            <p className="break-all font-semibold text-[#315845]">{item.email}</p>
+                          ) : (
+                            <span className="text-sm font-semibold text-amber-700">Email required</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${item.accessRole === "admin" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-700"}`}
+                          >
+                            {item.accessRole === "admin" && <ShieldCheck className="h-3.5 w-3.5" />}
+                            {item.accessRole === "admin" ? "Administrator" : "Member"}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <span
+                              className={`h-2 w-2 rounded-full ${item.inviteStatus === "active" ? "bg-emerald-600" : item.inviteStatus === "invited" ? "bg-blue-600" : item.email ? "bg-amber-500" : "bg-rose-500"}`}
+                            />
+                            {item.inviteStatus === "active"
+                              ? "Signed in"
+                              : item.inviteStatus === "invited"
+                                ? "Invitation prepared"
+                                : item.email
+                                  ? "Ready to invite"
+                                  : "Registration incomplete"}
+                          </div>
+                          {item.lastSignedInAt && (
+                            <p className="mt-1 text-xs text-[#718178]">
+                              Last sign-in {formatUpdatedAt(item.lastSignedInAt)}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="pr-5">
+                          <div className="flex justify-end gap-2">
+                            {currentSession?.isAdmin ? (
+                              <>
+                                {item.email && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void prepareTeamInvite(item)}
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                    {item.inviteStatus === "active" ? "Send again" : "Invite"}
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openEditTeamMember(item)}
+                                >
+                                  <PencilLine className="h-4 w-4" />
+                                  Edit
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-[#718178]">Managed by administrator</span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!accessMembers.length && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-10 text-center text-sm text-[#718178]">
+                          Loading account information…
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="border-t border-[#e2e7e0] bg-[#f8faf7] px-5 py-3 text-xs leading-5 text-[#718178]">
+                A user must sign in with the exact email saved here. Invitations open as a prepared email for the administrator to review and send.
               </div>
             </section>
           </TabsContent>
