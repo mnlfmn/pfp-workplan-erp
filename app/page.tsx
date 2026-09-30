@@ -4,12 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
-  CalendarDays,
   ChevronRight,
   CircleCheck,
   Clock3,
-  Cloud,
-  CloudOff,
   CopyPlus,
   Gauge,
   HandCoins,
@@ -3001,8 +2998,6 @@ export default function Home() {
 
   const currentYearMeta =
     workplanYears.find((item) => item.year === selectedYear) ?? workplanYears[0];
-  const currentReportingDate =
-    currentYearMeta?.reportingDate || `${selectedYear}-12-31`;
   const selectedAllocatedMnt = selected
     ? allocationByActivityKey.get(selected.id) ??
       selected.subactivities.reduce(
@@ -3023,31 +3018,6 @@ export default function Home() {
             <div>
               <p className="text-base font-bold tracking-tight">Eternal Mongolia</p>
               <p className="text-xs text-emerald-100/70">Programme workplan</p>
-            </div>
-          </div>
-          <div className="hidden items-center gap-3 sm:flex">
-            <div className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm">
-              <CalendarDays className="h-4 w-4 text-[#dbf081]" />
-              Reporting date: {formatDate(currentReportingDate)}
-            </div>
-            <div
-              className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs"
-              title={
-                syncState === "ready"
-                  ? "Updates are saved in the shared workplan store"
-                  : "Source data is available; saved updates are temporarily unavailable"
-              }
-            >
-              {syncState === "ready" ? (
-                <Cloud className="h-3.5 w-3.5 text-[#dbf081]" />
-              ) : (
-                <CloudOff className="h-3.5 w-3.5 text-amber-200" />
-              )}
-              {syncState === "loading"
-                ? "Connecting"
-                : syncState === "ready"
-                  ? "Shared updates"
-                  : "Source view"}
             </div>
           </div>
         </div>
