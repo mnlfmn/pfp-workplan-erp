@@ -223,6 +223,64 @@ type BudgetTarget = {
   kind: "activity" | "subactivity";
 };
 
+type ContractPayment = {
+  id: string;
+  contractId: string;
+  sequence: number;
+  label: string;
+  dueDate: string;
+  deliverable: string;
+  percentage: number;
+  amountMnt: number;
+  paid: number;
+  paidAt: string;
+  updatedAt: string;
+};
+
+type ContractRecord = {
+  id: string;
+  planYear: number;
+  contractNumber: string;
+  status: "draft" | "active" | "completed" | "closed";
+  budgetKey: string;
+  activityKey: string;
+  torName: string;
+  serviceProviderName: string;
+  serviceProviderType: string;
+  startDate: string;
+  endDate: string;
+  amountMnt: number;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+  payments: ContractPayment[];
+};
+
+type ContractPaymentDraft = {
+  id: string;
+  label: string;
+  dueDate: string;
+  deliverable: string;
+  percentage: string;
+  amountMnt: string;
+  paid: boolean;
+  paidAt: string;
+};
+
+type ContractDraft = {
+  contractNumber: string;
+  status: ContractRecord["status"];
+  budgetKey: string;
+  activityKey: string;
+  torName: string;
+  serviceProviderName: string;
+  serviceProviderType: string;
+  startDate: string;
+  endDate: string;
+  amountMnt: string;
+  payments: ContractPaymentDraft[];
+};
+
 const statusMeta: Record<
   StatusKey,
   { label: string; tone: string; dot: string; weight: number }
@@ -316,6 +374,68 @@ const emptyBudgetLineDraft: BudgetLineDraft = {
   level: "Activity",
   amountMnt: "",
 };
+
+const providerTypes = [
+  "Individual consultant",
+  "Consulting firm",
+  "Supplier",
+  "Contractor",
+  "NGO / CSO",
+  "Government entity",
+  "Other",
+];
+
+const contractStatusMeta: Record<
+  ContractRecord["status"],
+  { label: string; tone: string }
+> = {
+  draft: { label: "Draft", tone: "bg-slate-100 text-slate-700" },
+  active: { label: "Active", tone: "bg-blue-50 text-blue-800" },
+  completed: { label: "Completed", tone: "bg-emerald-50 text-emerald-800" },
+  closed: { label: "Closed", tone: "bg-amber-50 text-amber-900" },
+};
+
+function ordinalPayment(value: number) {
+  const remainder = value % 100;
+  const suffix =
+    remainder >= 11 && remainder <= 13
+      ? "th"
+      : value % 10 === 1
+        ? "st"
+        : value % 10 === 2
+          ? "nd"
+          : value % 10 === 3
+            ? "rd"
+            : "th";
+  return `${value}${suffix} payment`;
+}
+
+function emptyContractDraft(year: number): ContractDraft {
+  return {
+    contractNumber: "",
+    status: "active",
+    budgetKey: "",
+    activityKey: "",
+    torName: "",
+    serviceProviderName: "",
+    serviceProviderType: providerTypes[0],
+    startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`,
+    amountMnt: "",
+    payments: [
+      {
+        id: "",
+        label: "1st payment",
+        dueDate: `${year}-01-01`,
+        deliverable: "",
+        percentage: "100",
+        amountMnt: "",
+        paid: false,
+        paidAt: "",
+      },
+    ],
+  };
+}
 
 function todayForInput() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -588,26 +708,60 @@ function averageActivityProgress(
   );
 }
 
-function summarizeFinance(lines: BudgetLine[], entries: FinanceEntry[]) {
+function contractPaidMnt(contract: ContractRecord) {
+  return contract.payments
+    .filter((payment) => Boolean(payment.paid))
+    .reduce((total, payment) => total + payment.amountMnt, 0);
+}
+
+function contractCommitmentMnt(contract: ContractRecord) {
+  if (contract.status === "closed") return 0;
+  return Math.max(contract.amountMnt - contractPaidMnt(contract), 0);
+}
+
+function summarizeFinance(
+  lines: BudgetLine[],
+  entries: FinanceEntry[],
+  contracts: ContractRecord[],
+) {
   const keys = new Set(lines.map((line) => line.id));
   const budgetMnt = lines.reduce(
     (total, line) => total + Number(line.budgetMntMillion) * 1_000_000,
     0,
   );
   const relevantEntries = entries.filter((entry) => keys.has(entry.budgetKey));
-  const commitmentMnt = relevantEntries
+  const relevantContracts = contracts.filter((contract) =>
+    keys.has(contract.budgetKey),
+  );
+  const manualCommitmentMnt = relevantEntries
     .filter((entry) => entry.entryType === "commitment")
     .reduce((total, entry) => total + entry.amountMnt, 0);
-  const expenditureMnt = relevantEntries
+  const manualExpenditureMnt = relevantEntries
     .filter((entry) => entry.entryType === "expenditure")
     .reduce((total, entry) => total + entry.amountMnt, 0);
-  const linesWithEntries = new Set(relevantEntries.map((entry) => entry.budgetKey));
+  const commitmentMnt =
+    manualCommitmentMnt +
+    relevantContracts.reduce(
+      (total, contract) => total + contractCommitmentMnt(contract),
+      0,
+    );
+  const expenditureMnt =
+    manualExpenditureMnt +
+    relevantContracts.reduce(
+      (total, contract) => total + contractPaidMnt(contract),
+      0,
+    );
+  const linesWithEntries = new Set([
+    ...relevantEntries.map((entry) => entry.budgetKey),
+    ...relevantContracts.map((contract) => contract.budgetKey),
+  ]);
+  const remainingMnt = budgetMnt - commitmentMnt - expenditureMnt;
   return {
     budgetMnt,
     commitmentMnt,
     expenditureMnt,
-    uncommittedMnt: budgetMnt - commitmentMnt,
-    remainingMnt: budgetMnt - expenditureMnt,
+    uncommittedMnt: remainingMnt,
+    remainingMnt,
     commitmentPercent:
       budgetMnt > 0 ? Math.round((commitmentMnt / budgetMnt) * 100) : 0,
     spentPercent:
@@ -615,6 +769,7 @@ function summarizeFinance(lines: BudgetLine[], entries: FinanceEntry[]) {
     financeCoveragePercent:
       lines.length > 0 ? Math.round((linesWithEntries.size / lines.length) * 100) : 0,
     relevantEntries,
+    relevantContracts,
   };
 }
 
@@ -691,6 +846,22 @@ export default function Home() {
     description: "",
     vendor: "",
   });
+  const [contracts, setContracts] = useState<ContractRecord[]>([]);
+  const [contractState, setContractState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [contractDialogOpen, setContractDialogOpen] = useState(false);
+  const [contractSaving, setContractSaving] = useState(false);
+  const [editingContractId, setEditingContractId] = useState<string | null>(null);
+  const [contractToClose, setContractToClose] =
+    useState<ContractRecord | null>(null);
+  const [contractQuery, setContractQuery] = useState("");
+  const [contractStatusFilter, setContractStatusFilter] = useState("all");
+  const [expandedContractIds, setExpandedContractIds] =
+    useState<Set<string>>(new Set());
+  const [contractDraft, setContractDraft] = useState<ContractDraft>(() =>
+    emptyContractDraft(2026),
+  );
   const [allocations, setAllocations] = useState<BudgetAllocation[]>([]);
   const [allocationState, setAllocationState] = useState<
     "loading" | "ready" | "unavailable"
@@ -786,7 +957,6 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    setPlanState("loading");
     fetch(`/api/workplan?year=${selectedYear}`)
       .then(async (response) => {
         const result = (await response.json()) as {
@@ -826,7 +996,6 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    setAllocationState("loading");
     fetch(`/api/allocations?year=${selectedYear}`)
       .then(async (response) => {
         const result = (await response.json()) as {
@@ -894,6 +1063,34 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/contracts?year=${selectedYear}`)
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          contracts?: ContractRecord[];
+          error?: string;
+        };
+        if (!response.ok || !result.contracts) {
+          throw new Error(result.error || "Contracts unavailable");
+        }
+        return result.contracts;
+      })
+      .then((items) => {
+        if (!active) return;
+        setContracts(items);
+        setContractState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setContracts([]);
+        setContractState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedYear]);
 
   useEffect(() => {
     let active = true;
@@ -1131,6 +1328,294 @@ export default function Home() {
     }
   }
 
+  function budgetLineForTarget(activityKey: string) {
+    const activity = allActivities.find(
+      (item) =>
+        item.id === activityKey ||
+        item.subactivities.some((subactivity) => subactivity.id === activityKey),
+    );
+    if (!activity) return null;
+    return (
+      allBudgetLines.find(
+        (line) =>
+          line.section === activity.section &&
+          codesShareBudgetLine(activity.code, line.code),
+      ) ?? null
+    );
+  }
+
+  function openAddContract() {
+    setEditingContractId(null);
+    setContractDraft(emptyContractDraft(selectedYear));
+    setContractDialogOpen(true);
+  }
+
+  function openEditContract(contract: ContractRecord) {
+    setEditingContractId(contract.id);
+    setContractDraft({
+      contractNumber: contract.contractNumber,
+      status: contract.status,
+      budgetKey: contract.budgetKey,
+      activityKey: contract.activityKey,
+      torName: contract.torName,
+      serviceProviderName: contract.serviceProviderName,
+      serviceProviderType: contract.serviceProviderType,
+      startDate: contract.startDate,
+      endDate: contract.endDate,
+      amountMnt: formatNumberInput(contract.amountMnt),
+      payments: contract.payments.map((payment) => ({
+        id: payment.id,
+        label: payment.label,
+        dueDate: payment.dueDate,
+        deliverable: payment.deliverable,
+        percentage: String(payment.percentage),
+        amountMnt: formatNumberInput(payment.amountMnt),
+        paid: Boolean(payment.paid),
+        paidAt: payment.paidAt,
+      })),
+    });
+    setContractDialogOpen(true);
+  }
+
+  function selectContractTarget(activityKey: string) {
+    const line = budgetLineForTarget(activityKey);
+    setContractDraft((current) => ({
+      ...current,
+      activityKey,
+      budgetKey: line?.id ?? "",
+    }));
+  }
+
+  function updateContractTotal(value: string) {
+    const formatted = formatNumberInput(value);
+    const total = Number(formatted.replace(/,/g, ""));
+    setContractDraft((current) => ({
+      ...current,
+      amountMnt: formatted,
+      payments: current.payments.map((payment, index) => {
+        const percentage = Number(payment.percentage);
+        const amount =
+          Number.isSafeInteger(total) && total > 0 && percentage > 0
+            ? index === current.payments.length - 1 &&
+              current.payments.reduce(
+                (sum, item) => sum + Number(item.percentage || 0),
+                0,
+              ) === 100
+              ? total -
+                current.payments
+                  .slice(0, -1)
+                  .reduce(
+                    (sum, item) =>
+                      sum + Math.round((total * Number(item.percentage || 0)) / 100),
+                    0,
+                  )
+              : Math.round((total * percentage) / 100)
+            : 0;
+        return {
+          ...payment,
+          amountMnt: amount > 0 ? formatNumberInput(amount) : "",
+        };
+      }),
+    }));
+  }
+
+  function updateContractPayment(
+    index: number,
+    field: keyof ContractPaymentDraft,
+    value: string,
+  ) {
+    setContractDraft((current) => {
+      const payments = current.payments.map((payment, paymentIndex) => {
+        if (paymentIndex !== index) return payment;
+        const next = { ...payment, [field]: value };
+        if (field === "percentage") {
+          const total = Number(current.amountMnt.replace(/,/g, ""));
+          const percentage = Number(value);
+          next.amountMnt =
+            total > 0 && percentage > 0
+              ? formatNumberInput(Math.round((total * percentage) / 100))
+              : "";
+        }
+        if (field === "amountMnt") next.amountMnt = formatNumberInput(value);
+        return next;
+      });
+      return { ...current, payments };
+    });
+  }
+
+  function addContractPayment() {
+    setContractDraft((current) => ({
+      ...current,
+      payments: [
+        ...current.payments,
+        {
+          id: "",
+          label: ordinalPayment(current.payments.length + 1),
+          dueDate: current.endDate,
+          deliverable: "",
+          percentage: "",
+          amountMnt: "",
+          paid: false,
+          paidAt: "",
+        },
+      ],
+    }));
+  }
+
+  function removeContractPayment(index: number) {
+    setContractDraft((current) => ({
+      ...current,
+      payments: current.payments.filter((_, paymentIndex) => paymentIndex !== index),
+    }));
+  }
+
+  async function saveContract() {
+    const amountMnt = Number(contractDraft.amountMnt.replace(/[\s,]/g, ""));
+    const payments = contractDraft.payments.map((payment) => ({
+      ...payment,
+      percentage: Number(payment.percentage),
+      amountMnt: Number(payment.amountMnt.replace(/[\s,]/g, "")),
+    }));
+    const paymentAmountTotal = payments.reduce(
+      (total, payment) => total + payment.amountMnt,
+      0,
+    );
+    const percentageTotal = payments.reduce(
+      (total, payment) => total + payment.percentage,
+      0,
+    );
+    if (!contractDraft.activityKey || !contractDraft.budgetKey) {
+      toast.error("Choose a workplan activity or sub-activity.");
+      return;
+    }
+    if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
+      toast.error("Enter a whole tugrik contract amount greater than zero.");
+      return;
+    }
+    if (paymentAmountTotal !== amountMnt || percentageTotal !== 100) {
+      toast.error("Payments must total the contract amount and 100%.");
+      return;
+    }
+    setContractSaving(true);
+    try {
+      const response = await fetch("/api/contracts", {
+        method: editingContractId ? "PUT" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...(editingContractId ? { id: editingContractId } : {}),
+          ...contractDraft,
+          planYear: selectedYear,
+          amountMnt,
+          payments,
+        }),
+      });
+      const result = (await response.json()) as {
+        contract?: ContractRecord;
+        error?: string;
+      };
+      if (!response.ok || !result.contract) {
+        throw new Error(result.error || "The contract could not be saved.");
+      }
+      setContracts((current) =>
+        editingContractId
+          ? current.map((contract) =>
+              contract.id === result.contract!.id ? result.contract! : contract,
+            )
+          : [result.contract!, ...current],
+      );
+      setContractDialogOpen(false);
+      setEditingContractId(null);
+      setContractState("ready");
+      toast.success(editingContractId ? "Contract updated" : "Contract added", {
+        description: `${result.contract.contractNumber} · ${formatMnt(result.contract.amountMnt)}`,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The contract could not be saved.",
+      );
+    } finally {
+      setContractSaving(false);
+    }
+  }
+
+  async function setPaymentPaid(
+    contract: ContractRecord,
+    payment: ContractPayment,
+    paid: boolean,
+  ) {
+    setContractSaving(true);
+    try {
+      const response = await fetch("/api/contracts", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "set_payment_paid",
+          paymentId: payment.id,
+          paid,
+          paidAt: paid ? todayForInput() : "",
+        }),
+      });
+      const result = (await response.json()) as {
+        contract?: ContractRecord;
+        error?: string;
+      };
+      if (!response.ok || !result.contract) {
+        throw new Error(result.error || "Payment status could not be changed.");
+      }
+      setContracts((current) =>
+        current.map((item) =>
+          item.id === contract.id ? result.contract! : item,
+        ),
+      );
+      toast.success(paid ? "Payment marked as paid" : "Payment marked as unpaid", {
+        description: formatMnt(payment.amountMnt),
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Payment status could not be changed.",
+      );
+    } finally {
+      setContractSaving(false);
+    }
+  }
+
+  async function closeContract() {
+    if (!contractToClose) return;
+    setContractSaving(true);
+    try {
+      const response = await fetch("/api/contracts", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "close_contract",
+          id: contractToClose.id,
+        }),
+      });
+      const result = (await response.json()) as {
+        contract?: ContractRecord;
+        error?: string;
+      };
+      if (!response.ok || !result.contract) {
+        throw new Error(result.error || "The contract could not be closed.");
+      }
+      setContracts((current) =>
+        current.map((item) =>
+          item.id === result.contract!.id ? result.contract! : item,
+        ),
+      );
+      setContractToClose(null);
+      toast.success("Contract closed", {
+        description: "Any unpaid balance was released from commitments.",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The contract could not be closed.",
+      );
+    } finally {
+      setContractSaving(false);
+    }
+  }
+
   function applyPlanResult(result: {
     activities?: Activity[];
     budgetLines?: BudgetLine[];
@@ -1177,6 +1662,9 @@ export default function Home() {
         throw new Error(result.error || "The new workplan could not be created.");
       }
       applyPlanResult(result);
+      setPlanState("loading");
+      setAllocationState("loading");
+      setContractState("loading");
       setSelectedYear(newYear);
       setYearDialogOpen(false);
       setActiveView("workplan");
@@ -1985,7 +2473,14 @@ export default function Home() {
       // WebMCP support is optional; the visible interface remains fully usable.
     }
     return () => lifecycle.abort();
-  }, [allActivities, allBudgetLines, persistFinanceEntry, persistUpdate, selectedYear]);
+  }, [
+    allActivities,
+    allBudgetLines,
+    persistFinanceEntry,
+    persistUpdate,
+    selectedYear,
+    updates,
+  ]);
 
   const workstreams = useMemo(
     () =>
@@ -2093,19 +2588,50 @@ export default function Home() {
       current[entry.entryType] += entry.amountMnt;
       totals.set(entry.budgetKey, current);
     }
+    for (const contract of contracts) {
+      const current = totals.get(contract.budgetKey) ?? {
+        commitment: 0,
+        expenditure: 0,
+      };
+      current.commitment += contractCommitmentMnt(contract);
+      current.expenditure += contractPaidMnt(contract);
+      totals.set(contract.budgetKey, current);
+    }
     return totals;
-  }, [financeEntries]);
+  }, [contracts, financeEntries]);
 
   const allocationByBudgetKey = useMemo(() => {
     const totals = new Map<string, number>();
-    for (const allocation of allocations) {
-      totals.set(
-        allocation.budgetKey,
-        (totals.get(allocation.budgetKey) ?? 0) + allocation.amountMnt,
-      );
+    for (const line of allBudgetLines) {
+      const targets = targetsForBudgetLine(line, allActivities);
+      const mainTargets = targets.filter((target) => target.kind === "activity");
+      const total = mainTargets.reduce((sum, target) => {
+        const mainAllocation = allocations.find(
+          (allocation) =>
+            allocation.budgetKey === line.id &&
+            allocation.activityKey === target.key,
+        );
+        if (mainAllocation) return sum + mainAllocation.amountMnt;
+        return (
+          sum +
+          allocations
+            .filter(
+              (allocation) =>
+                allocation.budgetKey === line.id &&
+                targets.some(
+                  (item) =>
+                    item.kind === "subactivity" &&
+                    item.activityId === target.activityId &&
+                    item.key === allocation.activityKey,
+                ),
+            )
+            .reduce((childSum, allocation) => childSum + allocation.amountMnt, 0)
+        );
+      }, 0);
+      totals.set(line.id, total);
     }
     return totals;
-  }, [allocations]);
+  }, [allActivities, allBudgetLines, allocations]);
 
   const allocationByActivityKey = useMemo(() => {
     const totals = new Map<string, number>();
@@ -2152,9 +2678,58 @@ export default function Home() {
     });
   }
 
+  const contractTargets = useMemo(
+    () => {
+      const unique = new Map<string, BudgetTarget>();
+      for (const line of allBudgetLines) {
+        for (const target of targetsForBudgetLine(line, allActivities)) {
+          if (!unique.has(target.key)) unique.set(target.key, target);
+        }
+      }
+      return [...unique.values()];
+    },
+    [allActivities, allBudgetLines],
+  );
+
+  const filteredContracts = useMemo(() => {
+    const normalized = contractQuery.trim().toLocaleLowerCase();
+    return contracts.filter((contract) => {
+      const target = contractTargets.find((item) => item.key === contract.activityKey);
+      const line = allBudgetLines.find((item) => item.id === contract.budgetKey);
+      const haystack = [
+        contract.contractNumber,
+        contract.torName,
+        contract.serviceProviderName,
+        contract.serviceProviderType,
+        target?.code,
+        target?.label,
+        line?.title,
+      ]
+        .join(" ")
+        .toLocaleLowerCase();
+      return (
+        (contractStatusFilter === "all" || contract.status === contractStatusFilter) &&
+        haystack.includes(normalized)
+      );
+    });
+  }, [allBudgetLines, contractQuery, contractStatusFilter, contractTargets, contracts]);
+
+  const contractStats = useMemo(
+    () => ({
+      totalValue: contracts.reduce((total, contract) => total + contract.amountMnt, 0),
+      outstanding: contracts.reduce(
+        (total, contract) => total + contractCommitmentMnt(contract),
+        0,
+      ),
+      paid: contracts.reduce((total, contract) => total + contractPaidMnt(contract), 0),
+      active: contracts.filter((contract) => contract.status === "active").length,
+    }),
+    [contracts],
+  );
+
   const financeStats = useMemo(() => {
-    return summarizeFinance(filteredBudgetLines, financeEntries);
-  }, [filteredBudgetLines, financeEntries]);
+    return summarizeFinance(filteredBudgetLines, financeEntries, contracts);
+  }, [contracts, filteredBudgetLines, financeEntries]);
 
   const visibleAllocations = useMemo(() => {
     const keys = new Set(filteredBudgetLines.map((line) => line.id));
@@ -2203,8 +2778,8 @@ export default function Home() {
   );
 
   const dashboardFinance = useMemo(
-    () => summarizeFinance(dashboardBudgetLines, financeEntries),
-    [dashboardBudgetLines, financeEntries],
+    () => summarizeFinance(dashboardBudgetLines, financeEntries, contracts),
+    [contracts, dashboardBudgetLines, financeEntries],
   );
 
   const deliveryIndicators = useMemo(() => {
@@ -2290,7 +2865,7 @@ export default function Home() {
           (section === "all" || line.section === section) &&
           (member === "all" || Boolean(activityBudgetKeys?.has(line.id))),
       );
-      const finance = summarizeFinance(lines, financeEntries);
+      const finance = summarizeFinance(lines, financeEntries, contracts);
       const completed = activities.filter(
         (item) => deriveActivityStatus(item, updates) === "completed",
       ).length;
@@ -2309,6 +2884,7 @@ export default function Home() {
   }, [
     allActivities,
     allBudgetLines,
+    contracts,
     financeEntries,
     goal,
     goals,
@@ -2334,7 +2910,7 @@ export default function Home() {
             (goal === "all" || line.goal === goal) &&
             budgetKeys.has(line.id),
         );
-        const finance = summarizeFinance(lines, financeEntries);
+        const finance = summarizeFinance(lines, financeEntries, contracts);
         return {
           ...teamMember,
           activityCount: activities.length,
@@ -2345,6 +2921,7 @@ export default function Home() {
     [
       allActivities,
       allBudgetLines,
+      contracts,
       financeEntries,
       goal,
       section,
@@ -2358,7 +2935,7 @@ export default function Home() {
   const currentReportingDate =
     currentYearMeta?.reportingDate || `${selectedYear}-12-31`;
   const selectedAllocatedMnt = selected
-    ? (allocationByActivityKey.get(selected.id) ?? 0) +
+    ? allocationByActivityKey.get(selected.id) ??
       selected.subactivities.reduce(
         (total, item) => total + (allocationByActivityKey.get(item.id) ?? 0),
         0,
@@ -2420,7 +2997,12 @@ export default function Home() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <NativeSelect
               value={String(selectedYear)}
-              onChange={(event) => setSelectedYear(Number(event.target.value))}
+              onChange={(event) => {
+                setPlanState("loading");
+                setAllocationState("loading");
+                setContractState("loading");
+                setSelectedYear(Number(event.target.value));
+              }}
               className="h-10 min-w-[155px] border-[#ced8cf] bg-white font-bold"
               aria-label="Select workplan year"
             >
@@ -2493,6 +3075,13 @@ export default function Home() {
             >
               <Banknote className="h-4 w-4" />
               Finance
+            </TabsTrigger>
+            <TabsTrigger
+              value="contracts"
+              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
+            >
+              <ReceiptText className="h-4 w-4" />
+              Contracts
             </TabsTrigger>
             <TabsTrigger
               value="team"
@@ -2578,7 +3167,7 @@ export default function Home() {
                 {
                   label: "Remaining",
                   value: formatMnt(dashboardFinance.remainingMnt),
-                  detail: "Budget less expenditure",
+                  detail: "Budget less commitments and expenditure",
                   icon: Banknote,
                   accent:
                     dashboardFinance.remainingMnt < 0
@@ -3093,7 +3682,7 @@ export default function Home() {
                 {
                   label: "Commitments",
                   value: formatMnt(financeStats.commitmentMnt),
-                  detail: `${formatMnt(financeStats.uncommittedMnt)} uncommitted`,
+                  detail: `${formatMnt(financeStats.uncommittedMnt)} available`,
                   icon: HandCoins,
                   accent: "bg-white",
                 },
@@ -3107,7 +3696,7 @@ export default function Home() {
                 {
                   label: "Budget remaining",
                   value: formatMnt(financeStats.remainingMnt),
-                  detail: "Budget less expenditure",
+                  detail: "Budget less commitments and expenditure",
                   icon: Banknote,
                   accent:
                     financeStats.remainingMnt < 0
@@ -3224,7 +3813,8 @@ export default function Home() {
                         expenditure: 0,
                       };
                       const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
-                      const remainingMnt = budgetMnt - totals.expenditure;
+                      const remainingMnt =
+                        budgetMnt - totals.commitment - totals.expenditure;
                       const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
                       return (
                         <TableRow key={line.id}>
@@ -3289,7 +3879,8 @@ export default function Home() {
                     expenditure: 0,
                   };
                   const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
-                  const remainingMnt = budgetMnt - totals.expenditure;
+                  const remainingMnt =
+                    budgetMnt - totals.commitment - totals.expenditure;
                   const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
                   return (
                     <article key={line.id} className="p-4 sm:p-5">
@@ -3564,6 +4155,255 @@ export default function Home() {
                   </p>
                 </div>
               )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value="contracts" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+              <div className="mb-4 lg:mb-0">
+                <h2 className="text-xl font-black">Contract management</h2>
+                <p className="mt-1 max-w-3xl text-sm text-[#718178]">
+                  Link contracts and payment deliverables to the workplan. Unpaid contract value is commitment; paid installments become expenditure.
+                </p>
+              </div>
+              <Button
+                onClick={openAddContract}
+                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                disabled={!contractTargets.length}
+              >
+                <Plus className="h-4 w-4" />
+                Add contract
+              </Button>
+            </section>
+
+            <section className="rounded-2xl border border-[#b9cabb] bg-[#e9f1e6] p-3 sm:p-4">
+              <div className="mb-3 flex items-center gap-2 px-1">
+                <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#0c3b2d] text-white">
+                  <ReceiptText className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-black">Contract financial position</h3>
+                  <p className="text-xs text-[#5d7467]">Current {selectedYear} register</p>
+                </div>
+              </div>
+              <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[
+                  ["Active contracts", String(contractStats.active)],
+                  ["Total contract value", formatMnt(contractStats.totalValue)],
+                  ["Outstanding commitment", formatMnt(contractStats.outstanding)],
+                  ["Paid expenditure", formatMnt(contractStats.paid)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-white/80 bg-white p-4 shadow-sm">
+                    <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                    <dd className="mt-1 whitespace-nowrap text-lg font-black tabular-nums text-[#183529]">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+              <div className="flex flex-col gap-3 border-b border-[#e2e7e0] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                <div className="relative min-w-0 flex-1 sm:max-w-xl">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a8c81]" />
+                  <Input
+                    value={contractQuery}
+                    onChange={(event) => setContractQuery(event.target.value)}
+                    placeholder="Search contract, ToR, provider or workplan code"
+                    className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
+                  />
+                </div>
+                <NativeSelect
+                  value={contractStatusFilter}
+                  onChange={(event) => setContractStatusFilter(event.target.value)}
+                  className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
+                  aria-label="Filter contracts by status"
+                >
+                  <NativeSelectOption value="all">All statuses</NativeSelectOption>
+                  {Object.entries(contractStatusMeta).map(([value, meta]) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {meta.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+
+              {contractState === "unavailable" && (
+                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+                  Saved contracts are temporarily unavailable.
+                </div>
+              )}
+
+              <div className="space-y-4 bg-[#f7f9f5] p-4 sm:p-5">
+                {filteredContracts.map((contract) => {
+                  const target = contractTargets.find(
+                    (item) => item.key === contract.activityKey,
+                  );
+                  const line = allBudgetLines.find(
+                    (item) => item.id === contract.budgetKey,
+                  );
+                  const paidMnt = contractPaidMnt(contract);
+                  const commitmentMnt = contractCommitmentMnt(contract);
+                  const expanded = expandedContractIds.has(contract.id);
+                  const statusInfo = contractStatusMeta[contract.status];
+                  return (
+                    <article
+                      key={contract.id}
+                      className="overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)]"
+                    >
+                      <div className="p-4 sm:p-5">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                                {contract.contractNumber}
+                              </span>
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusInfo.tone}`}>
+                                {statusInfo.label}
+                              </span>
+                            </div>
+                            <h3 className="mt-3 break-words text-lg font-black leading-6 text-[#183529]">
+                              {contract.torName}
+                            </h3>
+                            <p className="mt-1 text-sm font-semibold text-[#53685c]">
+                              {contract.serviceProviderName} · {contract.serviceProviderType}
+                            </p>
+                            <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
+                              {line?.code ?? "Budget"} · {target?.code ?? "Workplan"} · {target?.kind === "subactivity" ? "Sub-activity · " : ""}{target?.label ?? "Removed workplan item"}
+                            </p>
+                            <p className="mt-1 text-xs text-[#718178]">
+                              {formatDate(contract.startDate)} – {formatDate(contract.endDate)}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openEditContract(contract)}>
+                              <PencilLine className="h-4 w-4" />
+                              Edit
+                            </Button>
+                            {contract.status !== "closed" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setContractToClose(contract)}
+                                className="border-amber-300 text-amber-900 hover:bg-amber-50"
+                              >
+                                Close contract
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {[
+                            ["Contract amount", formatMnt(contract.amountMnt)],
+                            ["Outstanding commitment", formatMnt(commitmentMnt)],
+                            ["Paid expenditure", formatMnt(paidMnt)],
+                          ].map(([label, value]) => (
+                            <div key={label} className="rounded-xl bg-[#f3f7f1] p-3">
+                              <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                              <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums">
+                                {value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setExpandedContractIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(contract.id)) next.delete(contract.id);
+                              else next.add(contract.id);
+                              return next;
+                            })
+                          }
+                          className="mt-4"
+                          aria-expanded={expanded}
+                        >
+                          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                          {expanded ? "Hide payment structure" : `Payment structure (${contract.payments.length})`}
+                        </Button>
+                      </div>
+
+                      {expanded && (
+                        <div className="border-t border-[#dfe7dc] bg-[#fbfcfa] p-4 sm:p-5">
+                          <div className="space-y-3">
+                            {contract.payments.map((payment) => (
+                              <div
+                                key={payment.id}
+                                className="grid gap-3 rounded-xl border border-[#dfe7dc] bg-white p-4 lg:grid-cols-[minmax(110px,0.7fr)_minmax(130px,0.8fr)_minmax(220px,2fr)_90px_150px_120px] lg:items-center"
+                              >
+                                <div>
+                                  <p className="text-xs font-semibold text-[#718178]">Payment</p>
+                                  <p className="mt-1 font-bold">{payment.label}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-[#718178]">Due date</p>
+                                  <p className="mt-1 text-sm font-semibold">{formatDate(payment.dueDate)}</p>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-[#718178]">Deliverable</p>
+                                  <p className="mt-1 break-words text-sm font-semibold">{payment.deliverable}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-[#718178]">Share</p>
+                                  <p className="mt-1 font-black tabular-nums">{payment.percentage}%</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-[#718178]">Amount</p>
+                                  <p className="mt-1 whitespace-nowrap font-black tabular-nums">{formatMnt(payment.amountMnt)}</p>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant={payment.paid ? "outline" : "default"}
+                                  disabled={contractSaving || contract.status === "closed"}
+                                  onClick={() => setPaymentPaid(contract, payment, !payment.paid)}
+                                  className={payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}
+                                >
+                                  {payment.paid ? (
+                                    <>
+                                      <CircleCheck className="h-4 w-4" /> Paid
+                                    </>
+                                  ) : (
+                                    "Mark paid"
+                                  )}
+                                </Button>
+                                {payment.paid && payment.paidAt && (
+                                  <p className="text-xs text-emerald-800 lg:col-start-6">
+                                    Paid {formatDate(payment.paidAt)}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+
+                {contractState === "ready" && filteredContracts.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center">
+                    <ReceiptText className="mx-auto h-7 w-7 text-[#779083]" />
+                    <p className="mt-3 font-black">
+                      {contracts.length ? "No contracts match these filters" : "No contracts yet"}
+                    </p>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      {contracts.length
+                        ? "Try another status or search term."
+                        : "Add the first contract and split its value into payment deliverables."}
+                    </p>
+                    {!contracts.length && (
+                      <Button className="mt-4 bg-[#0c3b2d] text-white" onClick={openAddContract}>
+                        <Plus className="h-4 w-4" /> Add contract
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </section>
           </TabsContent>
 
@@ -4291,7 +5131,12 @@ export default function Home() {
                         ],
                         ["Committed", formatMnt(totals.commitment)],
                         ["Expenditure", formatMnt(totals.expenditure)],
-                        ["Remaining", formatMnt(budgetMnt - totals.expenditure)],
+                        [
+                          "Remaining",
+                          formatMnt(
+                            budgetMnt - totals.commitment - totals.expenditure,
+                          ),
+                        ],
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-xl bg-[#f3f7f1] p-3">
                           <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
@@ -4335,10 +5180,20 @@ export default function Home() {
                       item.budgetKey === selectedBudgetLine.id &&
                       item.activityKey === target.key,
                   );
+                  const rollupKeys = new Set(
+                    target.kind === "activity" && activity
+                      ? [target.key, ...activity.subactivities.map((item) => item.id)]
+                      : [target.key],
+                  );
                   const targetEntries = financeEntries.filter(
                     (entry) =>
                       entry.budgetKey === selectedBudgetLine.id &&
-                      entry.activityKey === target.key,
+                      rollupKeys.has(entry.activityKey),
+                  );
+                  const targetContracts = contracts.filter(
+                    (contract) =>
+                      contract.budgetKey === selectedBudgetLine.id &&
+                      rollupKeys.has(contract.activityKey),
                   );
                   const targetFinance = targetEntries.reduce(
                     (totals, entry) => ({
@@ -4347,13 +5202,41 @@ export default function Home() {
                     }),
                     { commitment: 0, expenditure: 0 },
                   );
-                  const allocatedMnt = allocation?.amountMnt ?? 0;
-                  const commitmentEntryCount = targetEntries.filter(
-                    (entry) => entry.entryType === "commitment",
-                  ).length;
-                  const expenditureEntryCount = targetEntries.filter(
-                    (entry) => entry.entryType === "expenditure",
-                  ).length;
+                  targetFinance.commitment += targetContracts.reduce(
+                    (total, contract) => total + contractCommitmentMnt(contract),
+                    0,
+                  );
+                  targetFinance.expenditure += targetContracts.reduce(
+                    (total, contract) => total + contractPaidMnt(contract),
+                    0,
+                  );
+                  const childAllocatedMnt =
+                    target.kind === "activity" && activity
+                      ? activity.subactivities.reduce(
+                          (total, item) =>
+                            total + (allocationByActivityKey.get(item.id) ?? 0),
+                          0,
+                        )
+                      : 0;
+                  const allocatedMnt =
+                    allocation?.amountMnt ??
+                    (target.kind === "activity" ? childAllocatedMnt : 0);
+                  const commitmentEntryCount =
+                    targetEntries.filter((entry) => entry.entryType === "commitment")
+                      .length +
+                    targetContracts.filter(
+                      (contract) => contractCommitmentMnt(contract) > 0,
+                    ).length;
+                  const expenditureEntryCount =
+                    targetEntries.filter((entry) => entry.entryType === "expenditure")
+                      .length +
+                    targetContracts.reduce(
+                      (total, contract) =>
+                        total +
+                        contract.payments.filter((payment) => Boolean(payment.paid))
+                          .length,
+                      0,
+                    );
                   const subactivityCount = selectedBudgetTargets.filter(
                     (item) =>
                       item.activityId === target.activityId &&
@@ -4410,9 +5293,9 @@ export default function Home() {
                           >
                             <ReceiptText className="h-4 w-4" />
                             {recordsExpanded ? "Hide finance records" : "See finance records"}
-                            {targetEntries.length > 0 && (
+                            {targetEntries.length + targetContracts.length > 0 && (
                               <span className="rounded-full bg-[#e8f0e8] px-1.5 py-0.5 text-[11px] font-black text-[#285d45]">
-                                {targetEntries.length}
+                                {targetEntries.length + targetContracts.length}
                               </span>
                             )}
                           </Button>
@@ -4478,7 +5361,11 @@ export default function Home() {
                         <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
                           <p className="text-xs font-semibold text-[#718178]">Available</p>
                           <p className="mt-1 text-sm font-black tabular-nums">
-                            {formatMnt(allocatedMnt - targetFinance.expenditure)}
+                            {formatMnt(
+                              allocatedMnt -
+                                targetFinance.commitment -
+                                targetFinance.expenditure,
+                            )}
                           </p>
                           <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
                             Calculated automatically
@@ -4493,9 +5380,9 @@ export default function Home() {
                               Finance records
                             </p>
                             <p className="mt-0.5 text-xs text-[#718178]">
-                              {targetEntries.length
-                                ? `${targetEntries.length} saved ${targetEntries.length === 1 ? "entry" : "entries"}`
-                                : "No commitment or expenditure entries yet"}
+                              {targetEntries.length + targetContracts.length
+                                ? `${targetEntries.length} manual ${targetEntries.length === 1 ? "entry" : "entries"} · ${targetContracts.length} ${targetContracts.length === 1 ? "contract" : "contracts"}`
+                                : "No finance entries or contracts yet"}
                             </p>
                           </div>
                           <Button
@@ -4564,6 +5451,58 @@ export default function Home() {
                                     aria-label="Remove finance entry"
                                   >
                                     <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {targetContracts.length > 0 && (
+                          <div className="mt-3 space-y-2 border-t border-[#e2e7e0] pt-3">
+                            <p className="text-xs font-black uppercase tracking-[0.08em] text-[#496458]">
+                              Contract commitments
+                            </p>
+                            {targetContracts.map((contract) => (
+                              <div
+                                key={contract.id}
+                                className="flex flex-col gap-3 rounded-lg border border-[#d8e2d6] bg-[#f8faf7] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-800">
+                                      {contract.contractNumber}
+                                    </span>
+                                    <span className="text-xs font-semibold text-[#718178]">
+                                      {contract.serviceProviderName}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 break-words text-sm font-semibold">
+                                    {contract.torName}
+                                  </p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-4 text-right">
+                                  <div>
+                                    <p className="text-[11px] font-semibold text-[#718178]">Committed</p>
+                                    <p className="text-sm font-black tabular-nums">
+                                      {formatMnt(contractCommitmentMnt(contract))}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] font-semibold text-[#718178]">Paid</p>
+                                    <p className="text-sm font-black tabular-nums text-emerald-800">
+                                      {formatMnt(contractPaidMnt(contract))}
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedBudgetKey(null);
+                                      setActiveView("contracts");
+                                      setContractQuery(contract.contractNumber);
+                                    }}
+                                  >
+                                    Open contract
                                   </Button>
                                 </div>
                               </div>
@@ -4870,6 +5809,347 @@ export default function Home() {
               className="bg-rose-700 text-white hover:bg-rose-800"
             >
               {financeSaving ? "Removing…" : "Remove entry"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={contractDialogOpen}
+        onOpenChange={(open) => {
+          setContractDialogOpen(open);
+          if (!open) setEditingContractId(null);
+        }}
+      >
+        <DialogContent className="max-h-[94vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-5xl!">
+          <DialogHeader>
+            <DialogTitle>
+              {editingContractId ? "Edit contract" : "Add contract"}
+            </DialogTitle>
+            <DialogDescription>
+              The total contract value is committed immediately. Each paid deliverable moves its amount from commitment to expenditure.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5 py-2">
+            <section className="grid gap-4 rounded-2xl border border-[#d8e0d6] bg-[#fbfcfa] p-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Contract number</span>
+                <Input
+                  value={contractDraft.contractNumber}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      contractNumber: event.target.value,
+                    }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                  placeholder="PFP-2026-001"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Contract status</span>
+                <NativeSelect
+                  value={contractDraft.status}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      status: event.target.value as ContractRecord["status"],
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  {Object.entries(contractStatusMeta).map(([value, meta]) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {meta.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">
+                  Workplan activity or sub-activity
+                </span>
+                <NativeSelect
+                  value={contractDraft.activityKey}
+                  onChange={(event) => selectContractTarget(event.target.value)}
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Choose workplan item</NativeSelectOption>
+                  {contractTargets.map((target) => (
+                    <NativeSelectOption key={target.key} value={target.key}>
+                      {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{target.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+                {contractDraft.budgetKey && (
+                  <span className="mt-1.5 block text-xs font-semibold text-[#2f634c]">
+                    Budget line: {allBudgetLines.find((line) => line.id === contractDraft.budgetKey)?.code ?? "—"}
+                  </span>
+                )}
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">
+                  Terms of Reference (ToR) name
+                </span>
+                <Textarea
+                  value={contractDraft.torName}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      torName: event.target.value,
+                    }))
+                  }
+                  className="min-h-20 border-[#cbd6cc] bg-white"
+                  placeholder="Name of assignment or procurement"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Service provider name</span>
+                <Input
+                  value={contractDraft.serviceProviderName}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      serviceProviderName: event.target.value,
+                    }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Service provider type</span>
+                <NativeSelect
+                  value={contractDraft.serviceProviderType}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      serviceProviderType: event.target.value,
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  {providerTypes.map((type) => (
+                    <NativeSelectOption key={type} value={type}>
+                      {type}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Start date</span>
+                <Input
+                  type="date"
+                  value={contractDraft.startDate}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      startDate: event.target.value,
+                    }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">End date</span>
+                <Input
+                  type="date"
+                  value={contractDraft.endDate}
+                  onChange={(event) =>
+                    setContractDraft((current) => ({
+                      ...current,
+                      endDate: event.target.value,
+                    }))
+                  }
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-bold">Total contract amount (MNT)</span>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={contractDraft.amountMnt}
+                  onChange={(event) => updateContractTotal(event.target.value)}
+                  disabled={contractDraft.payments.some((payment) => payment.paid)}
+                  className="h-11 border-[#cbd6cc] bg-white"
+                  placeholder="100,000,000"
+                />
+                <span className="mt-1.5 block text-xs text-[#718178]">
+                  {contractDraft.payments.some((payment) => payment.paid)
+                    ? "Mark paid installments unpaid before changing the contract total."
+                    : "This amount becomes the contract's commitment."}
+                </span>
+              </label>
+            </section>
+
+            <section className="rounded-2xl border border-[#cbd8c9] bg-[#eef4eb] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-black">Payment structure</h3>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Split the total into any number of dated deliverables.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={addContractPayment}>
+                  <Plus className="h-4 w-4" /> Add payment
+                </Button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {contractDraft.payments.map((payment, index) => (
+                  <div
+                    key={payment.id || `new-payment-${index}`}
+                    className="rounded-xl border border-[#d7e0d5] bg-white p-4"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="font-black">Payment {index + 1}</p>
+                      <div className="flex items-center gap-2">
+                        {payment.paid && (
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                            Paid {payment.paidAt ? formatDate(payment.paidAt) : ""}
+                          </span>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => removeContractPayment(index)}
+                          disabled={contractDraft.payments.length === 1 || payment.paid}
+                          className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                          aria-label={`Remove payment ${index + 1}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_150px_1.5fr_110px_170px]">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Payment label</span>
+                        <Input
+                          value={payment.label}
+                          onChange={(event) => updateContractPayment(index, "label", event.target.value)}
+                          disabled={payment.paid}
+                          className="h-10 border-[#cbd6cc] bg-white"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Date</span>
+                        <Input
+                          type="date"
+                          value={payment.dueDate}
+                          onChange={(event) => updateContractPayment(index, "dueDate", event.target.value)}
+                          disabled={payment.paid}
+                          className="h-10 border-[#cbd6cc] bg-white"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Deliverable</span>
+                        <Input
+                          value={payment.deliverable}
+                          onChange={(event) => updateContractPayment(index, "deliverable", event.target.value)}
+                          disabled={payment.paid}
+                          placeholder="e.g. Inception report"
+                          className="h-10 border-[#cbd6cc] bg-white"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Amount %</span>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={payment.percentage}
+                          onChange={(event) => updateContractPayment(index, "percentage", event.target.value)}
+                          disabled={payment.paid}
+                          className="h-10 border-[#cbd6cc] bg-white"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Amount (MNT)</span>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={payment.amountMnt}
+                          onChange={(event) => updateContractPayment(index, "amountMnt", event.target.value)}
+                          disabled={payment.paid}
+                          className="h-10 border-[#cbd6cc] bg-white"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-white p-3">
+                  <dt className="text-xs font-semibold text-[#718178]">Contract total</dt>
+                  <dd className="mt-1 font-black tabular-nums">
+                    {formatMnt(Number(contractDraft.amountMnt.replace(/,/g, "")) || 0)}
+                  </dd>
+                </div>
+                <div className="rounded-xl bg-white p-3">
+                  <dt className="text-xs font-semibold text-[#718178]">Payment total</dt>
+                  <dd className="mt-1 font-black tabular-nums">
+                    {formatMnt(
+                      contractDraft.payments.reduce(
+                        (total, payment) =>
+                          total + Number(payment.amountMnt.replace(/,/g, "") || 0),
+                        0,
+                      ),
+                    )}
+                  </dd>
+                </div>
+                <div className="col-span-2 rounded-xl bg-white p-3 sm:col-span-1">
+                  <dt className="text-xs font-semibold text-[#718178]">Percentage total</dt>
+                  <dd className="mt-1 font-black tabular-nums">
+                    {contractDraft.payments.reduce(
+                      (total, payment) => total + Number(payment.percentage || 0),
+                      0,
+                    )}%
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContractDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={saveContract}
+              disabled={contractSaving}
+              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+            >
+              {contractSaving ? "Saving…" : editingContractId ? "Save changes" : "Save contract"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(contractToClose)}
+        onOpenChange={(open) => {
+          if (!open) setContractToClose(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close this contract?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {contractToClose
+                ? `${contractToClose.contractNumber} has ${formatMnt(contractCommitmentMnt(contractToClose))} outstanding. Closing it releases that unpaid amount from commitments; paid expenditure remains unchanged.`
+                : "The unpaid contract balance will be released from commitments."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={contractSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={closeContract}
+              disabled={contractSaving}
+              className="bg-amber-700 text-white hover:bg-amber-800"
+            >
+              {contractSaving ? "Closing…" : "Close contract"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -109,3 +109,56 @@ export const budgetAllocations = sqliteTable(
     ),
   ],
 );
+
+export const contracts = sqliteTable(
+  "contracts",
+  {
+    id: text("id").primaryKey(),
+    planYear: integer("plan_year").notNull(),
+    contractNumber: text("contract_number").notNull(),
+    status: text("status").notNull().default("active"),
+    budgetKey: text("budget_key").notNull(),
+    activityKey: text("activity_key").notNull(),
+    torName: text("tor_name").notNull(),
+    serviceProviderName: text("service_provider_name").notNull(),
+    serviceProviderType: text("service_provider_type").notNull(),
+    startDate: text("start_date").notNull(),
+    endDate: text("end_date").notNull(),
+    amountMnt: integer("amount_mnt").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_contracts_year_number").on(
+      table.planYear,
+      table.contractNumber,
+    ),
+    index("idx_contracts_year_budget").on(table.planYear, table.budgetKey),
+    index("idx_contracts_year_activity").on(table.planYear, table.activityKey),
+  ],
+);
+
+export const contractPayments = sqliteTable(
+  "contract_payments",
+  {
+    id: text("id").primaryKey(),
+    contractId: text("contract_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    label: text("label").notNull(),
+    dueDate: text("due_date").notNull(),
+    deliverable: text("deliverable").notNull(),
+    percentage: integer("percentage").notNull(),
+    amountMnt: integer("amount_mnt").notNull(),
+    paid: integer("paid").notNull().default(0),
+    paidAt: text("paid_at").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("ux_contract_payments_contract_sequence").on(
+      table.contractId,
+      table.sequence,
+    ),
+    index("idx_contract_payments_contract").on(table.contractId),
+  ],
+);
