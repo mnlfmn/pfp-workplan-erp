@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { activityUpdates, teamMembers, workplanRecords } from "@/db/schema";
@@ -6,6 +6,11 @@ import {
   defaultTeamMembers,
   type TeamMember,
 } from "@/lib/team-members";
+import {
+  requireAdminSession,
+  requireAppSession,
+  type AppSession,
+} from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 type TeamMemberRow = typeof teamMembers.$inferSelect;
@@ -41,6 +46,16 @@ function rowToMember(row: TeamMemberRow): TeamMember {
           ? "Workplan"
           : "PCU",
     aliases: parseAliases(row.aliases),
+    email: row.email,
+    accessRole: row.accessRole === "admin" ? "admin" : "member",
+    inviteStatus:
+      row.inviteStatus === "active"
+        ? "active"
+        : row.inviteStatus === "invited"
+          ? "invited"
+          : "not_invited",
+    inviteSentAt: row.inviteSentAt,
+    lastSignedInAt: row.lastSignedInAt,
   };
 }
 
@@ -66,6 +81,8 @@ function normalizePayload(payload: {
   role?: unknown;
   group?: unknown;
   aliases?: unknown;
+  email?: unknown;
+  accessRole?: unknown;
 }) {
   const name = String(payload.name ?? "").trim();
   const role = String(payload.role ?? "").trim();
@@ -84,6 +101,8 @@ function normalizePayload(payload: {
         ),
       )
     : [];
+  const email = String(payload.email ?? "").trim().toLocaleLowerCase();
+  const accessRole = payload.accessRole === "admin" ? "admin" : "member";
   if (!name || name.length > 120) {
     return { error: "Enter a team member name of up to 120 characters." } as const;
   }
@@ -93,15 +112,40 @@ function normalizePayload(payload: {
   if (aliases.length > 30 || aliases.some((alias) => alias.length > 100)) {
     return { error: "Keep aliases to 30 short names or fewer." } as const;
   }
-  return { name, role, group, aliases } as const;
+  if (
+    email &&
+    (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+  ) {
+    return { error: "Enter a valid email address." } as const;
+  }
+  return { name, role, group, aliases, email, accessRole } as const;
 }
 
-function authenticatedUser(request: Request) {
-  return (
-    request.headers.get("oai-authenticated-user-email") ??
-    request.headers.get("oai-authenticated-user-id") ??
-    ""
-  );
+function memberForSession(member: TeamMember, session: AppSession) {
+  if (session.isAdmin || session.memberId === member.id) return member;
+  return {
+    ...member,
+    email: "",
+    accessRole: "member" as const,
+    inviteStatus: member.email ? ("invited" as const) : ("not_invited" as const),
+    inviteSentAt: "",
+    lastSignedInAt: "",
+  };
+}
+
+async function remainingAdminCount(excludingId = "") {
+  const where = excludingId
+    ? and(
+        eq(teamMembers.isDeleted, 0),
+        eq(teamMembers.accessRole, "admin"),
+        ne(teamMembers.id, excludingId),
+      )
+    : and(eq(teamMembers.isDeleted, 0), eq(teamMembers.accessRole, "admin"));
+  const rows = await getDb()
+    .select({ id: teamMembers.id })
+    .from(teamMembers)
+    .where(where);
+  return rows.length;
 }
 
 function safePayload(value: string) {
@@ -132,10 +176,14 @@ const statusWeight: Record<string, number> = {
   not_reported: 0,
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const rows = await getDb().select().from(teamMembers);
-    return Response.json({ members: mergeMembers(rows) });
+    return Response.json({
+      members: mergeMembers(rows).map((member) => memberForSession(member, session)),
+    });
   } catch (error) {
     console.error("Unable to load team members", error);
     return Response.json({ error: message(error) }, { status: 503 });
@@ -144,6 +192,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const session = await requireAdminSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as Record<string, unknown>;
     const values = normalizePayload(payload);
     if ("error" in values) {
@@ -158,6 +208,12 @@ export async function POST(request: Request) {
     ) {
       return Response.json({ error: "A team member with this name already exists." }, { status: 409 });
     }
+    if (
+      values.email &&
+      current.some((member) => member.email === values.email)
+    ) {
+      return Response.json({ error: "That email is already assigned to another team member." }, { status: 409 });
+    }
     const now = new Date().toISOString();
     const id = `member-${crypto.randomUUID()}`;
     const [row] = await db
@@ -168,10 +224,15 @@ export async function POST(request: Request) {
         role: values.role,
         group: values.group,
         aliases: JSON.stringify(values.aliases),
+        email: values.email,
+        accessRole: values.accessRole,
+        inviteStatus: "not_invited",
+        inviteSentAt: "",
+        lastSignedInAt: "",
         isDeleted: 0,
         createdAt: now,
         updatedAt: now,
-        updatedBy: authenticatedUser(request),
+        updatedBy: session.email,
       })
       .returning();
     return Response.json({ member: rowToMember(row) }, { status: 201 });
@@ -183,6 +244,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const session = await requireAdminSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as Record<string, unknown>;
     const id = String(payload.id ?? "").trim();
     if (!id || id.length > 100) {
@@ -207,18 +270,44 @@ export async function PUT(request: Request) {
     ) {
       return Response.json({ error: "A team member with this name already exists." }, { status: 409 });
     }
+    if (
+      values.email &&
+      current.some(
+        (member) => member.id !== id && member.email === values.email,
+      )
+    ) {
+      return Response.json({ error: "That email is already assigned to another team member." }, { status: 409 });
+    }
     const existing = existingRows.find((row) => row.id === id);
+    if (
+      existing?.accessRole === "admin" &&
+      values.accessRole !== "admin" &&
+      (await remainingAdminCount(id)) === 0
+    ) {
+      return Response.json(
+        { error: "Assign another administrator before removing the last admin role." },
+        { status: 400 },
+      );
+    }
     const now = new Date().toISOString();
+    const emailChanged = (existing?.email ?? "") !== values.email;
     const stored = {
       id,
       name: values.name,
       role: values.role,
       group: values.group,
       aliases: JSON.stringify(values.aliases),
+      email: values.email,
+      accessRole: values.accessRole,
+      inviteStatus: emailChanged
+        ? "not_invited"
+        : existing?.inviteStatus ?? "not_invited",
+      inviteSentAt: emailChanged ? "" : existing?.inviteSentAt ?? "",
+      lastSignedInAt: emailChanged ? "" : existing?.lastSignedInAt ?? "",
       isDeleted: 0,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      updatedBy: authenticatedUser(request),
+      updatedBy: session.email,
     };
     await db
       .insert(teamMembers)
@@ -238,6 +327,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await requireAdminSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as { id?: unknown };
     const id = String(payload.id ?? "").trim();
     const db = getDb();
@@ -248,6 +339,15 @@ export async function DELETE(request: Request) {
       return Response.json({ error: "Team member not found." }, { status: 404 });
     }
     const existing = rows.find((row) => row.id === id);
+    if (
+      existing?.accessRole === "admin" &&
+      (await remainingAdminCount(id)) === 0
+    ) {
+      return Response.json(
+        { error: "Assign another administrator before removing the last admin." },
+        { status: 400 },
+      );
+    }
     const now = new Date().toISOString();
     const stored = {
       id,
@@ -255,10 +355,15 @@ export async function DELETE(request: Request) {
       role: member.role,
       group: member.group,
       aliases: JSON.stringify(member.aliases),
+      email: existing?.email ?? member.email,
+      accessRole: existing?.accessRole ?? member.accessRole,
+      inviteStatus: existing?.inviteStatus ?? member.inviteStatus,
+      inviteSentAt: existing?.inviteSentAt ?? member.inviteSentAt,
+      lastSignedInAt: existing?.lastSignedInAt ?? member.lastSignedInAt,
       isDeleted: 1,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      updatedBy: authenticatedUser(request),
+      updatedBy: session.email,
     };
     await db
       .insert(teamMembers)
@@ -333,7 +438,7 @@ export async function DELETE(request: Request) {
         supportNeeded: existingUpdate?.supportNeeded ?? "",
         owner: "",
         updatedAt: now,
-        updatedBy: authenticatedUser(request),
+        updatedBy: session.email,
       };
       const [cleared] = await db
         .insert(activityUpdates)
@@ -349,6 +454,48 @@ export async function DELETE(request: Request) {
     return Response.json({ deletedId: id, clearedUpdates });
   } catch (error) {
     console.error("Unable to remove team member", error);
+    return Response.json({ error: message(error) }, { status: 503 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const session = await requireAdminSession(request);
+    if (session instanceof Response) return session;
+    const payload = (await request.json()) as { id?: unknown };
+    const id = String(payload.id ?? "").trim();
+    const [member] = await getDb()
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.id, id), eq(teamMembers.isDeleted, 0)))
+      .limit(1);
+    if (!member) {
+      return Response.json({ error: "Team member not found." }, { status: 404 });
+    }
+    if (!member.email) {
+      return Response.json(
+        { error: "Add an email address before preparing an invitation." },
+        { status: 400 },
+      );
+    }
+    const now = new Date().toISOString();
+    await getDb()
+      .update(teamMembers)
+      .set({
+        inviteStatus: "invited",
+        inviteSentAt: now,
+        updatedAt: now,
+        updatedBy: session.email,
+      })
+      .where(eq(teamMembers.id, id));
+    const [saved] = await getDb()
+      .select()
+      .from(teamMembers)
+      .where(eq(teamMembers.id, id))
+      .limit(1);
+    return Response.json({ member: rowToMember(saved) });
+  } catch (error) {
+    console.error("Unable to prepare team invitation", error);
     return Response.json({ error: message(error) }, { status: 503 });
   }
 }

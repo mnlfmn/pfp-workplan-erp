@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { workplanRecords, workplanYears } from "@/db/schema";
+import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 const BASE_YEAR = 2026;
@@ -21,14 +22,6 @@ type BudgetRecord = JsonRecord & {
   id: string;
   code: string;
 };
-
-function authUser(request: Request) {
-  return (
-    request.headers.get("oai-authenticated-user-email") ??
-    request.headers.get("oai-authenticated-user-id") ??
-    ""
-  );
-}
 
 function safePayload(value: string) {
   try {
@@ -183,6 +176,8 @@ function storageMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const session = await requireAppSession(request);
+  if (session instanceof Response) return session;
   const year = Number(new URL(request.url).searchParams.get("year") || BASE_YEAR);
   if (!Number.isInteger(year) || year < BASE_YEAR || year > 2100) {
     return Response.json({ error: "Choose a valid workplan year." }, { status: 400 });
@@ -214,6 +209,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       action?: string;
       year?: number;
@@ -227,7 +224,7 @@ export async function POST(request: Request) {
       record?: JsonRecord;
     };
     const db = getDb();
-    const updatedBy = authUser(request);
+    const updatedBy = session.email;
     const now = new Date().toISOString();
 
     if (payload.action === "create_year") {
@@ -268,6 +265,7 @@ export async function POST(request: Request) {
           const key = `${toYear}:${stripYearPrefix(activity.id)}`;
           activityKeys.set(activity.id, key);
           const { subactivities: _subactivities, ...activityPayload } = activity;
+          void _subactivities;
           const copied = copyForYear(activityPayload, toYear, "activity");
           copied.id = key;
           rows.push({
@@ -378,6 +376,8 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       year?: number;
       recordType?: string;
@@ -405,7 +405,7 @@ export async function DELETE(request: Request) {
       payload: "{}",
       isDeleted: 1,
       updatedAt: now,
-      updatedBy: authUser(request),
+      updatedBy: session.email,
     };
     await getDb()
       .insert(workplanRecords)

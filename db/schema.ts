@@ -31,17 +31,30 @@ export const financeEntries = sqliteTable("finance_entries", {
   createdBy: text("created_by").notNull().default(""),
 });
 
-export const teamMembers = sqliteTable("team_members", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  role: text("role").notNull().default(""),
-  group: text("group_name").notNull().default("PCU"),
-  aliases: text("aliases").notNull().default("[]"),
-  isDeleted: integer("is_deleted").notNull().default(0),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedBy: text("updated_by").notNull().default(""),
-});
+export const teamMembers = sqliteTable(
+  "team_members",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    role: text("role").notNull().default(""),
+    group: text("group_name").notNull().default("PCU"),
+    aliases: text("aliases").notNull().default("[]"),
+    email: text("email").notNull().default(""),
+    accessRole: text("access_role").notNull().default("member"),
+    inviteStatus: text("invite_status").notNull().default("not_invited"),
+    inviteSentAt: text("invite_sent_at").notNull().default(""),
+    lastSignedInAt: text("last_signed_in_at").notNull().default(""),
+    isDeleted: integer("is_deleted").notNull().default(0),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_team_members_email")
+      .on(table.email)
+      .where(sql`${table.email} <> ''`),
+  ],
+);
 
 export const workplanYears = sqliteTable("workplan_years", {
   year: integer("year").primaryKey(),

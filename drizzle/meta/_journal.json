@@ -43,6 +43,13 @@
       "when": 1790734237341,
       "tag": "0005_violet_unus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790746979359,
+      "tag": "0006_slim_paladin",
+      "breakpoints": true
     }
   ]
 }

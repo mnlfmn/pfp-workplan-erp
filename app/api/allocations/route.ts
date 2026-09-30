@@ -2,17 +2,10 @@ import { asc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { budgetAllocations, workplanRecords } from "@/db/schema";
+import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 const BASE_YEAR = 2026;
-
-function userFrom(request: Request) {
-  return (
-    request.headers.get("oai-authenticated-user-email") ??
-    request.headers.get("oai-authenticated-user-id") ??
-    ""
-  );
-}
 
 function allocationId(year: number, budgetKey: string, activityKey: string) {
   return `allocation:${year}:${budgetKey}:${activityKey}`;
@@ -52,6 +45,8 @@ function storageMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const session = await requireAppSession(request);
+  if (session instanceof Response) return session;
   const year = Number(new URL(request.url).searchParams.get("year") || BASE_YEAR);
   if (!Number.isInteger(year) || year < BASE_YEAR || year > 2100) {
     return Response.json({ error: "Choose a valid workplan year." }, { status: 400 });
@@ -71,6 +66,8 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       planYear?: number;
       budgetKey?: string;
@@ -109,7 +106,7 @@ export async function PUT(request: Request) {
       amountMnt,
       note: (payload.note ?? "").trim().slice(0, 2000),
       updatedAt: now,
-      updatedBy: userFrom(request),
+      updatedBy: session.email,
     };
     const [allocation] = await getDb()
       .insert(budgetAllocations)
@@ -132,6 +129,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as { id?: string };
     const id = payload.id?.trim() ?? "";
     if (!id) {

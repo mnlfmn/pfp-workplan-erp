@@ -4,6 +4,11 @@ export type TeamMember = {
   role: string;
   group: "PCU" | "MNLF" | "Workplan";
   aliases: string[];
+  email: string;
+  accessRole: "admin" | "member";
+  inviteStatus: "not_invited" | "invited" | "active";
+  inviteSentAt: string;
+  lastSignedInAt: string;
 };
 
 export const defaultTeamMembers: TeamMember[] = [
@@ -13,6 +18,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Coordinator",
     group: "PCU",
     aliases: ["Tuvshinjargal", "Түвшинжаргал"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "ochirkhuyag-j",
@@ -20,6 +30,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "PA Management senior officer",
     group: "PCU",
     aliases: ["Ochirkhuyag", "Ж.Очирхуяг", "Очирхуяг"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "namuunaa-m",
@@ -27,6 +42,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "PA expansion officer",
     group: "PCU",
     aliases: ["Namuunaa", "М.Намуунаа", "Намуунаа"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "khulan-s",
@@ -34,6 +54,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Project and partnership officer",
     group: "PCU",
     aliases: ["Khulan", "С.Хулан", "Ш.Хулан", "Хулан"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "enkhsaikhan-u",
@@ -41,6 +66,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Sustainable finance officer",
     group: "PCU",
     aliases: ["Enkhsaikhan", "Энхсайхан"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "amartuvshin-s",
@@ -48,6 +78,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "PCU workplan member",
     group: "PCU",
     aliases: ["Amartuvshin", "С.Амартүвшин", "Амартүвшин"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "bolormaa",
@@ -55,6 +90,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "PCU workplan member",
     group: "PCU",
     aliases: ["Bolormaa", "Болормаа"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "tsenguun",
@@ -62,6 +102,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "PCU workplan member",
     group: "PCU",
     aliases: ["Tsenguun", "Цэнгүүн"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "namjilmaa-ch",
@@ -69,6 +114,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Additional workplan member",
     group: "Workplan",
     aliases: ["Namjilmaa", "Ч.Намжилмаа", "Намжилмаа"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "munkhjin-ts",
@@ -76,6 +126,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Additional workplan member",
     group: "Workplan",
     aliases: ["Munkhjin", "Ц.Мөнхжин", "Мөнхжин"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "tugsbuyan-m",
@@ -83,6 +138,11 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Additional workplan member",
     group: "Workplan",
     aliases: ["Tugsbuyan", "М.Төгсбуян", "Төгсбуян"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
   {
     id: "battogtokh-n",
@@ -90,5 +150,10 @@ export const defaultTeamMembers: TeamMember[] = [
     role: "Additional workplan member",
     group: "Workplan",
     aliases: ["Battogtokh", "Н.Баттогтох", "Баттогтох"],
+    email: "",
+    accessRole: "member",
+    inviteStatus: "not_invited",
+    inviteSentAt: "",
+    lastSignedInAt: "",
   },
 ];

@@ -2,6 +2,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { contractPayments, contracts, workplanRecords } from "@/db/schema";
+import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 const validStatuses = new Set(["draft", "active", "completed", "closed"]);
@@ -236,6 +237,8 @@ function errorMessage(error: unknown) {
 
 export async function GET(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const year = Number(new URL(request.url).searchParams.get("year") ?? 2026);
     if (!Number.isInteger(year)) {
       return Response.json({ error: "Choose a valid workplan year." }, { status: 400 });
@@ -249,6 +252,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as ContractPayload;
     const validationError = validateContract(payload);
     if (validationError) {
@@ -265,10 +270,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
-    const updatedBy =
-      request.headers.get("oai-authenticated-user-email") ??
-      request.headers.get("oai-authenticated-user-id") ??
-      "";
+    const updatedBy = session.email;
     const id = crypto.randomUUID();
     const db = getDb();
     await db.insert(contracts).values({
@@ -314,6 +316,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as ContractPayload;
     const id = payload.id?.trim() ?? "";
     const validationError = validateContract(payload);
@@ -360,10 +364,7 @@ export async function PUT(request: Request) {
       }
     }
     const now = new Date().toISOString();
-    const updatedBy =
-      request.headers.get("oai-authenticated-user-email") ??
-      request.headers.get("oai-authenticated-user-id") ??
-      "";
+    const updatedBy = session.email;
 
     await db
       .update(contracts)
@@ -415,6 +416,8 @@ export async function PUT(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       action?: string;
       id?: string;
@@ -428,10 +431,7 @@ export async function PATCH(request: Request) {
     if (payload.action === "close_contract") {
       const id = payload.id?.trim() ?? "";
       if (!id) return Response.json({ error: "Choose a valid contract." }, { status: 400 });
-      const updatedBy =
-        request.headers.get("oai-authenticated-user-email") ??
-        request.headers.get("oai-authenticated-user-id") ??
-        "";
+      const updatedBy = session.email;
       const [updated] = await db
         .update(contracts)
         .set({ status: "closed", updatedAt: now, updatedBy })

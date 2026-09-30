@@ -12,10 +12,12 @@ import {
   HandCoins,
   LayoutDashboard,
   ListChecks,
+  Mail,
   PencilLine,
   Plus,
   ReceiptText,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Target,
   Trash2,
@@ -152,6 +154,18 @@ type TeamDraft = {
   role: string;
   group: "PCU" | "MNLF" | "Workplan";
   aliasesText: string;
+  email: string;
+  accessRole: "admin" | "member";
+};
+
+type AppSession = {
+  userId: string;
+  email: string;
+  displayName: string;
+  memberId: string;
+  memberName: string;
+  accessRole: "admin" | "member";
+  isAdmin: boolean;
 };
 
 type WorkplanYear = {
@@ -874,6 +888,7 @@ export default function Home() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
     defaultTeamMembers,
   );
+  const [currentSession, setCurrentSession] = useState<AppSession | null>(null);
   const [teamState, setTeamState] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
@@ -886,6 +901,8 @@ export default function Home() {
     role: "",
     group: "PCU",
     aliasesText: "",
+    email: "",
+    accessRole: "member",
   });
   const [syncState, setSyncState] = useState<
     "loading" | "ready" | "unavailable"
@@ -1044,6 +1061,30 @@ export default function Home() {
     },
     [loadTarget, updates],
   );
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/session")
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          session?: AppSession;
+          error?: string;
+        };
+        if (!response.ok || !result.session) {
+          throw new Error(result.error || "Account information is unavailable");
+        }
+        return result.session;
+      })
+      .then((session) => {
+        if (active) setCurrentSession(session);
+      })
+      .catch(() => {
+        if (active) setCurrentSession(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -2199,23 +2240,29 @@ export default function Home() {
   }
 
   function openAddTeamMember() {
+    if (!currentSession?.isAdmin) return;
     setEditingTeamId(null);
     setTeamDraft({
       name: "",
       role: "",
       group: "PCU",
       aliasesText: "",
+      email: "",
+      accessRole: "member",
     });
     setTeamDialogOpen(true);
   }
 
   function openEditTeamMember(teamMember: TeamMember) {
+    if (!currentSession?.isAdmin) return;
     setEditingTeamId(teamMember.id);
     setTeamDraft({
       name: teamMember.name,
       role: teamMember.role,
       group: teamMember.group,
       aliasesText: teamMember.aliases.join(", "),
+      email: teamMember.email,
+      accessRole: teamMember.accessRole,
     });
     setTeamDialogOpen(true);
   }
@@ -2241,6 +2288,8 @@ export default function Home() {
           role: teamDraft.role,
           group: teamDraft.group,
           aliases,
+          email: teamDraft.email,
+          accessRole: teamDraft.accessRole,
         }),
       });
       const result = (await response.json()) as {
@@ -2268,6 +2317,51 @@ export default function Home() {
       );
     } finally {
       setTeamSaving(false);
+    }
+  }
+
+  async function prepareTeamInvite(teamMember: TeamMember) {
+    if (!currentSession?.isAdmin || !teamMember.email) return;
+    try {
+      const response = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: teamMember.id }),
+      });
+      const result = (await response.json()) as {
+        member?: TeamMember;
+        error?: string;
+      };
+      if (!response.ok || !result.member) {
+        throw new Error(result.error || "The invitation could not be prepared.");
+      }
+      setTeamMembers((current) =>
+        current.map((item) =>
+          item.id === result.member!.id ? result.member! : item,
+        ),
+      );
+      const subject = "Invitation to the PFP Workplan Monitor";
+      const body = [
+        `Hello ${teamMember.name},`,
+        "",
+        "You have been invited to the PFP Workplan Monitor.",
+        `Open ${window.location.origin} and sign in with ${teamMember.email}.`,
+        "",
+        `Access level: ${teamMember.accessRole === "admin" ? "Administrator" : "Team member"}`,
+      ].join("\n");
+      const inviteUrl = `mailto:${encodeURIComponent(teamMember.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const inviteLink = document.createElement("a");
+      inviteLink.href = inviteUrl;
+      inviteLink.click();
+      toast.success("Invitation email prepared", {
+        description: "Review and send it from your email application.",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The invitation could not be prepared.",
+      );
     }
   }
 
@@ -4438,10 +4532,10 @@ export default function Home() {
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Team Performance</h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  The five confirmed PCU roles are included with additional names found in the workplan.
+                  Add member emails, prepare invitations, and manage administrator access.
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3 lg:flex">
+              <div className="grid gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
                 <NativeSelect
                   value={section}
                   onChange={(event) => setSection(event.target.value)}
@@ -4465,13 +4559,30 @@ export default function Home() {
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
-                <Button
-                  onClick={openAddTeamMember}
-                  className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Add member
-                </Button>
+                {currentSession && (
+                  <>
+                    <div className="flex h-10 items-center gap-2 rounded-xl border border-[#ced8cf] bg-[#f8faf7] px-3 text-sm font-semibold text-[#315845]">
+                      {currentSession.isAdmin && <ShieldCheck className="h-4 w-4" />}
+                      {currentSession.memberName} · {currentSession.isAdmin ? "Admin" : "Member"}
+                    </div>
+                    <a
+                      href="/signout-with-chatgpt?return_to=%2F"
+                      target="_top"
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-[#ced8cf] bg-white px-3 text-sm font-bold text-[#315845] hover:bg-[#f5f8f4]"
+                    >
+                      Sign out
+                    </a>
+                  </>
+                )}
+                {currentSession?.isAdmin && (
+                  <Button
+                    onClick={openAddTeamMember}
+                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Add member
+                  </Button>
+                )}
               </div>
             </section>
 
@@ -4494,16 +4605,24 @@ export default function Home() {
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <Table className="min-w-[1320px]">
+                <Table
+                  className={currentSession?.isAdmin ? "min-w-[1640px]" : "min-w-[1260px]"}
+                >
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="w-[270px] pl-5">Team member</TableHead>
+                      {currentSession?.isAdmin && (
+                        <>
+                          <TableHead className="w-[250px]">Email and invitation</TableHead>
+                          <TableHead className="w-[120px]">Access</TableHead>
+                        </>
+                      )}
                       <TableHead className="w-[190px]">Activity progress</TableHead>
                       <TableHead className="text-right">Budget</TableHead>
                       <TableHead className="text-right">Commitment</TableHead>
                       <TableHead className="text-right">Expenditure</TableHead>
                       <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="w-44 pr-5 text-right">Actions</TableHead>
+                      <TableHead className="w-[260px] pr-5 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -4532,6 +4651,34 @@ export default function Home() {
                             </div>
                           </div>
                         </TableCell>
+                        {currentSession?.isAdmin && (
+                          <>
+                            <TableCell>
+                              {item.email ? (
+                                <div>
+                                  <p className="font-semibold text-[#315845]">{item.email}</p>
+                                  <p className="mt-1 text-xs text-[#718178]">
+                                    {item.inviteStatus === "active"
+                                      ? "Signed in"
+                                      : item.inviteStatus === "invited"
+                                        ? "Invitation prepared"
+                                        : "Ready to invite"}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-amber-700">Email required</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${item.accessRole === "admin" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-700"}`}
+                              >
+                                {item.accessRole === "admin" && <ShieldCheck className="h-3.5 w-3.5" />}
+                                {item.accessRole === "admin" ? "Admin" : "Member"}
+                              </span>
+                            </TableCell>
+                          </>
+                        )}
                         <TableCell>
                           <div className="mb-2 flex items-center justify-between text-sm font-bold">
                             <span>{item.progress}%</span>
@@ -4560,14 +4707,26 @@ export default function Home() {
                         </TableCell>
                         <TableCell className="pr-5">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditTeamMember(item)}
-                            >
-                              <PencilLine className="h-4 w-4" />
-                              Edit
-                            </Button>
+                            {currentSession?.isAdmin && item.email && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void prepareTeamInvite(item)}
+                              >
+                                <Mail className="h-4 w-4" />
+                                Invite
+                              </Button>
+                            )}
+                            {currentSession?.isAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditTeamMember(item)}
+                              >
+                                <PencilLine className="h-4 w-4" />
+                                Edit
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -6188,7 +6347,7 @@ export default function Home() {
               {editingTeamId ? "Edit team member" : "Add team member"}
             </DialogTitle>
             <DialogDescription>
-              Names and aliases are used to connect the member with workplan assignments.
+              Add the email they will use to sign in. Only administrators can manage team access.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -6219,6 +6378,43 @@ export default function Home() {
                 className="h-11 border-[#cbd6cc] bg-white"
                 placeholder="Coordinator, officer, or other role"
               />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Sign-in email</span>
+              <Input
+                type="email"
+                value={teamDraft.email}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    email: event.target.value,
+                  }))
+                }
+                className="h-11 border-[#cbd6cc] bg-white"
+                placeholder="name@example.org"
+              />
+              <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
+                The invitation must be opened using this exact email address.
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-bold">Access level</span>
+              <NativeSelect
+                value={teamDraft.accessRole}
+                onChange={(event) =>
+                  setTeamDraft((current) => ({
+                    ...current,
+                    accessRole: event.target.value as TeamDraft["accessRole"],
+                  }))
+                }
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                <NativeSelectOption value="member">Team member</NativeSelectOption>
+                <NativeSelectOption value="admin">Administrator</NativeSelectOption>
+              </NativeSelect>
+              <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
+                Administrators can add people, prepare invitations, and grant administrator access.
+              </span>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Member type</span>

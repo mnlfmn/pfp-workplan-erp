@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { activityUpdates, workplanRecords } from "@/db/schema";
+import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 const allowedStatuses = new Set([
@@ -50,8 +51,10 @@ function message(error: unknown) {
   return "Saved updates are temporarily unavailable.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const rows = await getDb().select().from(activityUpdates);
     return Response.json({ updates: rows });
   } catch (error) {
@@ -62,6 +65,8 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       activityKey?: string;
       status?: string;
@@ -88,10 +93,7 @@ export async function PUT(request: Request) {
       return Response.json({ error: "Progress must be a whole number from 0 to 100." }, { status: 400 });
     }
 
-    const updatedBy =
-      request.headers.get("oai-authenticated-user-email") ??
-      request.headers.get("oai-authenticated-user-id") ??
-      "";
+    const updatedBy = session.email;
     const db = getDb();
     const [existing] = await db
       .select()

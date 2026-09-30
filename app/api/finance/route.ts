@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { financeEntries, workplanRecords } from "@/db/schema";
+import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
 const validBudgetKeys = new Set(workplan.budgetLines.map((line) => line.id));
@@ -116,8 +117,10 @@ function message(error: unknown) {
   return "Finance entries are temporarily unavailable.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const entries = await getDb()
       .select()
       .from(financeEntries)
@@ -131,6 +134,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       budgetKey?: string;
       activityKey?: string;
@@ -165,10 +170,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Choose a valid entry date." }, { status: 400 });
     }
 
-    const createdBy =
-      request.headers.get("oai-authenticated-user-email") ??
-      request.headers.get("oai-authenticated-user-id") ??
-      "";
+    const createdBy = session.email;
     const [entry] = await getDb()
       .insert(financeEntries)
       .values({
@@ -193,6 +195,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as {
       id?: number;
       budgetKey?: string;
@@ -258,6 +262,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
     const payload = (await request.json()) as { id?: number };
     const id = Number(payload.id);
     if (!Number.isSafeInteger(id) || id <= 0) {
