@@ -3312,9 +3312,17 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
       <Toaster position="top-right" richColors />
+      <Tabs
+        value={activeView}
+        className="block"
+        onValueChange={(value) => {
+          setActiveView(value);
+          setQuery("");
+        }}
+      >
       <header className="border-b border-[#d7ded5] bg-[#0c3b2d] text-white">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
+          <div className="flex shrink-0 items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#dbf081] text-sm font-black tracking-tight text-[#153829]">
               PFP
             </div>
@@ -3322,6 +3330,53 @@ export default function Home() {
               <p className="text-base font-bold tracking-tight">Eternal Mongolia</p>
               <p className="text-xs text-emerald-100/70">Programme workplan</p>
             </div>
+          </div>
+
+          <div className="min-w-0 flex-1 overflow-x-auto pb-1 lg:pb-0">
+            <TabsList className="flex h-auto min-w-max gap-1 rounded-xl border border-white/15 bg-white/10 p-1">
+              <TabsTrigger
+                value="dashboard"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
+              </TabsTrigger>
+              <TabsTrigger
+                value="workplan"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <ListChecks className="h-4 w-4" />
+                Workplan
+              </TabsTrigger>
+              <TabsTrigger
+                value="finance"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <Banknote className="h-4 w-4" />
+                Finance
+              </TabsTrigger>
+              <TabsTrigger
+                value="contracts"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <ReceiptText className="h-4 w-4" />
+                Contracts
+              </TabsTrigger>
+              <TabsTrigger
+                value="team"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <Users className="h-4 w-4" />
+                Team Performance
+              </TabsTrigger>
+              <TabsTrigger
+                value="access"
+                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                User Access
+              </TabsTrigger>
+            </TabsList>
           </div>
         </div>
       </header>
@@ -3387,59 +3442,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
-        <Tabs
-          value={activeView}
-          className="gap-5"
-          onValueChange={(value) => {
-            setActiveView(value);
-            setQuery("");
-          }}
-        >
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-[#d7ded5] bg-white p-1 sm:flex sm:w-auto">
-            <TabsTrigger
-              value="dashboard"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              Dashboard
-            </TabsTrigger>
-            <TabsTrigger
-              value="workplan"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <ListChecks className="h-4 w-4" />
-              Workplan
-            </TabsTrigger>
-            <TabsTrigger
-              value="finance"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <Banknote className="h-4 w-4" />
-              Finance
-            </TabsTrigger>
-            <TabsTrigger
-              value="contracts"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <ReceiptText className="h-4 w-4" />
-              Contracts
-            </TabsTrigger>
-            <TabsTrigger
-              value="team"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <Users className="h-4 w-4" />
-              Team Performance
-            </TabsTrigger>
-            <TabsTrigger
-              value="access"
-              className="h-10 min-w-36 px-5 text-sm font-bold data-[state=active]:bg-[#0c3b2d]! data-[state=active]:text-white!"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              User Access
-            </TabsTrigger>
-          </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
@@ -5086,8 +5088,8 @@ export default function Home() {
               </div>
             </section>
           </TabsContent>
-        </Tabs>
       </div>
+      </Tabs>
 
       <Dialog open={yearDialogOpen} onOpenChange={setYearDialogOpen}>
         <DialogContent className="bg-white text-[#14241b] sm:max-w-lg">
@@ -6983,16 +6985,17 @@ export default function Home() {
                   </details>
                 </aside>
 
-                <section className="bg-white p-5 lg:overflow-y-auto sm:p-6">
-                  <div className="sticky top-0 z-[1] mb-4 flex flex-col gap-3 border-b border-[#e0e6de] bg-white/95 pb-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                <section className="bg-white p-4 lg:overflow-y-auto sm:p-5">
+                  <div className="mb-3 flex flex-col gap-2 border-b border-[#e0e6de] pb-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h3 className="text-xl font-black">Sub-activities</h3>
-                      <p className="mt-1 text-sm text-[#718178]">
+                      <h3 className="text-lg font-black">Sub-activities</h3>
+                      <p className="mt-0.5 text-xs text-[#718178]">
                         Edit each sub-activity directly inside its own card.
                       </p>
                     </div>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => openAddSubactivity(selected)}
                       className="border-[#b9cabb] bg-white"
                     >
@@ -7001,7 +7004,7 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {selected.subactivities.map((sub, index) => {
                       const currentStatus = recordStatus(
                         sub.id,
@@ -7024,20 +7027,20 @@ export default function Home() {
                           key={sub.id}
                           className={
                             isEditing
-                              ? "rounded-2xl border-2 border-[#4c8166] bg-[#f1f7ee] p-4 shadow-[0_10px_26px_rgba(35,91,67,0.1)] sm:p-5"
-                              : "rounded-2xl border border-[#dbe3d9] bg-white p-4 sm:p-5"
+                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-3.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] sm:p-4"
+                              : "rounded-xl border border-[#dbe3d9] bg-white p-3.5 sm:p-4"
                           }
                         >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="flex min-w-0 items-start gap-3">
-                              <span className="rounded-xl bg-[#e8f1e6] p-2.5 text-[#2c795a]">
-                                <ListChecks className="h-5 w-5" />
+                          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                              <span className="rounded-lg bg-[#e8f1e6] p-2 text-[#2c795a]">
+                                <ListChecks className="h-4 w-4" />
                               </span>
                               <div className="min-w-0">
                                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[#6b7c72]">
                                   Sub-activity {index + 1}
                                 </p>
-                                <p className="mt-1 text-base font-black leading-6">
+                                <p className="mt-0.5 text-sm font-black leading-5">
                                   {sub.title}
                                 </p>
                               </div>
@@ -7045,17 +7048,17 @@ export default function Home() {
                             <StatusPill status={currentStatus} />
                           </div>
 
-                          <div className="mt-4 flex items-center gap-3">
+                          <div className="mt-3 flex items-center gap-2.5">
                             <Progress
                               value={currentProgress}
-                              className="h-2 flex-1 bg-[#e1e8de] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
+                              className="h-1.5 flex-1 bg-[#e1e8de] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
                             />
-                            <span className="w-12 text-right text-sm font-black text-[#315845]">
+                            <span className="w-10 text-right text-xs font-black text-[#315845]">
                               {currentProgress}%
                             </span>
                           </div>
 
-                          <div className="mt-4 grid gap-3 border-t border-[#e4e9e2] pt-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                          <div className="mt-3 grid gap-2.5 border-t border-[#e4e9e2] pt-3 sm:grid-cols-[1fr_auto] sm:items-center">
                             <p
                               className={
                                 currentOwner
@@ -7072,12 +7075,12 @@ export default function Home() {
                               />
                               {currentOwner || "Owner required"}
                             </p>
-                            <p className="font-bold text-[#315845]">
+                            <p className="text-sm font-bold text-[#315845]">
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                             </p>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
                             <Button
                               variant="outline"
                               size="sm"
