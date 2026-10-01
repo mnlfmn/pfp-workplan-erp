@@ -521,14 +521,6 @@ function quarterlyNoteCount(raw: string, year: number) {
   return quarterKeys.filter((quarter) => notes.quarters[quarter].trim()).length;
 }
 
-function latestProgressNote(raw: string, year: number) {
-  const notes = parseQuarterlyNotes(raw, year);
-  for (const quarter of [...quarterKeys].reverse()) {
-    if (notes.quarters[quarter].trim()) return `${quarter}: ${notes.quarters[quarter]}`;
-  }
-  return notes.legacy;
-}
-
 function formatMnt(amountMnt: number) {
   return `₮${new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
@@ -5197,19 +5189,6 @@ export default function Home() {
                 </NativeSelect>
               </label>
               <div />
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Progress summary</span>
-                <Textarea
-                  value={subactivityPlanDraft.progressSummary}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({
-                      ...current,
-                      progressSummary: event.target.value,
-                    }))
-                  }
-                  className="min-h-24 border-[#cbd6cc] bg-white"
-                />
-              </label>
             </div>
           )}
 
@@ -6935,12 +6914,6 @@ export default function Home() {
                             />
                           </label>
                         </div>
-                        {activeQuarterlyNotes.legacy && (
-                          <div className="mt-4 rounded-lg bg-[#f3f6f1] px-3 py-2.5 text-sm leading-6 text-[#53685c]">
-                            <span className="font-bold text-[#315845]">Earlier note: </span>
-                            {activeQuarterlyNotes.legacy}
-                          </div>
-                        )}
                       </div>
                     </details>
 
@@ -6990,7 +6963,6 @@ export default function Home() {
                         statusMeta[sub.status as StatusKey].weight,
                         updates,
                       );
-                      const saved = updates[sub.id];
                       const currentOwner = canonicalOwnerName(
                         subactivityOwner(sub, updates),
                         teamMembers,
@@ -7064,12 +7036,6 @@ export default function Home() {
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                             </p>
                           </div>
-                          {(saved?.note || sub.progressSummary) && (
-                            <p className="mt-2 line-clamp-2 text-sm leading-5 text-[#53685c]">
-                              {latestProgressNote(saved?.note ?? "", selectedYear) ||
-                                sub.progressSummary}
-                            </p>
-                          )}
                         </article>
                       );
                     })}
