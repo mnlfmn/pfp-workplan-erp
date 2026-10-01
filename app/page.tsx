@@ -3332,46 +3332,46 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="min-w-0 flex-1 overflow-x-auto pb-1 lg:pb-0">
-            <TabsList className="flex h-auto min-w-max gap-1 rounded-xl border border-white/15 bg-white/10 p-1">
+          <div className="min-w-0 flex-1 overflow-x-auto pb-1 lg:border-l lg:border-white/15 lg:pl-5 lg:pb-0">
+            <TabsList className="flex h-auto min-w-max items-center gap-1 bg-transparent p-0">
               <TabsTrigger
                 value="dashboard"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <LayoutDashboard className="h-4 w-4" />
                 Dashboard
               </TabsTrigger>
               <TabsTrigger
                 value="workplan"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <ListChecks className="h-4 w-4" />
                 Workplan
               </TabsTrigger>
               <TabsTrigger
                 value="finance"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <Banknote className="h-4 w-4" />
                 Finance
               </TabsTrigger>
               <TabsTrigger
                 value="contracts"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <ReceiptText className="h-4 w-4" />
                 Contracts
               </TabsTrigger>
               <TabsTrigger
                 value="team"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <Users className="h-4 w-4" />
                 Team Performance
               </TabsTrigger>
               <TabsTrigger
                 value="access"
-                className="h-9 whitespace-nowrap px-3 text-sm font-bold text-emerald-50 data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! xl:px-4"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <ShieldCheck className="h-4 w-4" />
                 User Access
