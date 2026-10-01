@@ -3382,15 +3382,7 @@ export default function Home() {
       </header>
 
       <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
-        <section className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[#5d7467]">
-              {selectedYear} workplan · {currentYearMeta?.status || "draft"}
-            </p>
-            <h1 className="text-3xl font-black tracking-[-0.035em] sm:text-4xl">
-              Progress monitoring
-            </h1>
-          </div>
+        <section className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <NativeSelect
               value={String(selectedYear)}
