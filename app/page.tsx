@@ -8,6 +8,7 @@ import {
   CircleCheck,
   Clock3,
   CopyPlus,
+  Download,
   Gauge,
   HandCoins,
   LayoutDashboard,
@@ -516,6 +517,18 @@ function updateQuarterlyNote(
   return JSON.stringify(notes);
 }
 
+function progressNoteForExport(raw: string, fallback: string, year: number) {
+  if (!raw.trim()) return fallback.trim();
+  const notes = parseQuarterlyNotes(raw, year);
+  const sections = [
+    notes.legacy.trim(),
+    ...quarterKeys
+      .filter((quarter) => notes.quarters[quarter].trim())
+      .map((quarter) => `${quarter}: ${notes.quarters[quarter].trim()}`),
+  ].filter(Boolean);
+  return sections.join("\n\n") || fallback.trim();
+}
+
 function quarterlyNoteCount(raw: string, year: number) {
   const notes = parseQuarterlyNotes(raw, year);
   return quarterKeys.filter((quarter) => notes.quarters[quarter].trim()).length;
@@ -864,6 +877,7 @@ export default function Home() {
   const [planState, setPlanState] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
+  const [workplanExporting, setWorkplanExporting] = useState(false);
   const [yearDialogOpen, setYearDialogOpen] = useState(false);
   const [newYear, setNewYear] = useState(2027);
   const [copyCurrentYear, setCopyCurrentYear] = useState(true);
@@ -3094,6 +3108,79 @@ export default function Home() {
     [currentSession, teamMembers],
   );
 
+  const exportWorkplan = useCallback(async () => {
+    if (!allActivities.length) {
+      toast.error("There are no workplan activities to export.");
+      return;
+    }
+    setWorkplanExporting(true);
+    try {
+      const { downloadWorkplanExcel } = await import("@/lib/workplan-excel");
+      const items = allActivities.flatMap((activity) => [
+        {
+          id: activity.id,
+          kind: "activity" as const,
+          code: activity.code || activity.uid,
+          title: activity.titleMn?.trim() || activity.title,
+          priority: activity.priority,
+          goal: activity.goal,
+          workstream: activity.workstream,
+          progressNote: progressNoteForExport(
+            updates[activity.id]?.note ?? "",
+            activity.progressSummary ?? "",
+            selectedYear,
+          ),
+          owner: activityOwner(activity, updates),
+          executor: "",
+          startDate: activity.startDate,
+          endDate: activity.endDate,
+          status: deriveActivityStatus(activity, updates),
+          progress: deriveActivityProgress(activity, updates),
+        },
+        ...activity.subactivities.map((subactivity) => ({
+          id: subactivity.id,
+          parentId: activity.id,
+          kind: "subactivity" as const,
+          code: "",
+          title: subactivity.title,
+          priority: "",
+          goal: activity.goal,
+          workstream: activity.workstream,
+          progressNote: progressNoteForExport(
+            updates[subactivity.id]?.note ?? "",
+            subactivity.progressSummary ?? "",
+            selectedYear,
+          ),
+          owner: subactivityOwner(subactivity, updates),
+          executor: subactivity.executor ?? "",
+          startDate: subactivity.startDate ?? "",
+          endDate: subactivity.endDate ?? "",
+          status: recordStatus(
+            subactivity.id,
+            subactivity.status as StatusKey,
+            updates,
+          ),
+          progress: recordProgress(
+            subactivity.id,
+            statusMeta[subactivity.status as StatusKey].weight,
+            updates,
+          ),
+        })),
+      ]);
+      downloadWorkplanExcel({ year: selectedYear, items });
+      toast.success("Workplan Excel export is ready", {
+        description: `${allActivities.length} main activities and their sub-activities were included.`,
+      });
+    } catch (error) {
+      toast.error("The Excel export could not be created", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setWorkplanExporting(false);
+    }
+  }, [allActivities, selectedYear, updates]);
+
   const currentYearMeta =
     workplanYears.find((item) => item.year === selectedYear) ?? workplanYears[0];
   const selectedAllocatedMnt = selected
@@ -3865,6 +3952,15 @@ export default function Home() {
                 ))}
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
               </NativeSelect>
+              <Button
+                variant="outline"
+                onClick={exportWorkplan}
+                disabled={workplanExporting || planState === "loading"}
+                className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
+              >
+                <Download className="h-4 w-4" />
+                {workplanExporting ? "Preparing…" : "Export Excel"}
+              </Button>
               <Button
                 onClick={openAddActivity}
                 className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
