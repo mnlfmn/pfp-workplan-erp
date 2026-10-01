@@ -3953,15 +3953,6 @@ export default function Home() {
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
               </NativeSelect>
               <Button
-                variant="outline"
-                onClick={exportWorkplan}
-                disabled={workplanExporting || planState === "loading"}
-                className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
-              >
-                <Download className="h-4 w-4" />
-                {workplanExporting ? "Preparing…" : "Export Excel"}
-              </Button>
-              <Button
                 onClick={openAddActivity}
                 className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
               >
@@ -4092,6 +4083,17 @@ export default function Home() {
               </Button>
             </div>
           )}
+          <div className="flex justify-end border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-4 lg:px-5">
+            <Button
+              variant="outline"
+              onClick={exportWorkplan}
+              disabled={workplanExporting || planState === "loading"}
+              className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
+            >
+              <Download className="h-4 w-4" />
+              {workplanExporting ? "Preparing…" : "Export Excel"}
+            </Button>
+          </div>
         </section>
           </TabsContent>
 
