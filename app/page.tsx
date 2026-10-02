@@ -1451,7 +1451,6 @@ export default function Home() {
       toast.success("Workplan update saved", {
         description: `${statusMeta[update.status].label} · ${update.progress}%`,
       });
-      setEditKey("");
     } catch (error) {
       setSyncState("unavailable");
       toast.error(
@@ -7449,7 +7448,7 @@ export default function Home() {
         }}
       >
         <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-none! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:max-w-[96vw]! 2xl:max-w-[1640px]!">
-          {selected && activeTarget && (
+          {selected && (
             <>
               <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-4 pr-14 text-left sm:px-6">
                 <div className="flex flex-col gap-1">
