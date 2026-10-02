@@ -3881,24 +3881,21 @@ export default function Home() {
                   value: formatMnt(dashboardFinance.commitmentMnt),
                   detail: `${dashboardFinance.commitmentPercent}% of budget committed`,
                   icon: HandCoins,
-                  accent: "bg-white",
+                  accent: "bg-[#0c3b2d] text-white",
                 },
                 {
                   label: "Expenditure",
                   value: formatMnt(dashboardFinance.expenditureMnt),
                   detail: `${dashboardFinance.spentPercent}% of budget spent`,
                   icon: ReceiptText,
-                  accent: "bg-white",
+                  accent: "bg-[#0c3b2d] text-white",
                 },
                 {
                   label: "Remaining",
                   value: formatMnt(dashboardFinance.remainingMnt),
                   detail: "Budget less commitments and expenditure",
                   icon: Banknote,
-                  accent:
-                    dashboardFinance.remainingMnt < 0
-                      ? "bg-[#fff0f1] text-[#8f1d2c]"
-                      : "bg-[#edf6e8]",
+                  accent: "bg-[#0c3b2d] text-white",
                 },
                 ].map((metric) => (
                   <article
