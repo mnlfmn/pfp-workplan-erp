@@ -138,6 +138,7 @@ type FinanceEntry = {
   vendor: string;
   createdAt: string;
   createdBy: string;
+  createdByName?: string;
 };
 
 type FinanceDraft = {
@@ -660,12 +661,48 @@ function subactivityOwner(
 function canonicalOwnerName(value: string, members: TeamMember[]) {
   const normalized = value.trim().toLocaleLowerCase();
   if (!normalized) return "";
-  return (
-    members.find((member) =>
+  return members
+    .filter((member) =>
       [member.name, ...member.aliases].some((alias) =>
         normalized.includes(alias.toLocaleLowerCase()),
       ),
-    )?.name ?? ""
+    )
+    .map((member) => member.name)
+    .slice(0, 3)
+    .join(", ");
+}
+
+function ownerNames(value: string, members: TeamMember[]) {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (!normalized) return [];
+  return members
+    .filter((member) =>
+      [member.name, ...member.aliases].some((alias) =>
+        normalized.includes(alias.toLocaleLowerCase()),
+      ),
+    )
+    .map((member) => member.name)
+    .slice(0, 3);
+}
+
+function setOwnerSlot(
+  value: string,
+  index: number,
+  nextOwner: string,
+  members: TeamMember[],
+) {
+  const current = ownerNames(value, members);
+  current[index] = nextOwner;
+  return Array.from(new Set(current.filter(Boolean))).slice(0, 3).join(" | ");
+}
+
+function financeEntryCreatorName(entry: FinanceEntry, members: TeamMember[]) {
+  const email = entry.createdBy.trim().toLocaleLowerCase();
+  return (
+    entry.createdByName ||
+    members.find((member) => member.email.toLocaleLowerCase() === email)?.name ||
+    entry.createdBy ||
+    "Unknown user"
   );
 }
 
@@ -933,6 +970,9 @@ export default function Home() {
   const [editingFinanceId, setEditingFinanceId] = useState<number | null>(null);
   const [financeDeleteEntry, setFinanceDeleteEntry] =
     useState<FinanceEntry | null>(null);
+  const [financeCreatorFilter, setFinanceCreatorFilter] = useState("all");
+  const [financeDateFrom, setFinanceDateFrom] = useState("");
+  const [financeDateTo, setFinanceDateTo] = useState("");
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
     activityKey: "",
@@ -1013,12 +1053,6 @@ export default function Home() {
   const activeTarget = useMemo(
     () => selectableTargets.find((item) => item.key === editKey) ?? null,
     [editKey, selectableTargets],
-  );
-
-  const activeMainProgressAuto = Boolean(
-    selected &&
-      activeTarget?.kind === "activity" &&
-      selected.subactivities.length,
   );
 
   const activeQuarterlyNotes = useMemo(
@@ -1296,6 +1330,7 @@ export default function Home() {
       toast.success("Workplan update saved", {
         description: `${statusMeta[update.status].label} · ${update.progress}%`,
       });
+      setEditKey("");
     } catch (error) {
       setSyncState("unavailable");
       toast.error(
@@ -1778,8 +1813,8 @@ export default function Home() {
       setActiveView("workplan");
       toast.success(`${newYear} workplan created`, {
         description: copyCurrentYear
-          ? "Activities and budget lines were copied as a new draft."
-          : "A blank draft is ready for planning.",
+          ? "The full structure was copied, and open contract obligations were carried forward."
+          : "Unfinished activities and open contract obligations were carried forward automatically.",
       });
     } catch (error) {
       toast.error(
@@ -1822,7 +1857,7 @@ export default function Home() {
       technicalLead: activity.technicalLead,
       support: activity.support,
       partners: activity.partners,
-      actionPlan: activity.actionPlan,
+      actionPlan: String(activity.actionPlan ?? ""),
       description: activity.description,
       baseline: activity.baseline,
       target: activity.target,
@@ -2395,13 +2430,21 @@ export default function Home() {
         }));
       }
       if (member === result.deletedId) setMember("all");
+      const remainingMembers = teamMembers.filter(
+        (item) => item.id !== result.deletedId,
+      );
+      const ownerlessItems = (result.clearedUpdates ?? []).filter(
+        (update) => !canonicalOwnerName(update.owner, remainingMembers),
+      ).length;
       setTeamState("ready");
       setTeamDeleteOpen(false);
       setTeamDialogOpen(false);
       toast.success("Team member removed", {
-        description: result.clearedUpdates?.length
-          ? `${result.clearedUpdates.length} owned workplan items now need an owner.`
-          : "No owned workplan items needed reassignment.",
+        description: ownerlessItems
+          ? `${ownerlessItems} workplan items now need an owner.`
+          : result.clearedUpdates?.length
+            ? "The removed person was cleared while the other assigned owners were kept."
+            : "No owned workplan items needed reassignment.",
       });
     } catch (error) {
       setTeamState("unavailable");
@@ -2892,6 +2935,33 @@ export default function Home() {
     return summarizeFinance(filteredBudgetLines, financeEntries, contracts);
   }, [contracts, filteredBudgetLines, financeEntries]);
 
+  const financeCreatorOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    for (const entry of financeEntries) {
+      if (entry.createdBy) {
+        values.set(
+          entry.createdBy,
+          financeEntryCreatorName(entry, teamMembers),
+        );
+      }
+    }
+    return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [financeEntries, teamMembers]);
+
+  const financeEntryMatchesFilters = useCallback(
+    (entry: FinanceEntry) =>
+      (financeCreatorFilter === "all" ||
+        entry.createdBy === financeCreatorFilter) &&
+      (!financeDateFrom || entry.entryDate >= financeDateFrom) &&
+      (!financeDateTo || entry.entryDate <= financeDateTo),
+    [financeCreatorFilter, financeDateFrom, financeDateTo],
+  );
+
+  const visibleFinanceEntries = useMemo(
+    () => financeStats.relevantEntries.filter(financeEntryMatchesFilters),
+    [financeEntryMatchesFilters, financeStats.relevantEntries],
+  );
+
   const visibleAllocations = useMemo(() => {
     const keys = new Set(filteredBudgetLines.map((line) => line.id));
     return allocations.filter((allocation) => keys.has(allocation.budgetKey));
@@ -2942,6 +3012,52 @@ export default function Home() {
     () => summarizeFinance(dashboardBudgetLines, financeEntries, contracts),
     [contracts, dashboardBudgetLines, financeEntries],
   );
+
+  const dashboardFinanceBars = useMemo(() => {
+    const rows = [
+      { label: "Budget", value: dashboardFinance.budgetMnt, color: "#0c3b2d" },
+      { label: "Commitment", value: dashboardFinance.commitmentMnt, color: "#2878c8" },
+      { label: "Expenditure", value: dashboardFinance.expenditureMnt, color: "#16825d" },
+      {
+        label: "Remaining",
+        value: dashboardFinance.remainingMnt,
+        color: dashboardFinance.remainingMnt < 0 ? "#c44757" : "#9cad45",
+      },
+    ];
+    const scale = Math.max(...rows.map((item) => Math.abs(item.value)), 1);
+    return rows.map((item) => ({
+      ...item,
+      width: Math.max(item.value ? 3 : 0, (Math.abs(item.value) / scale) * 100),
+    }));
+  }, [dashboardFinance]);
+
+  const dashboardContractStats = useMemo(() => {
+    const keys = new Set(dashboardBudgetLines.map((line) => line.id));
+    const scoped = contracts.filter((contract) => keys.has(contract.budgetKey));
+    const counts = {
+      draft: scoped.filter((contract) => contract.status === "draft").length,
+      active: scoped.filter((contract) => contract.status === "active").length,
+      completed: scoped.filter((contract) => contract.status === "completed").length,
+      closed: scoped.filter((contract) => contract.status === "closed").length,
+    };
+    const totalValue = scoped.reduce(
+      (total, contract) => total + contract.amountMnt,
+      0,
+    );
+    const paidValue = scoped.reduce(
+      (total, contract) => total + contractPaidMnt(contract),
+      0,
+    );
+    return {
+      total: scoped.length,
+      counts,
+      paidValue,
+      totalValue,
+      progress: totalValue
+        ? Math.min(100, Math.round((paidValue / totalValue) * 100))
+        : 0,
+    };
+  }, [contracts, dashboardBudgetLines]);
 
   const deliveryIndicators = useMemo(() => {
     const completed = dashboardActivities.filter(
@@ -3108,6 +3224,14 @@ export default function Home() {
     [currentSession, teamMembers],
   );
 
+  const visibleTeamSummaries = useMemo(
+    () =>
+      currentSession?.isAdmin
+        ? teamSummaries
+        : teamSummaries.filter((item) => item.id === currentSession?.memberId),
+    [currentSession, teamSummaries],
+  );
+
   const exportWorkplan = useCallback(async () => {
     if (!allActivities.length) {
       toast.error("There are no workplan activities to export.");
@@ -3181,8 +3305,6 @@ export default function Home() {
     }
   }, [allActivities, selectedYear, updates]);
 
-  const currentYearMeta =
-    workplanYears.find((item) => item.year === selectedYear) ?? workplanYears[0];
   const selectedAllocatedMnt = selected
     ? allocationByActivityKey.get(selected.id) ??
       selected.subactivities.reduce(
@@ -3243,36 +3365,60 @@ export default function Home() {
               ))}
             </NativeSelect>
           </label>
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-bold">Owner</span>
-            <NativeSelect
-              value={canonicalOwnerName(draft.owner, teamMembers)}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  owner: event.target.value,
-                }))
-              }
-              className={`h-11 w-full bg-white ${
-                canonicalOwnerName(draft.owner, teamMembers)
-                  ? "border-[#cbd6cc]"
-                  : "border-rose-300"
-              }`}
-            >
-              <NativeSelectOption value="">No owner</NativeSelectOption>
-              {teamMembers.map((item) => (
-                <NativeSelectOption key={item.id} value={item.name}>
-                  {item.name} · {item.role}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+          <fieldset className="block">
+            <legend className="mb-1.5 block text-sm font-bold">
+              Owners <span className="font-medium text-[#718178]">(up to 3)</span>
+            </legend>
+            <div className="space-y-2">
+              {[0, 1, 2].map((ownerIndex) => {
+                const selectedOwners = ownerNames(draft.owner, teamMembers);
+                return (
+                  <NativeSelect
+                    key={ownerIndex}
+                    value={selectedOwners[ownerIndex] ?? ""}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        owner: setOwnerSlot(
+                          current.owner,
+                          ownerIndex,
+                          event.target.value,
+                          teamMembers,
+                        ),
+                      }))
+                    }
+                    className={`h-10 w-full bg-white ${
+                      ownerIndex === 0 && !selectedOwners.length
+                        ? "border-rose-300"
+                        : "border-[#cbd6cc]"
+                    }`}
+                    aria-label={`Owner ${ownerIndex + 1}`}
+                  >
+                    <NativeSelectOption value="">
+                      {ownerIndex === 0 ? "No owner" : `Optional owner ${ownerIndex + 1}`}
+                    </NativeSelectOption>
+                    {teamMembers.map((item) => (
+                      <NativeSelectOption
+                        key={item.id}
+                        value={item.name}
+                        disabled={selectedOwners.some(
+                          (owner, index) => index !== ownerIndex && owner === item.name,
+                        )}
+                      >
+                        {item.name} · {item.role}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                );
+              })}
+            </div>
             {!canonicalOwnerName(draft.owner, teamMembers) && (
               <span className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-rose-700">
                 <span className="h-2 w-2 rounded-full bg-rose-600" />
-                Owner required
+                At least one owner is required
               </span>
             )}
-          </label>
+          </fieldset>
         </div>
 
         <div className="mt-4">
@@ -3415,7 +3561,7 @@ export default function Home() {
             </div>
             <div>
               <p className="text-base font-bold tracking-tight">Eternal Mongolia</p>
-              <p className="text-xs text-emerald-100/70">Programme workplan</p>
+              <p className="text-xs text-emerald-100/70">ERP System</p>
             </div>
           </div>
 
@@ -3454,7 +3600,7 @@ export default function Home() {
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <Users className="h-4 w-4" />
-                Team Performance
+                {currentSession?.isAdmin ? "Team Performance" : "My Performance"}
               </TabsTrigger>
               <TabsTrigger
                 value="access"
@@ -3630,6 +3776,76 @@ export default function Home() {
                   </article>
                 ))}
               </div>
+            </section>
+
+            <section className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black">Financial position</h2>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      Budget, commitments, expenditure, and remaining balance in the selected scope.
+                    </p>
+                  </div>
+                  <Banknote className="h-5 w-5 text-[#49705c]" />
+                </div>
+                <div className="mt-5 space-y-4" role="img" aria-label="Horizontal financial position bar chart">
+                  {dashboardFinanceBars.map((row) => (
+                    <div key={row.label}>
+                      <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                        <span className="font-bold text-[#315845]">{row.label}</span>
+                        <span className={`font-black tabular-nums ${row.value < 0 ? "text-rose-700" : "text-[#183529]"}`}>
+                          {formatMnt(row.value)}
+                        </span>
+                      </div>
+                      <div className="h-4 overflow-hidden rounded-full bg-[#edf1eb]">
+                        <div
+                          className="h-full rounded-full transition-[width]"
+                          style={{ width: `${row.width}%`, backgroundColor: row.color }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black">Contract status</h2>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      {dashboardContractStats.total} contracts linked to the selected workplan scope.
+                    </p>
+                  </div>
+                  <ReceiptText className="h-5 w-5 text-[#49705c]" />
+                </div>
+                <div className="mt-5 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#718178]">
+                      Payment progress
+                    </p>
+                    <p className="mt-1 text-3xl font-black">{dashboardContractStats.progress}%</p>
+                  </div>
+                  <p className="text-right text-xs leading-5 text-[#718178]">
+                    {formatMnt(dashboardContractStats.paidValue)} paid<br />
+                    of {formatMnt(dashboardContractStats.totalValue)}
+                  </p>
+                </div>
+                <Progress
+                  value={dashboardContractStats.progress}
+                  className="mt-3 h-2.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
+                />
+                <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(Object.keys(contractStatusMeta) as ContractRecord["status"][]).map((contractStatus) => (
+                    <div key={contractStatus} className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-center">
+                      <p className="text-2xl font-black">{dashboardContractStats.counts[contractStatus]}</p>
+                      <p className="mt-1 text-xs font-bold text-[#5d7467]">
+                        {contractStatusMeta[contractStatus].label}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </article>
             </section>
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -4472,16 +4688,53 @@ export default function Home() {
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-bold">Finance entries</h2>
-                  <p className="text-sm text-[#718178]">
-                    Most recent commitments and expenditure for the selected filters
-                  </p>
+              <div className="border-b border-[#e2e7e0] px-5 py-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold">Finance entries</h2>
+                    <p className="text-sm text-[#718178]">
+                      Every manual entry shows the person who recorded it.
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-[#5d7467]">
+                    {visibleFinanceEntries.length} of {financeStats.relevantEntries.length} entries
+                  </span>
                 </div>
-                <span className="text-sm font-semibold text-[#5d7467]">
-                  {financeStats.relevantEntries.length} entries
-                </span>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <NativeSelect
+                    value={financeCreatorFilter}
+                    onChange={(event) => setFinanceCreatorFilter(event.target.value)}
+                    className="h-10 border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter finance entries by person"
+                  >
+                    <NativeSelectOption value="all">All people</NativeSelectOption>
+                    {financeCreatorOptions.map(([email, name]) => (
+                      <NativeSelectOption key={email} value={email}>
+                        {name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <label className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg border border-[#ced8cf] bg-[#f8faf7] px-3">
+                    <span className="text-xs font-bold text-[#5d7467]">From</span>
+                    <Input
+                      type="date"
+                      value={financeDateFrom}
+                      onChange={(event) => setFinanceDateFrom(event.target.value)}
+                      className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      aria-label="Filter finance entries from date"
+                    />
+                  </label>
+                  <label className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg border border-[#ced8cf] bg-[#f8faf7] px-3">
+                    <span className="text-xs font-bold text-[#5d7467]">To</span>
+                    <Input
+                      type="date"
+                      value={financeDateTo}
+                      onChange={(event) => setFinanceDateTo(event.target.value)}
+                      className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      aria-label="Filter finance entries to date"
+                    />
+                  </label>
+                </div>
               </div>
               {financeState === "unavailable" && (
                 <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
@@ -4489,19 +4742,20 @@ export default function Home() {
                 </div>
               )}
               <div className="overflow-x-auto">
-                <Table className="min-w-[800px]">
+                <Table className="min-w-[980px]">
                   <TableHeader>
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="pl-5">Date</TableHead>
                       <TableHead>Budget line</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Description</TableHead>
+                      <TableHead>Entered by</TableHead>
                       <TableHead className="pr-5 text-right">Amount (MNT)</TableHead>
                       <TableHead className="pr-5 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {financeStats.relevantEntries.slice(0, 20).map((entry) => {
+                    {visibleFinanceEntries.slice(0, 50).map((entry) => {
                       const line = allBudgetLines.find(
                         (item) => item.id === entry.budgetKey,
                       );
@@ -4531,6 +4785,9 @@ export default function Home() {
                                 {entry.vendor}
                               </p>
                             )}
+                          </TableCell>
+                          <TableCell className="font-semibold text-[#315845]">
+                            {financeEntryCreatorName(entry, teamMembers)}
                           </TableCell>
                           <TableCell className="pr-5 text-right font-black tabular-nums">
                             {formatMnt(entry.amountMnt)}
@@ -4574,12 +4831,18 @@ export default function Home() {
                   </TableBody>
                 </Table>
               </div>
-              {financeState === "ready" && financeStats.relevantEntries.length === 0 && (
+              {financeState === "ready" && visibleFinanceEntries.length === 0 && (
                 <div className="px-6 py-12 text-center">
                   <ReceiptText className="mx-auto mb-3 h-7 w-7 text-[#779083]" />
-                  <p className="font-bold">No finance entries yet</p>
+                  <p className="font-bold">
+                    {financeStats.relevantEntries.length
+                      ? "No finance entries match these filters"
+                      : "No finance entries yet"}
+                  </p>
                   <p className="mt-1 text-sm text-[#718178]">
-                    Open a budget line, then choose an activity to add a commitment or expenditure.
+                    {financeStats.relevantEntries.length
+                      ? "Change or clear the person and date filters to see more records."
+                      : "Open a budget line, then choose an activity to add a commitment or expenditure."}
                   </p>
                 </div>
               )}
@@ -4838,9 +5101,13 @@ export default function Home() {
           <TabsContent value="team" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">Team Performance</h2>
+                <h2 className="text-xl font-black">
+                  {currentSession?.isAdmin ? "Team Performance" : "My Performance"}
+                </h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  Workplan responsibilities, activity status, delivery progress, and financial position by team member.
+                  {currentSession?.isAdmin
+                    ? "Workplan responsibilities, activity status, delivery progress, and financial position by team member."
+                    : "Your workplan responsibilities, activity status, delivery progress, and financial position."}
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:justify-end">
@@ -4879,14 +5146,20 @@ export default function Home() {
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-black">Team workplan and finance report</h2>
+                  <h2 className="text-lg font-black">
+                    {currentSession?.isAdmin
+                      ? "Team workplan and finance report"
+                      : "My workplan and finance report"}
+                  </h2>
                   <p className="mt-1 text-sm text-[#718178]">
                     Activity counts and status use each member&apos;s assigned main activities. Financial values use the linked budget lines.
                   </p>
                 </div>
-                <span className="text-sm font-semibold text-[#5d7467]">
-                  {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "MNLF").length} MNLF members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
-                </span>
+                {currentSession?.isAdmin && (
+                  <span className="text-sm font-semibold text-[#5d7467]">
+                    {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "MNLF").length} MNLF members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
+                  </span>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <Table className="min-w-[1580px]">
@@ -4904,7 +5177,7 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {teamSummaries.map((item) => (
+                    {visibleTeamSummaries.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="pl-5">
                           <div className="flex items-start gap-3">
@@ -4995,6 +5268,13 @@ export default function Home() {
                         </TableCell>
                       </TableRow>
                     ))}
+                    {!visibleTeamSummaries.length && (
+                      <TableRow>
+                        <TableCell colSpan={9} className="py-10 text-center text-sm text-[#718178]">
+                          Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email to User Access.
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -5186,7 +5466,7 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle>Create the next workplan</DialogTitle>
             <DialogDescription>
-              Create a draft year, then edit its activities, sub-activities, and budget lines.
+              Unfinished activities and open contract obligations are always carried forward. You can also copy the complete structure as a planning template.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -5211,7 +5491,7 @@ export default function Home() {
               <span>
                 <span className="block text-sm font-bold">Copy the {selectedYear} structure</span>
                 <span className="mt-1 block text-sm leading-5 text-[#718178]">
-                  Copy activities, sub-activities, and budget lines. Progress starts at not started, while planning details and budget amounts remain editable.
+                  Include completed activities too. If left off, only unfinished activities, their required budget lines, and open contracts transfer to the new draft.
                 </span>
               </span>
             </label>
@@ -5408,27 +5688,60 @@ export default function Home() {
                   className="min-h-20 border-[#cbd6cc] bg-white"
                 />
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Owner</span>
-                <NativeSelect
-                  value={canonicalOwnerName(subactivityPlanDraft.owner, teamMembers)}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({ ...current, owner: event.target.value }))
-                  }
-                  className={`h-11 w-full bg-white ${
-                    canonicalOwnerName(subactivityPlanDraft.owner, teamMembers)
-                      ? "border-[#cbd6cc]"
-                      : "border-rose-300"
-                  }`}
-                >
-                  <NativeSelectOption value="">No owner</NativeSelectOption>
-                  {teamMembers.map((item) => (
-                    <NativeSelectOption key={item.id} value={item.name}>
-                      {item.name} · {item.role}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
+              <fieldset className="block">
+                <legend className="mb-1.5 block text-sm font-bold">
+                  Owners <span className="font-medium text-[#718178]">(up to 3)</span>
+                </legend>
+                <div className="space-y-2">
+                  {[0, 1, 2].map((ownerIndex) => {
+                    const selectedOwners = ownerNames(
+                      subactivityPlanDraft.owner,
+                      teamMembers,
+                    );
+                    return (
+                      <NativeSelect
+                        key={ownerIndex}
+                        value={selectedOwners[ownerIndex] ?? ""}
+                        onChange={(event) =>
+                          setSubactivityPlanDraft((current) => ({
+                            ...current,
+                            owner: setOwnerSlot(
+                              current.owner,
+                              ownerIndex,
+                              event.target.value,
+                              teamMembers,
+                            ),
+                          }))
+                        }
+                        className={`h-10 w-full bg-white ${
+                          ownerIndex === 0 && !selectedOwners.length
+                            ? "border-rose-300"
+                            : "border-[#cbd6cc]"
+                        }`}
+                        aria-label={`Sub-activity owner ${ownerIndex + 1}`}
+                      >
+                        <NativeSelectOption value="">
+                          {ownerIndex === 0
+                            ? "No owner"
+                            : `Optional owner ${ownerIndex + 1}`}
+                        </NativeSelectOption>
+                        {teamMembers.map((item) => (
+                          <NativeSelectOption
+                            key={item.id}
+                            value={item.name}
+                            disabled={selectedOwners.some(
+                              (owner, index) =>
+                                index !== ownerIndex && owner === item.name,
+                            )}
+                          >
+                            {item.name} · {item.role}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    );
+                  })}
+                </div>
+              </fieldset>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Executor</span>
                 <Input
@@ -5756,6 +6069,60 @@ export default function Home() {
                 );
               })()}
 
+              <div className="rounded-xl border border-[#dce4da] bg-[#f7faf5] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[#496458]">
+                    Finance record filters
+                  </p>
+                  {(financeCreatorFilter !== "all" || financeDateFrom || financeDateTo) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setFinanceCreatorFilter("all");
+                        setFinanceDateFrom("");
+                        setFinanceDateTo("");
+                      }}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <NativeSelect
+                    value={financeCreatorFilter}
+                    onChange={(event) => setFinanceCreatorFilter(event.target.value)}
+                    className="h-9 border-[#ced8cf] bg-white text-sm"
+                    aria-label="Filter budget-line records by person"
+                  >
+                    <NativeSelectOption value="all">All people</NativeSelectOption>
+                    {financeCreatorOptions.map(([email, name]) => (
+                      <NativeSelectOption key={email} value={email}>
+                        {name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <Input
+                    type="date"
+                    value={financeDateFrom}
+                    onChange={(event) => setFinanceDateFrom(event.target.value)}
+                    className="h-9 border-[#ced8cf] bg-white"
+                    aria-label="Filter budget-line records from date"
+                  />
+                  <Input
+                    type="date"
+                    value={financeDateTo}
+                    onChange={(event) => setFinanceDateTo(event.target.value)}
+                    className="h-9 border-[#ced8cf] bg-white"
+                    aria-label="Filter budget-line records to date"
+                  />
+                </div>
+                <p className="mt-2 text-xs text-[#718178]">
+                  Filters change the record lists only; financial totals always include every saved record.
+                </p>
+              </div>
+
               <div className="space-y-3">
                 {selectedBudgetTargets
                   .filter(
@@ -5790,6 +6157,9 @@ export default function Home() {
                     (entry) =>
                       entry.budgetKey === selectedBudgetLine.id &&
                       rollupKeys.has(entry.activityKey),
+                  );
+                  const visibleTargetEntries = targetEntries.filter(
+                    financeEntryMatchesFilters,
                   );
                   const targetContracts = contracts.filter(
                     (contract) =>
@@ -5894,9 +6264,9 @@ export default function Home() {
                           >
                             <ReceiptText className="h-4 w-4" />
                             {recordsExpanded ? "Hide finance records" : "See finance records"}
-                            {targetEntries.length + targetContracts.length > 0 && (
+                            {visibleTargetEntries.length + targetContracts.length > 0 && (
                               <span className="rounded-full bg-[#e8f0e8] px-1.5 py-0.5 text-[11px] font-black text-[#285d45]">
-                                {targetEntries.length + targetContracts.length}
+                                {visibleTargetEntries.length + targetContracts.length}
                               </span>
                             )}
                           </Button>
@@ -5981,8 +6351,8 @@ export default function Home() {
                               Finance records
                             </p>
                             <p className="mt-0.5 text-xs text-[#718178]">
-                              {targetEntries.length + targetContracts.length
-                                ? `${targetEntries.length} manual ${targetEntries.length === 1 ? "entry" : "entries"} · ${targetContracts.length} ${targetContracts.length === 1 ? "contract" : "contracts"}`
+                              {visibleTargetEntries.length + targetContracts.length
+                                ? `${visibleTargetEntries.length} matching manual ${visibleTargetEntries.length === 1 ? "entry" : "entries"} · ${targetContracts.length} ${targetContracts.length === 1 ? "contract" : "contracts"}`
                                 : "No finance entries or contracts yet"}
                             </p>
                           </div>
@@ -5997,9 +6367,9 @@ export default function Home() {
                             Add
                           </Button>
                         </div>
-                        {targetEntries.length > 0 && (
+                        {visibleTargetEntries.length > 0 && (
                           <div className="mt-3 space-y-2">
-                            {targetEntries.map((entry) => (
+                            {visibleTargetEntries.map((entry) => (
                               <div
                                 key={entry.id}
                                 className="flex flex-col gap-3 rounded-lg border border-[#e2e7e0] bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
@@ -6025,6 +6395,9 @@ export default function Home() {
                                       {entry.vendor}
                                     </p>
                                   )}
+                                  <p className="mt-1 text-xs font-semibold text-[#4f695b]">
+                                    Entered by {financeEntryCreatorName(entry, teamMembers)}
+                                  </p>
                                 </div>
                                 <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
                                   <p className="mr-1 text-sm font-black tabular-nums">
@@ -6898,7 +7271,7 @@ export default function Home() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this team member?</AlertDialogTitle>
             <AlertDialogDescription>
-              The member will disappear from team reports and filters. Their activities and sub-activities will be cleared and marked with a red owner warning until reassigned. Notes and finance records will remain unchanged.
+              The member will disappear from team reports and filters. They will be removed from every assigned owner list; other co-owners stay assigned, and items with no owner left will show a red warning. Notes and finance records remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

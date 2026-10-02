@@ -167,6 +167,20 @@ function matchesMember(value: string, member: TeamMember) {
   );
 }
 
+function removeMemberFromOwners(value: string, member: TeamMember) {
+  const owners = value
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (owners.length > 1) {
+    return owners
+      .filter((owner) => !matchesMember(owner, member))
+      .slice(0, 3)
+      .join(" | ");
+  }
+  return matchesMember(value, member) ? "" : value;
+}
+
 const statusWeight: Record<string, number> = {
   completed: 100,
   in_progress: 55,
@@ -436,7 +450,7 @@ export async function DELETE(request: Request) {
         ),
         note: existingUpdate?.note ?? "",
         supportNeeded: existingUpdate?.supportNeeded ?? "",
-        owner: "",
+        owner: removeMemberFromOwners(effectiveOwner, member),
         updatedAt: now,
         updatedBy: session.email,
       };

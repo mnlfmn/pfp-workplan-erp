@@ -115,7 +115,17 @@ export async function PUT(request: Request) {
       owner:
         payload.owner === undefined
           ? existing?.owner ?? ""
-          : payload.owner.trim().slice(0, 500),
+          : Array.from(
+              new Set(
+                payload.owner
+                  .split("|")
+                  .map((owner) => owner.trim())
+                  .filter(Boolean),
+              ),
+            )
+              .slice(0, 3)
+              .join(" | ")
+              .slice(0, 500),
       updatedAt: new Date().toISOString(),
       updatedBy,
     };

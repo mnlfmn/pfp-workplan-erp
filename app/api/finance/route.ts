@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { financeEntries, workplanRecords } from "@/db/schema";
+import { financeEntries, teamMembers, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
@@ -117,6 +117,25 @@ function message(error: unknown) {
   return "Finance entries are temporarily unavailable.";
 }
 
+async function addCreatorNames<
+  T extends { createdBy: string },
+>(entries: T[]) {
+  const members = await getDb()
+    .select({ name: teamMembers.name, email: teamMembers.email })
+    .from(teamMembers)
+    .where(eq(teamMembers.isDeleted, 0));
+  const namesByEmail = new Map(
+    members
+      .filter((member) => member.email)
+      .map((member) => [member.email.toLocaleLowerCase(), member.name]),
+  );
+  return entries.map((entry) => ({
+    ...entry,
+    createdByName:
+      namesByEmail.get(entry.createdBy.toLocaleLowerCase()) || entry.createdBy,
+  }));
+}
+
 export async function GET(request: Request) {
   try {
     const session = await requireAppSession(request);
@@ -125,7 +144,7 @@ export async function GET(request: Request) {
       .select()
       .from(financeEntries)
       .orderBy(desc(financeEntries.entryDate), desc(financeEntries.id));
-    return Response.json({ entries });
+    return Response.json({ entries: await addCreatorNames(entries) });
   } catch (error) {
     console.error("Unable to load finance entries", error);
     return Response.json({ error: message(error) }, { status: 503 });
@@ -186,7 +205,10 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    return Response.json({ entry }, { status: 201 });
+    return Response.json(
+      { entry: (await addCreatorNames([entry]))[0] },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("Unable to save finance entry", error);
     return Response.json({ error: message(error) }, { status: 503 });
@@ -253,7 +275,7 @@ export async function PUT(request: Request) {
     if (!entry) {
       return Response.json({ error: "Finance entry not found." }, { status: 404 });
     }
-    return Response.json({ entry });
+    return Response.json({ entry: (await addCreatorNames([entry]))[0] });
   } catch (error) {
     console.error("Unable to update finance entry", error);
     return Response.json({ error: message(error) }, { status: 503 });

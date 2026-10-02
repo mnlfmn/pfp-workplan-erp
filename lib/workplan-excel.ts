@@ -314,7 +314,7 @@ export function downloadWorkplanExcel(options: WorkplanExportOptions) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
-  document.body.append(anchor);
+  document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);

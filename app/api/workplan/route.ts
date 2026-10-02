@@ -1,7 +1,13 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { workplanRecords, workplanYears } from "@/db/schema";
+import {
+  activityUpdates,
+  contractPayments,
+  contracts,
+  workplanRecords,
+  workplanYears,
+} from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 
@@ -12,6 +18,7 @@ type JsonRecord = Record<string, unknown>;
 type ActivityRecord = JsonRecord & {
   id: string;
   code: string;
+  status?: unknown;
   subactivities: SubactivityRecord[];
 };
 type SubactivityRecord = JsonRecord & {
@@ -60,6 +67,22 @@ function copyForYear(payload: JsonRecord, year: number, kind: string) {
   }
   if (kind === "activity") copied.progress = 0;
   return copied;
+}
+
+function normalizeCode(value: unknown) {
+  return String(value ?? "").replace(/\s/g, "").replace(/\.+$/, "");
+}
+
+function codesShareBudgetLine(activityCode: unknown, budgetCode: unknown) {
+  const activity = normalizeCode(activityCode);
+  const budget = normalizeCode(budgetCode);
+  return Boolean(
+    activity &&
+      budget &&
+      (activity === budget ||
+        activity.startsWith(`${budget}.`) ||
+        budget.startsWith(`${activity}.`)),
+  );
 }
 
 async function materializeYear(year: number) {
@@ -257,23 +280,102 @@ export async function POST(request: Request) {
         updatedBy,
       });
 
-      if (payload.copyCurrent) {
-        const source = await materializeYear(fromYear);
-        const rows: Array<typeof workplanRecords.$inferInsert> = [];
-        const activityKeys = new Map<string, string>();
-        for (const activity of source.activities) {
-          const key = `${toYear}:${stripYearPrefix(activity.id)}`;
-          activityKeys.set(activity.id, key);
-          const { subactivities: _subactivities, ...activityPayload } = activity;
-          void _subactivities;
-          const copied = copyForYear(activityPayload, toYear, "activity");
+      const source = await materializeYear(fromYear);
+      const [savedUpdates, sourceContracts, savedPayments] = await Promise.all([
+        db.select().from(activityUpdates),
+        db.select().from(contracts).where(eq(contracts.planYear, fromYear)),
+        db.select().from(contractPayments),
+      ]);
+      const updateStatus = new Map(
+        savedUpdates.map((item) => [item.activityKey, item.status]),
+      );
+      const openContracts = sourceContracts.filter((contract) =>
+        ["draft", "active"].includes(contract.status),
+      );
+      const contractTargetKeys = new Set(
+        openContracts.map((contract) => contract.activityKey),
+      );
+      const copyFullStructure = Boolean(payload.copyCurrent);
+      const includedActivities: Array<{
+        activity: ActivityRecord;
+        subactivities: SubactivityRecord[];
+      }> = [];
+
+      for (const activity of source.activities) {
+        const unfinishedSubactivities = activity.subactivities.filter(
+          (subactivity) =>
+            (updateStatus.get(subactivity.id) ?? String(subactivity.status ?? "not_reported")) !==
+              "completed" || contractTargetKeys.has(subactivity.id),
+        );
+        const activityStatus =
+          updateStatus.get(activity.id) ?? String(activity.status ?? "not_reported");
+        const includeActivity =
+          copyFullStructure ||
+          contractTargetKeys.has(activity.id) ||
+          (activity.subactivities.length
+            ? unfinishedSubactivities.length > 0
+            : activityStatus !== "completed");
+        if (!includeActivity) continue;
+        includedActivities.push({
+          activity,
+          subactivities: copyFullStructure
+            ? activity.subactivities
+            : unfinishedSubactivities,
+        });
+      }
+
+      const includedActivityCodes = includedActivities.map(
+        ({ activity }) => activity.code,
+      );
+      const neededBudgetKeys = new Set(
+        openContracts.map((contract) => contract.budgetKey),
+      );
+      const includedBudgets = source.budgetLines.filter(
+        (budget) =>
+          copyFullStructure ||
+          neededBudgetKeys.has(budget.id) ||
+          includedActivityCodes.some((code) =>
+            codesShareBudgetLine(code, budget.code),
+          ),
+      );
+
+      const rows: Array<typeof workplanRecords.$inferInsert> = [];
+      const activityKeys = new Map<string, string>();
+      const budgetKeys = new Map<string, string>();
+      for (const { activity } of includedActivities) {
+        const key = `${toYear}:${stripYearPrefix(activity.id)}`;
+        activityKeys.set(activity.id, key);
+        const { subactivities: _subactivities, ...activityPayload } = activity;
+        void _subactivities;
+        const copied = copyForYear(activityPayload, toYear, "activity");
+        copied.id = key;
+        rows.push({
+          id: recordId(toYear, "activity", key),
+          planYear: toYear,
+          recordType: "activity",
+          recordKey: key,
+          parentKey: "",
+          payload: JSON.stringify(copied),
+          isDeleted: 0,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy,
+        });
+      }
+      for (const { activity, subactivities } of includedActivities) {
+        for (const subactivity of subactivities) {
+          const key = `${toYear}:${stripYearPrefix(subactivity.id)}`;
+          const parentKey = activityKeys.get(activity.id) ?? "";
+          activityKeys.set(subactivity.id, key);
+          const copied = copyForYear(subactivity, toYear, "subactivity");
           copied.id = key;
+          copied.activityId = parentKey;
           rows.push({
-            id: recordId(toYear, "activity", key),
+            id: recordId(toYear, "subactivity", key),
             planYear: toYear,
-            recordType: "activity",
+            recordType: "subactivity",
             recordKey: key,
-            parentKey: "",
+            parentKey,
             payload: JSON.stringify(copied),
             isDeleted: 0,
             createdAt: now,
@@ -281,47 +383,93 @@ export async function POST(request: Request) {
             updatedBy,
           });
         }
-        for (const activity of source.activities) {
-          for (const subactivity of activity.subactivities) {
-            const key = `${toYear}:${stripYearPrefix(subactivity.id)}`;
-            const parentKey = activityKeys.get(activity.id) ?? "";
-            const copied = copyForYear(subactivity, toYear, "subactivity");
-            copied.id = key;
-            copied.activityId = parentKey;
-            rows.push({
-              id: recordId(toYear, "subactivity", key),
-              planYear: toYear,
-              recordType: "subactivity",
-              recordKey: key,
-              parentKey,
-              payload: JSON.stringify(copied),
-              isDeleted: 0,
-              createdAt: now,
+      }
+      for (const budget of includedBudgets) {
+        const key = `${toYear}:${stripYearPrefix(budget.id)}`;
+        budgetKeys.set(budget.id, key);
+        const copied = copyForYear(budget, toYear, "budget");
+        copied.id = key;
+        rows.push({
+          id: recordId(toYear, "budget", key),
+          planYear: toYear,
+          recordType: "budget",
+          recordKey: key,
+          parentKey: "",
+          payload: JSON.stringify(copied),
+          isDeleted: 0,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy,
+        });
+      }
+      for (let index = 0; index < rows.length; index += 40) {
+        await db.insert(workplanRecords).values(rows.slice(index, index + 40));
+      }
+
+      for (const contract of openContracts) {
+        const activityKey = activityKeys.get(contract.activityKey);
+        const budgetKey = budgetKeys.get(contract.budgetKey);
+        const unpaidPayments = savedPayments
+          .filter(
+            (payment) =>
+              payment.contractId === contract.id && !Boolean(payment.paid),
+          )
+          .sort((a, b) => a.sequence - b.sequence);
+        const outstandingMnt = unpaidPayments.reduce(
+          (total, payment) => total + payment.amountMnt,
+          0,
+        );
+        if (!activityKey || !budgetKey || !outstandingMnt || !unpaidPayments.length) {
+          continue;
+        }
+        const newContractId = crypto.randomUUID();
+        await db.insert(contracts).values({
+          id: newContractId,
+          planYear: toYear,
+          contractNumber: contract.contractNumber,
+          status: contract.status,
+          budgetKey,
+          activityKey,
+          torName: contract.torName,
+          serviceProviderName: contract.serviceProviderName,
+          serviceProviderType: contract.serviceProviderType,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          amountMnt: outstandingMnt,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy,
+        });
+        let assignedPercentage = 0;
+        await db.insert(contractPayments).values(
+          unpaidPayments.map((payment, index) => {
+            const isLast = index === unpaidPayments.length - 1;
+            const remainingSlots = unpaidPayments.length - index - 1;
+            const percentage = isLast
+              ? 100 - assignedPercentage
+              : Math.min(
+                  100 - assignedPercentage - remainingSlots,
+                  Math.max(
+                    1,
+                    Math.round((payment.amountMnt / outstandingMnt) * 100),
+                  ),
+                );
+            assignedPercentage += percentage;
+            return {
+              id: crypto.randomUUID(),
+              contractId: newContractId,
+              sequence: index + 1,
+              label: payment.label,
+              dueDate: payment.dueDate,
+              deliverable: payment.deliverable,
+              percentage,
+              amountMnt: payment.amountMnt,
+              paid: 0,
+              paidAt: "",
               updatedAt: now,
-              updatedBy,
-            });
-          }
-        }
-        for (const budget of source.budgetLines) {
-          const key = `${toYear}:${stripYearPrefix(budget.id)}`;
-          const copied = copyForYear(budget, toYear, "budget");
-          copied.id = key;
-          rows.push({
-            id: recordId(toYear, "budget", key),
-            planYear: toYear,
-            recordType: "budget",
-            recordKey: key,
-            parentKey: "",
-            payload: JSON.stringify(copied),
-            isDeleted: 0,
-            createdAt: now,
-            updatedAt: now,
-            updatedBy,
-          });
-        }
-        for (let index = 0; index < rows.length; index += 40) {
-          await db.insert(workplanRecords).values(rows.slice(index, index + 40));
-        }
+            };
+          }),
+        );
       }
 
       const [plan, years] = await Promise.all([materializeYear(toYear), yearList()]);
