@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
@@ -77,6 +77,10 @@ import {
   defaultTeamMembers,
   type TeamMember,
 } from "@/lib/team-members";
+import {
+  translateUiText,
+  type UiLanguage,
+} from "@/lib/ui-language";
 import workplan from "@/lib/workplan-data.json";
 
 type Activity = (typeof workplan.activities)[number];
@@ -546,9 +550,9 @@ function formatNumberInput(value: string | number) {
   return digits ? new Intl.NumberFormat("en-US").format(Number(digits)) : "";
 }
 
-function formatDate(value: string) {
-  if (!value) return "No date";
-  return new Intl.DateTimeFormat("en", {
+function formatDate(value: string, language: UiLanguage = "en") {
+  if (!value) return language === "mn" ? "Огноогүй" : "No date";
+  return new Intl.DateTimeFormat(language === "mn" ? "mn-MN" : "en", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -556,9 +560,9 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00Z`));
 }
 
-function formatUpdatedAt(value: string) {
+function formatUpdatedAt(value: string, language: UiLanguage = "en") {
   if (!value) return "";
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(language === "mn" ? "mn-MN" : "en", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
@@ -792,6 +796,16 @@ function targetsForBudgetLine(
     ]);
 }
 
+function localizedTargetLabel(
+  target: BudgetTarget,
+  activities: Activity[],
+  language: UiLanguage,
+) {
+  if (language === "en" || target.kind === "subactivity") return target.label;
+  const activity = activities.find((item) => item.id === target.activityId);
+  return activity?.titleMn?.trim() || target.label;
+}
+
 function codesShareBudgetLine(activityCode: string, budgetCode: string) {
   const normalize = (value: string) =>
     value.replace(/\s/g, "").replace(/\.+$/, "");
@@ -900,6 +914,12 @@ function summarizeFinance(
 }
 
 export default function Home() {
+  const [language, setLanguage] = useState<UiLanguage>("en");
+  const appRootRef = useRef<HTMLElement | null>(null);
+  const textSourcesRef = useRef(new WeakMap<Text, string>());
+  const attributeSourcesRef = useRef(
+    new WeakMap<Element, Map<string, string>>(),
+  );
   const [selectedYear, setSelectedYear] = useState(2026);
   const [workplanYears, setWorkplanYears] = useState<WorkplanYear[]>([
     {
@@ -1036,6 +1056,107 @@ export default function Home() {
     useState<Set<string>>(new Set());
   const [expandedFinanceRecordKeys, setExpandedFinanceRecordKeys] =
     useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("pfp-interface-language");
+    if (saved !== "mn" && saved !== "en") return;
+    const timer = window.setTimeout(() => setLanguage(saved), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!appRootRef.current) return;
+    const root = document.body;
+    document.documentElement.lang = language === "mn" ? "mn" : "en";
+    document.title =
+      language === "mn"
+        ? "PFP Ажлын төлөвлөгөөний ERP систем"
+        : "PFP Workplan ERP System";
+
+    const processText = (node: Text) => {
+      const parent = node.parentElement;
+      if (
+        !parent ||
+        ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName) ||
+        parent.closest("[data-no-translate]")
+      ) {
+        return;
+      }
+      const current = node.data;
+      let source = textSourcesRef.current.get(node);
+      if (
+        source === undefined ||
+        (current !== source && current !== translateUiText(source, "mn"))
+      ) {
+        source = current;
+        textSourcesRef.current.set(node, source);
+      }
+      const next = translateUiText(source, language);
+      if (current !== next) node.data = next;
+    };
+
+    const processElement = (element: Element) => {
+      const attributeNames = ["placeholder", "aria-label", "title"];
+      let sources = attributeSourcesRef.current.get(element);
+      if (!sources) {
+        sources = new Map<string, string>();
+        attributeSourcesRef.current.set(element, sources);
+      }
+      for (const name of attributeNames) {
+        const current = element.getAttribute(name);
+        if (current === null) continue;
+        let source = sources.get(name);
+        if (
+          source === undefined ||
+          (current !== source && current !== translateUiText(source, "mn"))
+        ) {
+          source = current;
+          sources.set(name, source);
+        }
+        const next = translateUiText(source, language);
+        if (current !== next) element.setAttribute(name, next);
+      }
+    };
+
+    const processTree = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) processText(node as Text);
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        processElement(node as Element);
+      }
+      const walker = document.createTreeWalker(
+        node,
+        NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+      );
+      let current = walker.nextNode();
+      while (current) {
+        if (current.nodeType === Node.TEXT_NODE) processText(current as Text);
+        else processElement(current as Element);
+        current = walker.nextNode();
+      }
+    };
+
+    processTree(root);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") processText(record.target as Text);
+        if (record.type === "attributes") processElement(record.target as Element);
+        for (const node of record.addedNodes) processTree(node);
+      }
+    });
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["placeholder", "aria-label", "title"],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [language]);
+
+  function changeLanguage(next: UiLanguage) {
+    setLanguage(next);
+    window.localStorage.setItem("pfp-interface-language", next);
+  }
 
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
@@ -3527,7 +3648,7 @@ export default function Home() {
         <div className="mt-4 flex flex-col gap-2 border-t border-[#e2e7e0] pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-[#718178]">
             {updates[target.key]
-              ? `Last saved ${formatUpdatedAt(updates[target.key].updatedAt)}`
+              ? `Last saved ${formatUpdatedAt(updates[target.key].updatedAt, language)}`
               : "No saved update yet"}
           </p>
           <Button
@@ -3543,7 +3664,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
+    <main ref={appRootRef} className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
       <Toaster position="top-right" richColors />
       <Tabs
         value={activeView}
@@ -3610,6 +3731,36 @@ export default function Home() {
                 User Access
               </TabsTrigger>
             </TabsList>
+          </div>
+          <div
+            data-no-translate
+            className="flex shrink-0 items-center rounded-lg border border-white/25 bg-white/10 p-1"
+            aria-label="Interface language"
+          >
+            <button
+              type="button"
+              onClick={() => changeLanguage("en")}
+              aria-pressed={language === "en"}
+              className={`h-8 rounded-md px-3 text-xs font-black transition ${
+                language === "en"
+                  ? "bg-[#dbf081] text-[#153829] shadow-sm"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              onClick={() => changeLanguage("mn")}
+              aria-pressed={language === "mn"}
+              className={`h-8 rounded-md px-3 text-xs font-black transition ${
+                language === "mn"
+                  ? "bg-[#dbf081] text-[#153829] shadow-sm"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              МН
+            </button>
           </div>
         </div>
       </header>
@@ -4220,11 +4371,13 @@ export default function Home() {
                   </div>
                   <div className="min-w-0">
                     <p className="line-clamp-2 text-[15px] font-bold leading-5 text-[#183529]">
-                      {item.title}
+                      {language === "mn" && item.titleMn?.trim()
+                        ? item.titleMn
+                        : item.title}
                     </p>
                     <p className="mt-1 text-xs text-[#718178]">
                       {item.subactivities.length} sub-activities · due{" "}
-                      {formatDate(item.endDate)}
+                      {formatDate(item.endDate, language)}
                     </p>
                     {!currentOwner && (
                       <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-rose-700">
@@ -4654,7 +4807,9 @@ export default function Home() {
                       </div>
                       <div className="min-w-0">
                         <p className="whitespace-normal break-words text-sm leading-5 text-[#53685c]">
-                          {target?.label ?? "Removed workplan item"}
+                          {target
+                            ? localizedTargetLabel(target, allActivities, language)
+                            : "Removed workplan item"}
                         </p>
                         {allocation.note && (
                           <p className="mt-1 whitespace-normal break-words text-xs text-[#718178]">
@@ -4762,7 +4917,7 @@ export default function Home() {
                       return (
                         <TableRow key={entry.id}>
                           <TableCell className="pl-5 whitespace-nowrap">
-                            {formatDate(entry.entryDate)}
+                            {formatDate(entry.entryDate, language)}
                           </TableCell>
                           <TableCell className="font-mono text-xs font-bold text-[#2f634c]">
                             {line?.code ?? "—"}
@@ -4961,10 +5116,10 @@ export default function Home() {
                               {contract.serviceProviderName} · {contract.serviceProviderType}
                             </p>
                             <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
-                              {line?.code ?? "Budget"} · {target?.code ?? "Workplan"} · {target?.kind === "subactivity" ? "Sub-activity · " : ""}{target?.label ?? "Removed workplan item"}
+                              {line?.code ?? "Budget"} · {target?.code ?? "Workplan"} · {target?.kind === "subactivity" ? "Sub-activity · " : ""}{target ? localizedTargetLabel(target, allActivities, language) : "Removed workplan item"}
                             </p>
                             <p className="mt-1 text-xs text-[#718178]">
-                              {formatDate(contract.startDate)} – {formatDate(contract.endDate)}
+                              {formatDate(contract.startDate, language)} – {formatDate(contract.endDate, language)}
                             </p>
                           </div>
                           <div className="flex shrink-0 flex-wrap gap-2">
@@ -5033,7 +5188,7 @@ export default function Home() {
                                 </div>
                                 <div>
                                   <p className="text-xs font-semibold text-[#718178]">Due date</p>
-                                  <p className="mt-1 text-sm font-semibold">{formatDate(payment.dueDate)}</p>
+                                  <p className="mt-1 text-sm font-semibold">{formatDate(payment.dueDate, language)}</p>
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-xs font-semibold text-[#718178]">Deliverable</p>
@@ -5064,7 +5219,7 @@ export default function Home() {
                                 </Button>
                                 {payment.paid && payment.paidAt && (
                                   <p className="text-xs text-emerald-800 lg:col-start-6">
-                                    Paid {formatDate(payment.paidAt)}
+                                    Paid {formatDate(payment.paidAt, language)}
                                   </p>
                                 )}
                               </div>
@@ -5409,7 +5564,7 @@ export default function Home() {
                           </div>
                           {item.lastSignedInAt && (
                             <p className="mt-1 text-xs text-[#718178]">
-                              Last sign-in {formatUpdatedAt(item.lastSignedInAt)}
+                              Last sign-in {formatUpdatedAt(item.lastSignedInAt, language)}
                             </p>
                           )}
                         </TableCell>
@@ -6233,7 +6388,7 @@ export default function Home() {
                             </p>
                             <h3 className={`mt-1 text-sm font-black leading-6 ${target.kind === "activity" ? "text-[#143d2e]" : ""}`}>
                               {target.kind === "activity" ? `${target.code} · ` : ""}
-                              {target.label}
+                              {localizedTargetLabel(target, allActivities, language)}
                             </h3>
                             <p className={`mt-2 flex items-center gap-2 text-xs font-semibold ${ownerName ? "text-[#5d7467]" : "text-rose-700"}`}>
                               <span className={`h-2 w-2 rounded-full ${ownerName ? "bg-emerald-600" : "bg-rose-600"}`} />
@@ -6384,7 +6539,7 @@ export default function Home() {
                                         : "Expenditure"}
                                     </span>
                                     <span className="text-xs font-semibold text-[#718178]">
-                                      {formatDate(entry.entryDate)}
+                                      {formatDate(entry.entryDate, language)}
                                     </span>
                                   </div>
                                   <p className="mt-1 break-words text-sm font-semibold">
@@ -6852,7 +7007,7 @@ export default function Home() {
                   <NativeSelectOption value="">Choose workplan item</NativeSelectOption>
                   {contractTargets.map((target) => (
                     <NativeSelectOption key={target.key} value={target.key}>
-                      {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{target.label}
+                      {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{localizedTargetLabel(target, allActivities, language)}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -6981,7 +7136,7 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         {payment.paid && (
                           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">
-                            Paid {payment.paidAt ? formatDate(payment.paidAt) : ""}
+                            Paid {payment.paidAt ? formatDate(payment.paidAt, language) : ""}
                           </span>
                         )}
                         <Button
@@ -7302,7 +7457,9 @@ export default function Home() {
                     {selected.code || selected.uid}
                   </p>
                   <DialogTitle className="text-xl font-black leading-tight tracking-[-0.025em] sm:text-2xl">
-                    {selected.title}
+                    {language === "mn" && selected.titleMn?.trim()
+                      ? selected.titleMn
+                      : selected.title}
                   </DialogTitle>
                   <DialogDescription className="text-[#718178]">
                     {selected.workstream || "Programme management"}
@@ -7346,11 +7503,11 @@ export default function Home() {
                     <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm">
                       <div>
                         <p className="text-emerald-100/65">Start</p>
-                        <p className="mt-1 font-bold">{formatDate(selected.startDate)}</p>
+                        <p className="mt-1 font-bold">{formatDate(selected.startDate, language)}</p>
                       </div>
                       <div>
                         <p className="text-emerald-100/65">Due</p>
-                        <p className="mt-1 font-bold">{formatDate(selected.endDate)}</p>
+                        <p className="mt-1 font-bold">{formatDate(selected.endDate, language)}</p>
                       </div>
                       <div className="col-span-2">
                         <p className="text-emerald-100/65">Owner</p>
@@ -7483,7 +7640,7 @@ export default function Home() {
                         subactivityOwner(sub, updates),
                         teamMembers,
                       );
-                      const isEditing = activeTarget.key === sub.id;
+                      const isEditing = activeTarget?.key === sub.id;
 
                       return (
                         <article
