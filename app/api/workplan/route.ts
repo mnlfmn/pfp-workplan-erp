@@ -518,17 +518,17 @@ export async function POST(request: Request) {
               .where(eq(workplanYears.year, toYear)),
           ]
         : [db.insert(workplanYears).values(yearRow)];
-      for (let index = 0; index < rows.length; index += 40) {
-        writes.push(db.insert(workplanRecords).values(rows.slice(index, index + 40)));
+      for (let index = 0; index < rows.length; index += 8) {
+        writes.push(db.insert(workplanRecords).values(rows.slice(index, index + 8)));
       }
-      for (let index = 0; index < carriedContractRows.length; index += 20) {
+      for (let index = 0; index < carriedContractRows.length; index += 5) {
         writes.push(
-          db.insert(contracts).values(carriedContractRows.slice(index, index + 20)),
+          db.insert(contracts).values(carriedContractRows.slice(index, index + 5)),
         );
       }
-      for (let index = 0; index < carriedPaymentRows.length; index += 40) {
+      for (let index = 0; index < carriedPaymentRows.length; index += 8) {
         writes.push(
-          db.insert(contractPayments).values(carriedPaymentRows.slice(index, index + 40)),
+          db.insert(contractPayments).values(carriedPaymentRows.slice(index, index + 8)),
         );
       }
       await db.batch(
