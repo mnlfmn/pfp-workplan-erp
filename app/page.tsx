@@ -179,6 +179,7 @@ type WorkplanYear = {
   title: string;
   status: string;
   reportingDate: string;
+  isEmpty?: boolean;
 };
 
 type BudgetAllocation = {
@@ -1892,8 +1893,12 @@ export default function Home() {
   }
 
   function openYearDialog() {
+    const emptyDraft = workplanYears.find(
+      (item) =>
+        item.year > selectedYear && item.status === "draft" && item.isEmpty,
+    );
     const latest = Math.max(...workplanYears.map((item) => item.year), selectedYear);
-    setNewYear(latest + 1);
+    setNewYear(emptyDraft?.year ?? latest + 1);
     setCopyCurrentYear(false);
     setYearDialogOpen(true);
   }
@@ -1926,6 +1931,7 @@ export default function Home() {
           budgetLines: number;
           contracts: number;
         };
+        repaired?: boolean;
         error?: string;
       };
       if (!response.ok || !result.activities || !result.budgetLines) {
@@ -1938,7 +1944,7 @@ export default function Home() {
       setSelectedYear(newYear);
       setYearDialogOpen(false);
       setActiveView("workplan");
-      toast.success(`${newYear} workplan created`, {
+      toast.success(`${newYear} workplan ${result.repaired ? "repaired" : "created"}`, {
         description: result.transferSummary
           ? `${result.transferSummary.activities} main activities, ${result.transferSummary.subactivities} sub-activities, and ${result.transferSummary.contracts} open contracts were carried forward.`
           : copyCurrentYear

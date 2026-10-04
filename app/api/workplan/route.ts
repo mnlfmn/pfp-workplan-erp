@@ -178,7 +178,19 @@ async function materializeYear(year: number) {
 }
 
 async function yearList() {
-  const savedYears = await getDb().select().from(workplanYears);
+  const db = getDb();
+  const [savedYears, savedRecords, savedContracts] = await Promise.all([
+    db.select().from(workplanYears),
+    db
+      .select({ planYear: workplanRecords.planYear })
+      .from(workplanRecords)
+      .where(eq(workplanRecords.isDeleted, 0)),
+    db.select({ planYear: contracts.planYear }).from(contracts),
+  ]);
+  const yearsWithContent = new Set([
+    ...savedRecords.map((item) => item.planYear),
+    ...savedContracts.map((item) => item.planYear),
+  ]);
   const years = new Map<number, (typeof savedYears)[number] | null>([[BASE_YEAR, null]]);
   for (const item of savedYears) years.set(item.year, item);
   return [...years.entries()]
@@ -189,6 +201,7 @@ async function yearList() {
       status: item?.status || (year === BASE_YEAR ? "active" : "draft"),
       reportingDate:
         item?.reportingDate || (year === BASE_YEAR ? workplan.meta.reportingDate : ""),
+      isEmpty: year !== BASE_YEAR && !yearsWithContent.has(year),
     }));
 }
 
@@ -268,8 +281,33 @@ export async function POST(request: Request) {
         .from(workplanYears)
         .where(eq(workplanYears.year, toYear))
         .limit(1);
-      if (toYear === BASE_YEAR || existing.length) {
+      if (toYear === BASE_YEAR) {
         return Response.json({ error: "That workplan year already exists." }, { status: 409 });
+      }
+      let repairingEmptyDraft = false;
+      if (existing.length) {
+        const [targetRecords, targetContracts] = await Promise.all([
+          db
+            .select({ id: workplanRecords.id })
+            .from(workplanRecords)
+            .where(eq(workplanRecords.planYear, toYear))
+            .limit(1),
+          db
+            .select({ id: contracts.id })
+            .from(contracts)
+            .where(eq(contracts.planYear, toYear))
+            .limit(1),
+        ]);
+        repairingEmptyDraft =
+          existing[0].status === "draft" &&
+          targetRecords.length === 0 &&
+          targetContracts.length === 0;
+        if (!repairingEmptyDraft) {
+          return Response.json(
+            { error: "That workplan year already exists." },
+            { status: 409 },
+          );
+        }
       }
 
       const yearRow: typeof workplanYears.$inferInsert = {
@@ -472,9 +510,14 @@ export async function POST(request: Request) {
         );
       }
 
-      const writes: BatchItem<"sqlite">[] = [
-        db.insert(workplanYears).values(yearRow),
-      ];
+      const writes: BatchItem<"sqlite">[] = repairingEmptyDraft
+        ? [
+            db
+              .update(workplanYears)
+              .set({ updatedAt: now, updatedBy })
+              .where(eq(workplanYears.year, toYear)),
+          ]
+        : [db.insert(workplanYears).values(yearRow)];
       for (let index = 0; index < rows.length; index += 40) {
         writes.push(db.insert(workplanRecords).values(rows.slice(index, index + 40)));
       }
@@ -506,6 +549,7 @@ export async function POST(request: Request) {
             budgetLines: includedBudgets.length,
             contracts: carriedContractRows.length,
           },
+          repaired: repairingEmptyDraft,
           ...plan,
         },
         { status: 201 },
