@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   activityUpdates,
+  budgetAllocations,
   contractPayments,
   contracts,
   workplanRecords,
@@ -527,12 +528,62 @@ export async function DELETE(request: Request) {
     const session = await requireAppSession(request);
     if (session instanceof Response) return session;
     const payload = (await request.json()) as {
+      action?: string;
       year?: number;
       recordType?: string;
       recordKey?: string;
       parentKey?: string;
     };
     const year = Number(payload.year);
+    if (payload.action === "delete_year") {
+      if (!session.isAdmin) {
+        return Response.json(
+          { error: "Administrator access is required." },
+          { status: 403 },
+        );
+      }
+      if (!Number.isInteger(year) || year <= BASE_YEAR || year > 2100) {
+        return Response.json(
+          { error: "Only a future draft workplan can be removed." },
+          { status: 400 },
+        );
+      }
+
+      const db = getDb();
+      const [savedYear, records, allocations, savedContracts] = await Promise.all([
+        db.select().from(workplanYears).where(eq(workplanYears.year, year)).limit(1),
+        db.select({ id: workplanRecords.id })
+          .from(workplanRecords)
+          .where(eq(workplanRecords.planYear, year))
+          .limit(1),
+        db.select({ id: budgetAllocations.id })
+          .from(budgetAllocations)
+          .where(eq(budgetAllocations.planYear, year))
+          .limit(1),
+        db.select({ id: contracts.id })
+          .from(contracts)
+          .where(eq(contracts.planYear, year))
+          .limit(1),
+      ]);
+      if (!savedYear.length) {
+        return Response.json({ error: "That workplan year does not exist." }, { status: 404 });
+      }
+      if (savedYear[0].status !== "draft") {
+        return Response.json(
+          { error: "Only a draft workplan can be removed." },
+          { status: 409 },
+        );
+      }
+      if (records.length || allocations.length || savedContracts.length) {
+        return Response.json(
+          { error: "This workplan contains activities, allocations, or contracts and cannot be removed." },
+          { status: 409 },
+        );
+      }
+
+      await db.delete(workplanYears).where(eq(workplanYears.year, year));
+      return Response.json({ deletedYear: year, years: await yearList() });
+    }
     const recordType = payload.recordType?.trim() ?? "";
     const recordKey = payload.recordKey?.trim() ?? "";
     if (

@@ -936,6 +936,7 @@ export default function Home() {
   >("loading");
   const [workplanExporting, setWorkplanExporting] = useState(false);
   const [yearDialogOpen, setYearDialogOpen] = useState(false);
+  const [yearDeleteOpen, setYearDeleteOpen] = useState(false);
   const [newYear, setNewYear] = useState(2027);
   const [copyCurrentYear, setCopyCurrentYear] = useState(true);
   const [yearSaving, setYearSaving] = useState(false);
@@ -1941,6 +1942,47 @@ export default function Home() {
         error instanceof Error
           ? error.message
           : "The new workplan could not be created.",
+      );
+    } finally {
+      setYearSaving(false);
+    }
+  }
+
+  async function removeEmptyWorkplanYear() {
+    if (!currentSession?.isAdmin || selectedYear <= 2026) return;
+    setYearSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_year",
+          year: selectedYear,
+        }),
+      });
+      const result = (await response.json()) as {
+        deletedYear?: number;
+        years?: WorkplanYear[];
+        error?: string;
+      };
+      if (!response.ok || result.deletedYear !== selectedYear || !result.years) {
+        throw new Error(result.error || "The empty workplan could not be removed.");
+      }
+      const deletedYear = selectedYear;
+      setWorkplanYears(result.years);
+      setYearDeleteOpen(false);
+      setPlanState("loading");
+      setAllocationState("loading");
+      setContractState("loading");
+      setSelectedYear(2026);
+      toast.success(`${deletedYear} workplan removed`, {
+        description: "The empty draft was removed. The 2026 workplan was not changed.",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The empty workplan could not be removed.",
       );
     } finally {
       setYearSaving(false);
@@ -3803,6 +3845,15 @@ export default function Home() {
                   <PencilLine className="h-4 w-4" />
                   Edit current workplan
                 </DropdownMenuItem>
+                {currentSession?.isAdmin && selectedYear > 2026 && (
+                  <DropdownMenuItem
+                    onClick={() => setYearDeleteOpen(true)}
+                    className="text-rose-700 focus:bg-rose-50 focus:text-rose-800"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove empty workplan
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="flex items-center gap-2 px-1 text-sm text-[#5d7467]">
@@ -5661,6 +5712,27 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={yearDeleteOpen} onOpenChange={setYearDeleteOpen}>
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove the {selectedYear} workplan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Only an empty draft can be removed. The system will refuse this action if the workplan contains activities, budget allocations, or contracts. The 2026 workplan will not be changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={yearSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={removeEmptyWorkplanYear}
+              disabled={yearSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {yearSaving ? "Removing…" : `Remove ${selectedYear} workplan`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
         <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-4xl!">
