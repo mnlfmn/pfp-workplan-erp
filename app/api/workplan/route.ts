@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 
 import { getDb } from "@/db";
 import {
@@ -271,7 +272,7 @@ export async function POST(request: Request) {
         return Response.json({ error: "That workplan year already exists." }, { status: 409 });
       }
 
-      await db.insert(workplanYears).values({
+      const yearRow: typeof workplanYears.$inferInsert = {
         year: toYear,
         title: (payload.title ?? `${toYear} workplan`).trim().slice(0, 200),
         status: "draft",
@@ -279,7 +280,7 @@ export async function POST(request: Request) {
         createdAt: now,
         updatedAt: now,
         updatedBy,
-      });
+      };
 
       const source = await materializeYear(fromYear);
       const [savedUpdates, sourceContracts, savedPayments] = await Promise.all([
@@ -403,10 +404,8 @@ export async function POST(request: Request) {
           updatedBy,
         });
       }
-      for (let index = 0; index < rows.length; index += 40) {
-        await db.insert(workplanRecords).values(rows.slice(index, index + 40));
-      }
-
+      const carriedContractRows: Array<typeof contracts.$inferInsert> = [];
+      const carriedPaymentRows: Array<typeof contractPayments.$inferInsert> = [];
       for (const contract of openContracts) {
         const activityKey = activityKeys.get(contract.activityKey);
         const budgetKey = budgetKeys.get(contract.budgetKey);
@@ -424,7 +423,7 @@ export async function POST(request: Request) {
           continue;
         }
         const newContractId = crypto.randomUUID();
-        await db.insert(contracts).values({
+        carriedContractRows.push({
           id: newContractId,
           planYear: toYear,
           contractNumber: contract.contractNumber,
@@ -442,8 +441,8 @@ export async function POST(request: Request) {
           updatedBy,
         });
         let assignedPercentage = 0;
-        await db.insert(contractPayments).values(
-          unpaidPayments.map((payment, index) => {
+        carriedPaymentRows.push(
+          ...unpaidPayments.map((payment, index) => {
             const isLast = index === unpaidPayments.length - 1;
             const remainingSlots = unpaidPayments.length - index - 1;
             const percentage = isLast
@@ -473,8 +472,44 @@ export async function POST(request: Request) {
         );
       }
 
+      const writes: BatchItem<"sqlite">[] = [
+        db.insert(workplanYears).values(yearRow),
+      ];
+      for (let index = 0; index < rows.length; index += 40) {
+        writes.push(db.insert(workplanRecords).values(rows.slice(index, index + 40)));
+      }
+      for (let index = 0; index < carriedContractRows.length; index += 20) {
+        writes.push(
+          db.insert(contracts).values(carriedContractRows.slice(index, index + 20)),
+        );
+      }
+      for (let index = 0; index < carriedPaymentRows.length; index += 40) {
+        writes.push(
+          db.insert(contractPayments).values(carriedPaymentRows.slice(index, index + 40)),
+        );
+      }
+      await db.batch(
+        writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+      );
+
       const [plan, years] = await Promise.all([materializeYear(toYear), yearList()]);
-      return Response.json({ year: toYear, years, ...plan }, { status: 201 });
+      return Response.json(
+        {
+          year: toYear,
+          years,
+          transferSummary: {
+            activities: includedActivities.length,
+            subactivities: includedActivities.reduce(
+              (total, item) => total + item.subactivities.length,
+              0,
+            ),
+            budgetLines: includedBudgets.length,
+            contracts: carriedContractRows.length,
+          },
+          ...plan,
+        },
+        { status: 201 },
+      );
     }
 
     const year = Number(payload.year);

@@ -330,6 +330,7 @@ function translateDynamicText(value: string) {
     [/^(\d+)% · calculated$/, (percent) => `${percent}% · автоматаар тооцоолсон`],
     [/^(\d+) assigned$/, (count) => `${count} хариуцуулсан`],
     [/^(\d+) contracts linked to the selected workplan scope\.$/, (count) => `Сонгосон хамрах хүрээнд ${count} гэрээ байна.`],
+    [/^(\d+) main activities, (\d+) sub-activities, and (\d+) open contracts were carried forward\.$/, (activities, subactivities, contracts) => `${activities} үндсэн арга хэмжээ, ${subactivities} дэд ажил, ${contracts} нээлттэй гэрээг дараа жилд шилжүүллээ.`],
     [/^Entered by (.+)$/, (name) => `Оруулсан: ${name}`],
     [/^Section ([AB])$/, (section) => `${section} хэсэг`],
   ];

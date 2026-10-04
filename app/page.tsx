@@ -938,7 +938,7 @@ export default function Home() {
   const [yearDialogOpen, setYearDialogOpen] = useState(false);
   const [yearDeleteOpen, setYearDeleteOpen] = useState(false);
   const [newYear, setNewYear] = useState(2027);
-  const [copyCurrentYear, setCopyCurrentYear] = useState(true);
+  const [copyCurrentYear, setCopyCurrentYear] = useState(false);
   const [yearSaving, setYearSaving] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [query, setQuery] = useState("");
@@ -1894,7 +1894,7 @@ export default function Home() {
   function openYearDialog() {
     const latest = Math.max(...workplanYears.map((item) => item.year), selectedYear);
     setNewYear(latest + 1);
-    setCopyCurrentYear(true);
+    setCopyCurrentYear(false);
     setYearDialogOpen(true);
   }
 
@@ -1920,6 +1920,12 @@ export default function Home() {
         activities?: Activity[];
         budgetLines?: BudgetLine[];
         years?: WorkplanYear[];
+        transferSummary?: {
+          activities: number;
+          subactivities: number;
+          budgetLines: number;
+          contracts: number;
+        };
         error?: string;
       };
       if (!response.ok || !result.activities || !result.budgetLines) {
@@ -1933,9 +1939,11 @@ export default function Home() {
       setYearDialogOpen(false);
       setActiveView("workplan");
       toast.success(`${newYear} workplan created`, {
-        description: copyCurrentYear
-          ? "The full structure was copied, and open contract obligations were carried forward."
-          : "Unfinished activities and open contract obligations were carried forward automatically.",
+        description: result.transferSummary
+          ? `${result.transferSummary.activities} main activities, ${result.transferSummary.subactivities} sub-activities, and ${result.transferSummary.contracts} open contracts were carried forward.`
+          : copyCurrentYear
+            ? "The full structure was copied, and open contract obligations were carried forward."
+            : "Unfinished activities and open contract obligations were carried forward automatically.",
       });
     } catch (error) {
       toast.error(
