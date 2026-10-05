@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { financeEntries, teamMembers, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
+import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import workplan from "@/lib/workplan-data.json";
 
 const validBudgetKeys = new Set(workplan.budgetLines.map((line) => line.id));
@@ -219,6 +220,15 @@ export async function POST(request: Request) {
       })
       .returning();
 
+    await writeAuditLog({
+      entityType: "finance",
+      entityKey: String(entry.id),
+      action: "created",
+      previousValue: null,
+      newValue: snapshot("finance_entry", entry),
+      changedBy: session.email,
+    });
+
     return Response.json(
       { entry: (await addCreatorNames([entry]))[0] },
       { status: 201 },
@@ -272,7 +282,16 @@ export async function PUT(request: Request) {
       return Response.json({ error: "Choose a valid entry date." }, { status: 400 });
     }
 
-    const [entry] = await getDb()
+    const db = getDb();
+    const [existing] = await db
+      .select()
+      .from(financeEntries)
+      .where(eq(financeEntries.id, id))
+      .limit(1);
+    if (!existing) {
+      return Response.json({ error: "Finance entry not found." }, { status: 404 });
+    }
+    const [entry] = await db
       .update(financeEntries)
       .set({
         budgetKey,
@@ -286,9 +305,14 @@ export async function PUT(request: Request) {
       .where(eq(financeEntries.id, id))
       .returning();
 
-    if (!entry) {
-      return Response.json({ error: "Finance entry not found." }, { status: 404 });
-    }
+    await writeAuditLog({
+      entityType: "finance",
+      entityKey: String(entry.id),
+      action: "updated",
+      previousValue: snapshot("finance_entry", existing),
+      newValue: snapshot("finance_entry", entry),
+      changedBy: session.email,
+    });
     return Response.json({ entry: (await addCreatorNames([entry]))[0] });
   } catch (error) {
     console.error("Unable to update finance entry", error);
@@ -305,13 +329,27 @@ export async function DELETE(request: Request) {
     if (!Number.isSafeInteger(id) || id <= 0) {
       return Response.json({ error: "Choose a valid finance entry." }, { status: 400 });
     }
-    const [deleted] = await getDb()
+    const db = getDb();
+    const [existing] = await db
+      .select()
+      .from(financeEntries)
+      .where(eq(financeEntries.id, id))
+      .limit(1);
+    if (!existing) {
+      return Response.json({ error: "Finance entry not found." }, { status: 404 });
+    }
+    const [deleted] = await db
       .delete(financeEntries)
       .where(eq(financeEntries.id, id))
       .returning({ id: financeEntries.id });
-    if (!deleted) {
-      return Response.json({ error: "Finance entry not found." }, { status: 404 });
-    }
+    await writeAuditLog({
+      entityType: "finance",
+      entityKey: String(deleted.id),
+      action: "removed",
+      previousValue: snapshot("finance_entry", existing),
+      newValue: null,
+      changedBy: session.email,
+    });
     return Response.json({ deletedId: deleted.id });
   } catch (error) {
     console.error("Unable to remove finance entry", error);

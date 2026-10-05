@@ -175,3 +175,21 @@ export const contractPayments = sqliteTable(
     index("idx_contract_payments_contract").on(table.contractId),
   ],
 );
+
+export const auditLogs = sqliteTable(
+  "audit_logs",
+  {
+    id: text("id").primaryKey(),
+    entityType: text("entity_type").notNull(),
+    entityKey: text("entity_key").notNull(),
+    action: text("action").notNull(),
+    previousValue: text("previous_value").notNull().default("null"),
+    newValue: text("new_value").notNull().default("null"),
+    changedAt: text("changed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    changedBy: text("changed_by").notNull().default(""),
+  },
+  (table) => [
+    index("idx_audit_logs_entity").on(table.entityType, table.entityKey),
+    index("idx_audit_logs_changed_at").on(table.changedAt),
+  ],
+);

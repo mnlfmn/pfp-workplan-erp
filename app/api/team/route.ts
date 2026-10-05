@@ -12,6 +12,7 @@ import {
   type AppSession,
 } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
+import { snapshot, writeAuditLog } from "@/lib/audit-log";
 
 type TeamMemberRow = typeof teamMembers.$inferSelect;
 
@@ -249,6 +250,14 @@ export async function POST(request: Request) {
         updatedBy: session.email,
       })
       .returning();
+    await writeAuditLog({
+      entityType: "team",
+      entityKey: row.id,
+      action: "created",
+      previousValue: null,
+      newValue: snapshot("team_member", row),
+      changedBy: session.email,
+    });
     return Response.json({ member: rowToMember(row) }, { status: 201 });
   } catch (error) {
     console.error("Unable to add team member", error);
@@ -293,6 +302,7 @@ export async function PUT(request: Request) {
       return Response.json({ error: "That email is already assigned to another team member." }, { status: 409 });
     }
     const existing = existingRows.find((row) => row.id === id);
+    const currentMember = current.find((member) => member.id === id)!;
     if (
       existing?.accessRole === "admin" &&
       values.accessRole !== "admin" &&
@@ -332,6 +342,30 @@ export async function PUT(request: Request) {
       .from(teamMembers)
       .where(eq(teamMembers.id, id))
       .limit(1);
+    const previousRow = existing ?? {
+      id: currentMember.id,
+      name: currentMember.name,
+      role: currentMember.role,
+      group: currentMember.group,
+      aliases: JSON.stringify(currentMember.aliases),
+      email: currentMember.email,
+      accessRole: currentMember.accessRole,
+      inviteStatus: currentMember.inviteStatus,
+      inviteSentAt: currentMember.inviteSentAt,
+      lastSignedInAt: currentMember.lastSignedInAt,
+      isDeleted: 0,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: "",
+    };
+    await writeAuditLog({
+      entityType: "team",
+      entityKey: id,
+      action: "updated",
+      previousValue: snapshot("team_member", previousRow),
+      newValue: snapshot("team_member", row),
+      changedBy: session.email,
+    });
     return Response.json({ member: rowToMember(row) });
   } catch (error) {
     console.error("Unable to update team member", error);
@@ -383,6 +417,20 @@ export async function DELETE(request: Request) {
       .insert(teamMembers)
       .values(stored)
       .onConflictDoUpdate({ target: teamMembers.id, set: stored });
+
+    const previousMemberRow = existing ?? {
+      ...stored,
+      isDeleted: 0,
+      updatedBy: "",
+    };
+    await writeAuditLog({
+      entityType: "team",
+      entityKey: id,
+      action: "removed",
+      previousValue: snapshot("team_member", previousMemberRow),
+      newValue: snapshot("team_member", stored),
+      changedBy: session.email,
+    });
 
     const [savedUpdates, planRecords] = await Promise.all([
       db.select().from(activityUpdates),
@@ -454,6 +502,16 @@ export async function DELETE(request: Request) {
         updatedAt: now,
         updatedBy: session.email,
       };
+      const previousUpdate = existingUpdate ?? {
+        activityKey,
+        status: candidate?.status ?? "not_reported",
+        progress: Math.max(0, Math.min(100, Math.round(candidate?.progress ?? 0))),
+        note: "",
+        supportNeeded: "",
+        owner: effectiveOwner,
+        updatedAt: now,
+        updatedBy: "",
+      };
       const [cleared] = await db
         .insert(activityUpdates)
         .values(values)
@@ -462,6 +520,14 @@ export async function DELETE(request: Request) {
           set: values,
         })
         .returning();
+      await writeAuditLog({
+        entityType: "activity",
+        entityKey: activityKey,
+        action: "removed team member assignment",
+        previousValue: snapshot("activity_update", previousUpdate),
+        newValue: snapshot("activity_update", cleared),
+        changedBy: session.email,
+      });
       clearedUpdates.push(cleared);
     }
 
@@ -507,6 +573,14 @@ export async function PATCH(request: Request) {
       .from(teamMembers)
       .where(eq(teamMembers.id, id))
       .limit(1);
+    await writeAuditLog({
+      entityType: "team",
+      entityKey: id,
+      action: "prepared invitation",
+      previousValue: snapshot("team_member", member),
+      newValue: snapshot("team_member", saved),
+      changedBy: session.email,
+    });
     return Response.json({ member: rowToMember(saved) });
   } catch (error) {
     console.error("Unable to prepare team invitation", error);

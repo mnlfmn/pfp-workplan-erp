@@ -3,6 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { contractPayments, contracts, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
+import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import workplan from "@/lib/workplan-data.json";
 
 const validStatuses = new Set(["draft", "active", "completed", "closed"]);
@@ -321,6 +322,17 @@ export async function POST(request: Request) {
     );
 
     const [contract] = (await nestedContracts(planYear)).filter((item) => item.id === id);
+    await writeAuditLog({
+      entityType: "contract",
+      entityKey: id,
+      action: "created",
+      previousValue: null,
+      newValue: snapshot("contract", {
+        contract: { ...contract, payments: undefined },
+        payments: contract.payments,
+      }),
+      changedBy: updatedBy,
+    });
     return Response.json({ contract }, { status: 201 });
   } catch (error) {
     console.error("Unable to create contract", error);
@@ -421,6 +433,17 @@ export async function PUT(request: Request) {
     );
 
     const [contract] = (await nestedContracts(planYear)).filter((item) => item.id === id);
+    await writeAuditLog({
+      entityType: "contract",
+      entityKey: id,
+      action: "updated",
+      previousValue: snapshot("contract", { contract: existing, payments: existingPayments }),
+      newValue: snapshot("contract", {
+        contract: { ...contract, payments: undefined },
+        payments: contract.payments,
+      }),
+      changedBy: updatedBy,
+    });
     return Response.json({ contract });
   } catch (error) {
     console.error("Unable to update contract", error);
@@ -446,6 +469,10 @@ export async function PATCH(request: Request) {
       const id = payload.id?.trim() ?? "";
       if (!id) return Response.json({ error: "Choose a valid contract." }, { status: 400 });
       const updatedBy = session.email;
+      const [before] = await db.select().from(contracts).where(eq(contracts.id, id)).limit(1);
+      const beforePayments = before
+        ? await db.select().from(contractPayments).where(eq(contractPayments.contractId, id))
+        : [];
       const [updated] = await db
         .update(contracts)
         .set({ status: "closed", updatedAt: now, updatedBy })
@@ -453,6 +480,17 @@ export async function PATCH(request: Request) {
         .returning();
       if (!updated) return Response.json({ error: "Contract not found." }, { status: 404 });
       const [contract] = (await nestedContracts(updated.planYear)).filter((item) => item.id === id);
+      await writeAuditLog({
+        entityType: "contract",
+        entityKey: id,
+        action: "closed",
+        previousValue: snapshot("contract", { contract: before, payments: beforePayments }),
+        newValue: snapshot("contract", {
+          contract: { ...contract, payments: undefined },
+          payments: contract.payments,
+        }),
+        changedBy: updatedBy,
+      });
       return Response.json({ contract });
     }
 
@@ -487,6 +525,20 @@ export async function PATCH(request: Request) {
       const [contract] = (await nestedContracts(parent.planYear)).filter(
         (item) => item.id === parent.id,
       );
+      const beforePayments = contract.payments.map((item) =>
+        item.id === payment.id ? payment : item,
+      );
+      await writeAuditLog({
+        entityType: "contract",
+        entityKey: parent.id,
+        action: payload.paid ? "marked payment paid" : "marked payment unpaid",
+        previousValue: snapshot("contract", { contract: parent, payments: beforePayments }),
+        newValue: snapshot("contract", {
+          contract: { ...contract, payments: undefined },
+          payments: contract.payments,
+        }),
+        changedBy: session.email,
+      });
       return Response.json({ contract });
     }
 

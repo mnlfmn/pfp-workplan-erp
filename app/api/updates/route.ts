@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { activityUpdates, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
+import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import workplan from "@/lib/workplan-data.json";
 
 const allowedStatuses = new Set([
@@ -141,6 +142,15 @@ export async function PUT(request: Request) {
       .from(activityUpdates)
       .where(eq(activityUpdates.activityKey, activityKey))
       .limit(1);
+
+    await writeAuditLog({
+      entityType: "activity",
+      entityKey: activityKey,
+      action: existing ? "updated progress" : "created progress update",
+      previousValue: existing ? snapshot("activity_update", existing) : null,
+      newValue: snapshot("activity_update", update),
+      changedBy: updatedBy,
+    });
 
     return Response.json({ update });
   } catch (error) {

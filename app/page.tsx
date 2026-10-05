@@ -11,12 +11,14 @@ import {
   Download,
   Gauge,
   HandCoins,
+  History,
   LayoutDashboard,
   ListChecks,
   Mail,
   PencilLine,
   Plus,
   ReceiptText,
+  RotateCcw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -309,6 +311,28 @@ type ContractDraft = {
   endDate: string;
   amountMnt: string;
   payments: ContractPaymentDraft[];
+};
+
+type AuditSnapshotView = {
+  resource: "activity_update" | "workplan_record" | "finance_entry" | "contract" | "team_member";
+  data: unknown;
+};
+
+type AuditEntry = {
+  id: string;
+  entityType: "activity" | "finance" | "contract" | "team";
+  entityKey: string;
+  action: string;
+  previousValue: AuditSnapshotView | null;
+  newValue: AuditSnapshotView | null;
+  changedAt: string;
+  changedBy: string;
+};
+
+type AuditTarget = {
+  entityType: AuditEntry["entityType"];
+  entityKey: string;
+  label: string;
 };
 
 const statusMeta: Record<
@@ -668,30 +692,108 @@ function subactivityOwner(
 }
 
 function canonicalOwnerName(value: string, members: TeamMember[]) {
-  const normalized = value.trim().toLocaleLowerCase();
-  if (!normalized) return "";
-  return members
-    .filter((member) =>
-      [member.name, ...member.aliases].some((alias) =>
-        normalized.includes(alias.toLocaleLowerCase()),
-      ),
-    )
-    .map((member) => member.name)
-    .slice(0, 3)
-    .join(", ");
+  return ownerNames(value, members).join(", ");
 }
 
 function ownerNames(value: string, members: TeamMember[]) {
   const normalized = value.trim().toLocaleLowerCase();
   if (!normalized) return [];
-  return members
-    .filter((member) =>
+  const segments = value
+    .split(/\s*\|\s*|[\r\n]+/)
+    .map((item) => item.trim().toLocaleLowerCase())
+    .filter(Boolean);
+  const ordered = segments.flatMap((segment) => {
+    const match = members.find((member) =>
       [member.name, ...member.aliases].some((alias) =>
-        normalized.includes(alias.toLocaleLowerCase()),
+        segment.includes(alias.toLocaleLowerCase()),
       ),
-    )
-    .map((member) => member.name)
-    .slice(0, 3);
+    );
+    return match ? [match.name] : [];
+  });
+  if (!ordered.length) {
+    return members
+      .flatMap((member) => {
+        const positions = [member.name, ...member.aliases]
+          .map((alias) => normalized.indexOf(alias.toLocaleLowerCase()))
+          .filter((position) => position >= 0);
+        return positions.length ? [{ name: member.name, position: Math.min(...positions) }] : [];
+      })
+      .sort((a, b) => a.position - b.position)
+      .map((item) => item.name)
+      .slice(0, 3);
+  }
+  return Array.from(new Set(ordered)).slice(0, 3);
+}
+
+function responsibilityParts(value: string, members: TeamMember[]) {
+  const names = ownerNames(value, members);
+  return { accountable: names[0] ?? "", supporting: names.slice(1, 3) };
+}
+
+function auditData(snapshotValue: AuditSnapshotView | null) {
+  if (!snapshotValue) return null;
+  const raw = snapshotValue.data as Record<string, unknown> | null;
+  if (!raw) return null;
+  if (snapshotValue.resource === "workplan_record") {
+    try {
+      return {
+        ...(JSON.parse(String(raw.payload ?? "{}")) as Record<string, unknown>),
+        removed: Boolean(raw.isDeleted),
+      };
+    } catch {
+      return raw;
+    }
+  }
+  if (snapshotValue.resource === "contract") {
+    const contract = (raw.contract ?? {}) as Record<string, unknown>;
+    const payments = Array.isArray(raw.payments) ? raw.payments : [];
+    return { ...contract, payments };
+  }
+  return raw;
+}
+
+const hiddenAuditFields = new Set([
+  "id",
+  "activityKey",
+  "contractId",
+  "createdAt",
+  "updatedAt",
+  "updatedBy",
+  "createdBy",
+  "planYear",
+]);
+
+function auditChanges(entry: AuditEntry) {
+  const before = auditData(entry.previousValue);
+  const after = auditData(entry.newValue);
+  const keys = Array.from(new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]));
+  return keys
+    .filter((key) => !hiddenAuditFields.has(key))
+    .filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
+    .slice(0, 12)
+    .map((key) => ({ field: key, before: before?.[key], after: after?.[key] }));
+}
+
+function auditFieldLabel(value: string) {
+  return value
+    .replace(/Mnt$/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function formatAuditValue(field: string, value: unknown) {
+  if (value === undefined || value === null || value === "") return "—";
+  if (/Mnt$/.test(field) && typeof value === "number") return formatMnt(value);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    if (field === "payments") {
+      return `${value.length} payment${value.length === 1 ? "" : "s"}`;
+    }
+    return value.map(String).join(", ") || "—";
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value).replace(/_/g, " ");
 }
 
 function setOwnerSlot(
@@ -1075,6 +1177,12 @@ export default function Home() {
     useState<Set<string>>(new Set());
   const [expandedFinanceRecordKeys, setExpandedFinanceRecordKeys] =
     useState<Set<string>>(new Set());
+  const [auditTarget, setAuditTarget] = useState<AuditTarget | null>(null);
+  const [auditHistory, setAuditHistory] = useState<AuditEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditRestoreEntry, setAuditRestoreEntry] =
+    useState<AuditEntry | null>(null);
+  const [auditRestoring, setAuditRestoring] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("pfp-interface-language");
@@ -1175,6 +1283,57 @@ export default function Home() {
   function changeLanguage(next: UiLanguage) {
     setLanguage(next);
     window.localStorage.setItem("pfp-interface-language", next);
+  }
+
+  async function openAuditHistory(target: AuditTarget) {
+    setAuditTarget(target);
+    setAuditHistory([]);
+    setAuditLoading(true);
+    try {
+      const params = new URLSearchParams({
+        entityType: target.entityType,
+        entityKey: target.entityKey,
+      });
+      const response = await fetch(`/api/audit?${params.toString()}`);
+      const result = (await response.json()) as {
+        history?: AuditEntry[];
+        error?: string;
+      };
+      if (!response.ok || !result.history) {
+        throw new Error(result.error || "Change history could not be loaded.");
+      }
+      setAuditHistory(result.history);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Change history could not be loaded.",
+      );
+    } finally {
+      setAuditLoading(false);
+    }
+  }
+
+  async function restoreAuditVersion() {
+    if (!auditRestoreEntry || !currentSession?.isAdmin) return;
+    setAuditRestoring(true);
+    try {
+      const response = await fetch("/api/audit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: auditRestoreEntry.id }),
+      });
+      const result = (await response.json()) as { restored?: boolean; error?: string };
+      if (!response.ok || !result.restored) {
+        throw new Error(result.error || "The earlier value could not be restored.");
+      }
+      toast.success("Earlier value restored");
+      window.location.reload();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "The earlier value could not be restored.",
+      );
+      setAuditRestoring(false);
+      setAuditRestoreEntry(null);
+    }
   }
 
   const selected = useMemo(
@@ -1451,6 +1610,10 @@ export default function Home() {
 
   async function saveDraft() {
     if (!activeTarget) return;
+    if (!ownerNames(draft.owner, teamMembers).length) {
+      toast.error("Choose an accountable owner before saving.");
+      return;
+    }
     const autoCalculatedMainProgress =
       activeTarget.kind === "activity" && Boolean(selected?.subactivities.length);
     const progressToSave =
@@ -2097,6 +2260,10 @@ export default function Home() {
     }
     if (isActivity && !activityPlanDraft.code.trim()) {
       toast.error("Enter an activity code.");
+      return;
+    }
+    if (!isActivity && !ownerNames(subactivityPlanDraft.owner, teamMembers).length) {
+      toast.error("Choose an accountable owner before saving.");
       return;
     }
     const key =
@@ -3562,7 +3729,7 @@ export default function Home() {
           </label>
           <fieldset className="block">
             <legend className="mb-1.5 block text-sm font-bold">
-              Owners <span className="font-medium text-[#718178]">(up to 3)</span>
+              Responsibility assignment
             </legend>
             <div className="space-y-2">
               {[0, 1, 2].map((ownerIndex) => {
@@ -3587,10 +3754,16 @@ export default function Home() {
                         ? "border-rose-300"
                         : "border-[#cbd6cc]"
                     }`}
-                    aria-label={`Owner ${ownerIndex + 1}`}
+                    aria-label={
+                      ownerIndex === 0
+                        ? "Accountable owner"
+                        : `Supporting owner ${ownerIndex}`
+                    }
                   >
                     <NativeSelectOption value="">
-                      {ownerIndex === 0 ? "No owner" : `Optional owner ${ownerIndex + 1}`}
+                      {ownerIndex === 0
+                        ? "Accountable owner required"
+                        : `Supporting owner ${ownerIndex} (optional)`}
                     </NativeSelectOption>
                     {teamMembers.map((item) => (
                       <NativeSelectOption
@@ -3610,7 +3783,7 @@ export default function Home() {
             {!canonicalOwnerName(draft.owner, teamMembers) && (
               <span className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-rose-700">
                 <span className="h-2 w-2 rounded-full bg-rose-600" />
-                At least one owner is required
+                Accountable owner is required
               </span>
             )}
           </fieldset>
@@ -4413,7 +4586,7 @@ export default function Home() {
             <span>Code</span>
             <span>Activity</span>
             <span>Workstream</span>
-            <span>Owner</span>
+            <span>Responsibility</span>
             <span>Status</span>
             <span>Progress</span>
             <span>Update</span>
@@ -4422,10 +4595,11 @@ export default function Home() {
             {filtered.map((item) => {
               const currentStatus = deriveActivityStatus(item, updates);
               const currentProgress = deriveActivityProgress(item, updates);
-              const currentOwner = canonicalOwnerName(
+              const currentResponsibility = responsibilityParts(
                 activityOwner(item, updates),
                 teamMembers,
               );
+              const currentOwner = currentResponsibility.accountable;
               return (
                 <div
                   key={item.id}
@@ -4469,18 +4643,25 @@ export default function Home() {
                   <p className="line-clamp-2 text-sm font-medium text-[#53685c]">
                     {item.workstream || "Programme management"}
                   </p>
-                  <p
-                    className={`flex items-center gap-2 text-sm font-semibold ${
-                      currentOwner ? "text-[#315845]" : "text-rose-700"
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        currentOwner ? "bg-emerald-600" : "bg-rose-600"
+                  <div>
+                    <p
+                      className={`flex items-center gap-2 text-sm font-semibold ${
+                        currentOwner ? "text-[#315845]" : "text-rose-700"
                       }`}
-                    />
-                    {currentOwner || "Owner required"}
-                  </p>
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          currentOwner ? "bg-emerald-600" : "bg-rose-600"
+                        }`}
+                      />
+                      {currentOwner || "Owner required"}
+                    </p>
+                    {currentResponsibility.supporting.length > 0 && (
+                      <p className="mt-1 text-xs text-[#718178]">
+                        + {currentResponsibility.supporting.length} supporting
+                      </p>
+                    )}
+                  </div>
                   <div>
                     <StatusPill status={currentStatus} />
                   </div>
@@ -5042,6 +5223,14 @@ export default function Home() {
                                 <Button
                                   variant="outline"
                                   size="icon"
+                                  onClick={() => void openAuditHistory({ entityType: "finance", entityKey: String(entry.id), label: `${entry.entryType === "commitment" ? "Commitment" : "Expenditure"} · ${formatMnt(entry.amountMnt)}` })}
+                                  aria-label="View finance entry history"
+                                >
+                                  <History className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
                                   onClick={() =>
                                     openFinanceDialog(
                                       entry.budgetKey,
@@ -5212,6 +5401,14 @@ export default function Home() {
                             </p>
                           </div>
                           <div className="flex shrink-0 flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void openAuditHistory({ entityType: "contract", entityKey: contract.id, label: contract.contractNumber })}
+                            >
+                              <History className="h-4 w-4" />
+                              History
+                            </Button>
                             <Button variant="outline" size="sm" onClick={() => openEditContract(contract)}>
                               <PencilLine className="h-4 w-4" />
                               Edit
@@ -5661,6 +5858,14 @@ export default function Home() {
                           <div className="flex justify-end gap-2">
                             {currentSession?.isAdmin ? (
                               <>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => void openAuditHistory({ entityType: "team", entityKey: item.id, label: item.name })}
+                                  aria-label="View team member history"
+                                >
+                                  <History className="h-4 w-4" />
+                                </Button>
                                 {item.email && (
                                   <Button
                                     variant="outline"
@@ -5704,6 +5909,106 @@ export default function Home() {
           </TabsContent>
       </div>
       </Tabs>
+
+      <Dialog
+        open={Boolean(auditTarget)}
+        onOpenChange={(open) => {
+          if (!open) setAuditTarget(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-3xl!">
+          <DialogHeader>
+            <DialogTitle>Change history</DialogTitle>
+            <DialogDescription>
+              {auditTarget?.label} · every saved change shows its previous and new value.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {auditLoading && (
+              <div className="rounded-xl border border-[#d7ded5] bg-[#f7faf5] px-4 py-8 text-center text-sm text-[#718178]">
+                Loading change history…
+              </div>
+            )}
+            {!auditLoading && auditHistory.length === 0 && (
+              <div className="rounded-xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] px-4 py-8 text-center">
+                <History className="mx-auto h-6 w-6 text-[#718178]" />
+                <p className="mt-2 font-bold">No saved changes yet</p>
+                <p className="mt-1 text-sm text-[#718178]">
+                  New changes will appear here after this update is published.
+                </p>
+              </div>
+            )}
+            {auditHistory.map((entry) => {
+              const changes = auditChanges(entry);
+              return (
+                <article key={entry.id} className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-black capitalize text-[#183529]">{entry.action}</p>
+                      <p className="mt-1 text-xs text-[#718178]">
+                        {formatUpdatedAt(entry.changedAt, language)} · {entry.changedBy || "Unknown user"}
+                      </p>
+                    </div>
+                    {currentSession?.isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAuditRestoreEntry(entry)}
+                        className="border-[#b9cabb]"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Restore previous
+                      </Button>
+                    )}
+                  </div>
+                  {changes.length > 0 ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-[#e0e6de]">
+                      <div className="grid grid-cols-[minmax(110px,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] bg-[#f5f8f3] px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-[#617568]">
+                        <span>Field</span><span>Previous</span><span>New</span>
+                      </div>
+                      {changes.map((change) => (
+                        <div key={change.field} className="grid grid-cols-[minmax(110px,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 border-t border-[#e6ebe4] px-3 py-2.5 text-sm">
+                          <span className="font-bold text-[#315845]">{auditFieldLabel(change.field)}</span>
+                          <span className="break-words text-[#718178]">{formatAuditValue(change.field, change.before)}</span>
+                          <span className="break-words font-semibold text-[#183529]">{formatAuditValue(change.field, change.after)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-[#718178]">Record state was restored without field-level differences.</p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(auditRestoreEntry)}
+        onOpenChange={(open) => {
+          if (!open && !auditRestoring) setAuditRestoreEntry(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore the previous value?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will replace the record&apos;s current value with the version shown in the Previous column. The restore itself will also be recorded in history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={auditRestoring}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void restoreAuditVersion()}
+              disabled={auditRestoring}
+              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+            >
+              {auditRestoring ? "Restoring…" : "Restore previous value"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={yearDialogOpen} onOpenChange={setYearDialogOpen}>
         <DialogContent className="bg-white text-[#14241b] sm:max-w-lg">
@@ -5955,7 +6260,7 @@ export default function Home() {
               </label>
               <fieldset className="block">
                 <legend className="mb-1.5 block text-sm font-bold">
-                  Owners <span className="font-medium text-[#718178]">(up to 3)</span>
+                  Responsibility assignment
                 </legend>
                 <div className="space-y-2">
                   {[0, 1, 2].map((ownerIndex) => {
@@ -5983,12 +6288,16 @@ export default function Home() {
                             ? "border-rose-300"
                             : "border-[#cbd6cc]"
                         }`}
-                        aria-label={`Sub-activity owner ${ownerIndex + 1}`}
+                        aria-label={
+                          ownerIndex === 0
+                            ? "Sub-activity accountable owner"
+                            : `Sub-activity supporting owner ${ownerIndex}`
+                        }
                       >
                         <NativeSelectOption value="">
                           {ownerIndex === 0
-                            ? "No owner"
-                            : `Optional owner ${ownerIndex + 1}`}
+                            ? "Accountable owner required"
+                            : `Supporting owner ${ownerIndex} (optional)`}
                         </NativeSelectOption>
                         {teamMembers.map((item) => (
                           <NativeSelectOption
@@ -7683,10 +7992,15 @@ export default function Home() {
                         <p className="mt-1 font-bold">{formatDate(selected.endDate, language)}</p>
                       </div>
                       <div className="col-span-2">
-                        <p className="text-emerald-100/65">Owner</p>
-                        <p className={canonicalOwnerName(activityOwner(selected, updates), teamMembers) ? "mt-1 font-bold" : "mt-1 font-bold text-rose-200"}>
-                          {canonicalOwnerName(activityOwner(selected, updates), teamMembers) || "Owner required"}
+                        <p className="text-emerald-100/65">Accountable owner</p>
+                        <p className={responsibilityParts(activityOwner(selected, updates), teamMembers).accountable ? "mt-1 font-bold" : "mt-1 font-bold text-rose-200"}>
+                          {responsibilityParts(activityOwner(selected, updates), teamMembers).accountable || "Owner required"}
                         </p>
+                        {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.length > 0 && (
+                          <p className="mt-1 text-xs text-emerald-100/75">
+                            Supporting: {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.join(", ")}
+                          </p>
+                        )}
                       </div>
                       <div className="col-span-2">
                         <p className="text-emerald-100/65">Allocated budget</p>
@@ -7697,7 +8011,7 @@ export default function Home() {
                     </div>
                   </section>
 
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
                     <Button
                       onClick={() =>
                         openUpdateEditor(targetForActivity(selected, updates))
@@ -7714,6 +8028,14 @@ export default function Home() {
                     >
                       <PencilLine className="h-4 w-4" />
                       Edit details
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
+                      className="border-[#b9cabb] bg-white"
+                    >
+                      <History className="h-4 w-4" />
+                      History
                     </Button>
                   </div>
 
@@ -7809,10 +8131,11 @@ export default function Home() {
                         statusMeta[sub.status as StatusKey].weight,
                         updates,
                       );
-                      const currentOwner = canonicalOwnerName(
+                      const currentResponsibility = responsibilityParts(
                         subactivityOwner(sub, updates),
                         teamMembers,
                       );
+                      const currentOwner = currentResponsibility.accountable;
                       const isEditing = activeTarget?.key === sub.id;
 
                       return (
@@ -7868,12 +8191,26 @@ export default function Home() {
                               />
                               {currentOwner || "Owner required"}
                             </p>
+                            {currentResponsibility.supporting.length > 0 && (
+                              <p className="text-xs text-[#718178] sm:text-right">
+                                Supporting: {currentResponsibility.supporting.join(", ")}
+                              </p>
+                            )}
                             <p className="text-sm font-bold text-[#315845]">
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                             </p>
                           </div>
 
                           <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}
+                              className="border-[#c7d2c7] bg-white"
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              History
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"

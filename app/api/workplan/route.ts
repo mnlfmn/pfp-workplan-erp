@@ -11,6 +11,7 @@ import {
   workplanYears,
 } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
+import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import workplan from "@/lib/workplan-data.json";
 
 const BASE_YEAR = 2026;
@@ -601,6 +602,11 @@ export async function POST(request: Request) {
       updatedAt: now,
       updatedBy,
     };
+    const [existingRecord] = await db
+      .select()
+      .from(workplanRecords)
+      .where(eq(workplanRecords.id, values.id))
+      .limit(1);
     await db
       .insert(workplanRecords)
       .values({ ...values, createdAt: now })
@@ -608,6 +614,23 @@ export async function POST(request: Request) {
         target: workplanRecords.id,
         set: values,
       });
+    if (["activity", "subactivity"].includes(recordType)) {
+      const [savedRecord] = await db
+        .select()
+        .from(workplanRecords)
+        .where(eq(workplanRecords.id, values.id))
+        .limit(1);
+      await writeAuditLog({
+        entityType: "activity",
+        entityKey: recordKey,
+        action: existingRecord ? "edited details" : "created",
+        previousValue: existingRecord
+          ? snapshot("workplan_record", existingRecord)
+          : null,
+        newValue: snapshot("workplan_record", savedRecord),
+        changedBy: updatedBy,
+      });
+    }
     const plan = await materializeYear(year);
     return Response.json({ year, ...plan });
   } catch (error) {
@@ -688,8 +711,39 @@ export async function DELETE(request: Request) {
       return Response.json({ error: "Choose a valid workplan record." }, { status: 400 });
     }
     const now = new Date().toISOString();
+    const db = getDb();
+    const id = recordId(year, recordType, recordKey);
+    const [existingRecord] = await db
+      .select()
+      .from(workplanRecords)
+      .where(eq(workplanRecords.id, id))
+      .limit(1);
+    let previousRecord = existingRecord;
+    if (!previousRecord && ["activity", "subactivity"].includes(recordType)) {
+      const currentPlan = await materializeYear(year);
+      const currentData =
+        recordType === "activity"
+          ? currentPlan.activities.find((item) => item.id === recordKey)
+          : currentPlan.activities
+              .flatMap((item) => item.subactivities)
+              .find((item) => item.id === recordKey);
+      if (currentData) {
+        previousRecord = {
+          id,
+          planYear: year,
+          recordType,
+          recordKey,
+          parentKey: (payload.parentKey ?? "").trim().slice(0, 220),
+          payload: JSON.stringify(currentData),
+          isDeleted: 0,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy: "",
+        };
+      }
+    }
     const values = {
-      id: recordId(year, recordType, recordKey),
+      id,
       planYear: year,
       recordType,
       recordKey,
@@ -699,10 +753,27 @@ export async function DELETE(request: Request) {
       updatedAt: now,
       updatedBy: session.email,
     };
-    await getDb()
+    await db
       .insert(workplanRecords)
       .values({ ...values, createdAt: now })
       .onConflictDoUpdate({ target: workplanRecords.id, set: values });
+    if (["activity", "subactivity"].includes(recordType)) {
+      const [deletedRecord] = await db
+        .select()
+        .from(workplanRecords)
+        .where(eq(workplanRecords.id, id))
+        .limit(1);
+      await writeAuditLog({
+        entityType: "activity",
+        entityKey: recordKey,
+        action: "removed",
+        previousValue: previousRecord
+          ? snapshot("workplan_record", previousRecord)
+          : null,
+        newValue: snapshot("workplan_record", deletedRecord),
+        changedBy: session.email,
+      });
+    }
     const plan = await materializeYear(year);
     return Response.json({ deletedKey: recordKey, year, ...plan });
   } catch (error) {
