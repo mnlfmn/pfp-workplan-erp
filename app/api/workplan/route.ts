@@ -367,17 +367,23 @@ export async function POST(request: Request) {
       const includedActivityCodes = includedActivities.map(
         ({ activity }) => activity.code,
       );
+      const includedActivityKeys = new Set(
+        includedActivities.map(({ activity }) => activity.id),
+      );
       const neededBudgetKeys = new Set(
         openContracts.map((contract) => contract.budgetKey),
       );
-      const includedBudgets = source.budgetLines.filter(
-        (budget) =>
-          copyFullStructure ||
-          neededBudgetKeys.has(budget.id) ||
-          includedActivityCodes.some((code) =>
-            codesShareBudgetLine(code, budget.code),
-          ),
-      );
+      const includedBudgets = source.budgetLines.filter((budget) => {
+        if (copyFullStructure || neededBudgetKeys.has(budget.id)) return true;
+        if (Array.isArray(budget.linkedActivityKeys)) {
+          return budget.linkedActivityKeys.some(
+            (key) => typeof key === "string" && includedActivityKeys.has(key),
+          );
+        }
+        return includedActivityCodes.some((code) =>
+          codesShareBudgetLine(code, budget.code),
+        );
+      });
 
       const rows: Array<typeof workplanRecords.$inferInsert> = [];
       const activityKeys = new Map<string, string>();
@@ -429,6 +435,14 @@ export async function POST(request: Request) {
         budgetKeys.set(budget.id, key);
         const copied = copyForYear(budget, toYear, "budget");
         copied.id = key;
+        if (Array.isArray(budget.linkedActivityKeys)) {
+          copied.linkedActivityKeys = budget.linkedActivityKeys
+            .filter((activityKey): activityKey is string =>
+              typeof activityKey === "string",
+            )
+            .map((activityKey) => activityKeys.get(activityKey))
+            .filter((activityKey): activityKey is string => Boolean(activityKey));
+        }
         rows.push({
           id: recordId(toYear, "budget", key),
           planYear: toYear,

@@ -53,28 +53,34 @@ async function isValidFinanceTarget(budgetKey: string, activityKey: string) {
   let budgetCode =
     workplan.budgetLines.find((line) => line.id === budgetKey)?.code ?? "";
   let activityCode = "";
+  let mainActivityKey = activityKey;
 
   for (const activity of workplan.activities) {
-    if (activity.id === activityKey) activityCode = activity.code;
+    if (activity.id === activityKey) {
+      activityCode = activity.code;
+      mainActivityKey = activity.id;
+    }
     if (activity.subactivities.some((item) => item.id === activityKey)) {
       activityCode = activity.code;
+      mainActivityKey = activity.id;
     }
   }
 
   const db = getDb();
-  if (!budgetCode) {
-    const [record] = await db
-      .select()
-      .from(workplanRecords)
-      .where(
-        and(
-          eq(workplanRecords.recordType, "budget"),
-          eq(workplanRecords.recordKey, budgetKey),
-          eq(workplanRecords.isDeleted, 0),
-        ),
-      )
-      .limit(1);
-    budgetCode = String(record ? safePayload(record.payload).code ?? "" : "");
+  const [budgetRecord] = await db
+    .select()
+    .from(workplanRecords)
+    .where(
+      and(
+        eq(workplanRecords.recordType, "budget"),
+        eq(workplanRecords.recordKey, budgetKey),
+        eq(workplanRecords.isDeleted, 0),
+      ),
+    )
+    .limit(1);
+  const budgetPayload = budgetRecord ? safePayload(budgetRecord.payload) : {};
+  if (budgetPayload.code) {
+    budgetCode = String(budgetPayload.code);
   }
 
   if (!activityCode) {
@@ -90,7 +96,9 @@ async function isValidFinanceTarget(budgetKey: string, activityKey: string) {
       .limit(1);
     if (record?.recordType === "activity") {
       activityCode = String(safePayload(record.payload).code ?? "");
+      mainActivityKey = record.recordKey;
     } else if (record?.recordType === "subactivity" && record.parentKey) {
+      mainActivityKey = record.parentKey;
       const [parent] = await db
         .select()
         .from(workplanRecords)
@@ -104,6 +112,12 @@ async function isValidFinanceTarget(budgetKey: string, activityKey: string) {
         .limit(1);
       activityCode = String(parent ? safePayload(parent.payload).code ?? "" : "");
     }
+  }
+
+  if (Array.isArray(budgetPayload.linkedActivityKeys)) {
+    return budgetPayload.linkedActivityKeys.some(
+      (key) => typeof key === "string" && key === mainActivityKey,
+    );
   }
 
   return codesShareBudgetLine(activityCode, budgetCode);

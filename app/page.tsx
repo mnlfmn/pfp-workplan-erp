@@ -85,7 +85,9 @@ import workplan from "@/lib/workplan-data.json";
 
 type Activity = (typeof workplan.activities)[number];
 type Subactivity = Activity["subactivities"][number];
-type BudgetLine = (typeof workplan.budgetLines)[number];
+type BudgetLine = (typeof workplan.budgetLines)[number] & {
+  linkedActivityKeys?: string[];
+};
 type StatusKey =
   | "completed"
   | "in_progress"
@@ -232,6 +234,7 @@ type BudgetLineDraft = {
   workstream: string;
   level: string;
   amountMnt: string;
+  linkedActivityKeys: string[];
 };
 
 type AllocationDraft = {
@@ -400,6 +403,7 @@ const emptyBudgetLineDraft: BudgetLineDraft = {
   workstream: "",
   level: "Activity",
   amountMnt: "",
+  linkedActivityKeys: [],
 };
 
 const providerTypes = [
@@ -774,11 +778,7 @@ function targetsForBudgetLine(
 ): BudgetTarget[] {
   if (!line) return [];
   return activities
-    .filter(
-      (activity) =>
-        activity.section === line.section &&
-        codesShareBudgetLine(activity.code, line.code),
-    )
+    .filter((activity) => activityMatchesBudgetLine(activity, line))
     .flatMap((activity) => [
       {
         key: activity.id,
@@ -819,6 +819,27 @@ function codesShareBudgetLine(activityCode: string, budgetCode: string) {
   );
 }
 
+function activityMatchesBudgetLine(activity: Activity, line: BudgetLine) {
+  if (Array.isArray(line.linkedActivityKeys)) {
+    return line.linkedActivityKeys.includes(activity.id);
+  }
+  return (
+    activity.section === line.section &&
+    codesShareBudgetLine(activity.code, line.code)
+  );
+}
+
+function linkedActivityKeysForEditor(line: BudgetLine, activities: Activity[]) {
+  if (Array.isArray(line.linkedActivityKeys)) return line.linkedActivityKeys;
+  return activities
+    .filter(
+      (activity) =>
+        activity.section === line.section &&
+        codesShareBudgetLine(activity.code, line.code),
+    )
+    .map((activity) => activity.id);
+}
+
 function budgetKeysForActivities(
   activities: Activity[],
   budgetLines: BudgetLine[],
@@ -826,11 +847,7 @@ function budgetKeysForActivities(
   return new Set(
     budgetLines
       .filter((line) =>
-        activities.some(
-          (activity) =>
-            activity.section === line.section &&
-            codesShareBudgetLine(activity.code, line.code),
-        ),
+        activities.some((activity) => activityMatchesBudgetLine(activity, line)),
       )
       .map((line) => line.id),
   );
@@ -2225,6 +2242,7 @@ export default function Home() {
       amountMnt: formatNumberInput(
         Math.round(Number(line.budgetMntMillion) * 1_000_000),
       ),
+      linkedActivityKeys: linkedActivityKeysForEditor(line, allActivities),
     });
     setBudgetLineDialogOpen(true);
   }
@@ -2252,6 +2270,7 @@ export default function Home() {
       workstream: budgetLineDraft.workstream,
       level: budgetLineDraft.level,
       budgetMntMillion: amountMnt / 1_000_000,
+      linkedActivityKeys: budgetLineDraft.linkedActivityKeys,
     };
     setBudgetLineSaving(true);
     try {
@@ -4590,16 +4609,25 @@ export default function Home() {
 
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="border-b border-[#e2e7e0] p-4 lg:p-5">
-                <div>
-                  <h2 className="text-xl font-bold">Budget monitoring</h2>
-                  <p className="text-sm text-[#718178]">
-                    {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
-                  </p>
-                  {member !== "all" && (
-                    <p className="mt-1 text-xs text-[#718178]">
-                      Team finance uses budget lines linked to assigned activities. Shared lines may appear for more than one member.
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Budget monitoring</h2>
+                    <p className="text-sm text-[#718178]">
+                      {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
                     </p>
-                  )}
+                    {member !== "all" && (
+                      <p className="mt-1 text-xs text-[#718178]">
+                        Team finance uses budget lines linked to assigned activities. Shared lines may appear for more than one member.
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    onClick={openAddBudgetLine}
+                    className="shrink-0 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add budget line
+                  </Button>
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <label className="relative block min-w-[230px]">
@@ -6085,7 +6113,7 @@ export default function Home() {
       </AlertDialog>
 
       <Dialog open={budgetLineDialogOpen} onOpenChange={setBudgetLineDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-2xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingBudgetKey ? "Edit" : "Add"} budget line</DialogTitle>
             <DialogDescription>
@@ -6172,6 +6200,69 @@ export default function Home() {
                 className="h-11 border-[#cbd6cc] bg-white"
               />
             </label>
+            <div className="sm:col-span-2">
+              <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold">Linked workplan activities</p>
+                  <p className="text-xs leading-5 text-[#718178]">
+                    Select the main activities funded by this budget line. Their sub-activities are included automatically.
+                  </p>
+                </div>
+                <p className="shrink-0 text-xs font-bold text-[#315845]">
+                  {budgetLineDraft.linkedActivityKeys.length} selected
+                </p>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-y-auto rounded-2xl border border-[#cbd6cc] bg-[#f8faf7] p-3">
+                {allActivities.map((activity) => {
+                  const checked = budgetLineDraft.linkedActivityKeys.includes(
+                    activity.id,
+                  );
+                  return (
+                    <label
+                      key={activity.id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${checked ? "border-[#76a38d] bg-[#eaf3e8]" : "border-[#dde5dc] bg-white hover:border-[#b8c8bb]"}`}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(nextChecked) =>
+                          setBudgetLineDraft((current) => ({
+                            ...current,
+                            linkedActivityKeys: nextChecked
+                              ? Array.from(
+                                  new Set([
+                                    ...current.linkedActivityKeys,
+                                    activity.id,
+                                  ]),
+                                )
+                              : current.linkedActivityKeys.filter(
+                                  (key) => key !== activity.id,
+                                ),
+                          }))
+                        }
+                        aria-label={`Link activity ${activity.code}`}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-mono text-xs font-black text-[#2f634c]">
+                          {activity.code}
+                        </span>
+                        <span className="mt-0.5 block text-sm font-semibold leading-5 text-[#183529]">
+                          {activity.title}
+                        </span>
+                        <span className="mt-1 block text-xs text-[#718178]">
+                          Section {activity.section} · {activity.goal || "No goal"} · {activity.subactivities.length} sub-activities
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+                {!allActivities.length && (
+                  <p className="px-2 py-6 text-center text-sm text-[#718178]">
+                    Add workplan activities before linking this budget line.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             <div>
