@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  BarChart3,
   Banknote,
+  Bell,
+  CalendarClock,
   ChevronRight,
   CircleCheck,
   Clock3,
   CopyPlus,
   Download,
+  FileSpreadsheet,
+  FileText,
+  FileUp,
   Gauge,
   HandCoins,
   History,
@@ -133,6 +139,18 @@ type QuarterlyProgressNotes = {
   year: number;
   quarters: Record<QuarterKey, string>;
   legacy: string;
+};
+
+type QuarterlyUpdate = {
+  id: string;
+  activityKey: string;
+  planYear: number;
+  quarter: QuarterKey;
+  note: string;
+  status: StatusKey;
+  progress: number;
+  submittedAt: string;
+  submittedBy: string;
 };
 
 type FinanceEntry = {
@@ -264,6 +282,7 @@ type ContractPayment = {
   deliverable: string;
   percentage: number;
   amountMnt: number;
+  foreignAmountMinor: number;
   paid: number;
   paidAt: string;
   updatedAt: string;
@@ -282,6 +301,10 @@ type ContractRecord = {
   startDate: string;
   endDate: string;
   amountMnt: number;
+  currency: "MNT" | "USD";
+  foreignAmountMinor: number;
+  exchangeRateMnt: number;
+  transferredFromYear: number;
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
@@ -295,6 +318,7 @@ type ContractPaymentDraft = {
   deliverable: string;
   percentage: string;
   amountMnt: string;
+  foreignAmount: string;
   paid: boolean;
   paidAt: string;
 };
@@ -310,7 +334,29 @@ type ContractDraft = {
   startDate: string;
   endDate: string;
   amountMnt: string;
+  currency: "MNT" | "USD";
+  foreignAmount: string;
+  exchangeRateMnt: string;
   payments: ContractPaymentDraft[];
+};
+
+type PaymentDocument = {
+  id: string;
+  contractId: string;
+  paymentId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+};
+
+type BackupSnapshot = {
+  id: string;
+  createdAt: string;
+  createdBy: string;
+  source: string;
+  recordCount: number;
 };
 
 type AuditSnapshotView = {
@@ -477,6 +523,9 @@ function emptyContractDraft(year: number): ContractDraft {
     startDate: `${year}-01-01`,
     endDate: `${year}-12-31`,
     amountMnt: "",
+    currency: "MNT",
+    foreignAmount: "",
+    exchangeRateMnt: "",
     payments: [
       {
         id: "",
@@ -485,6 +534,7 @@ function emptyContractDraft(year: number): ContractDraft {
         deliverable: "",
         percentage: "100",
         amountMnt: "",
+        foreignAmount: "",
         paid: false,
         paidAt: "",
       },
@@ -572,6 +622,36 @@ function formatMnt(amountMnt: number) {
   return `₮${new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
   }).format(Math.round(amountMnt))}`;
+}
+
+function formatUsd(amountMinor: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountMinor / 100);
+}
+
+function formatDecimalInput(value: string | number) {
+  const normalized = String(value).replace(/[^\d.]/g, "");
+  const [whole = "", decimals = ""] = normalized.split(".");
+  const grouped = whole ? new Intl.NumberFormat("en-US").format(Number(whole)) : "";
+  return normalized.includes(".") ? `${grouped}.${decimals.slice(0, 2)}` : grouped;
+}
+
+function dollarsToMinor(value: string) {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function formatNumberInput(value: string | number) {
@@ -1183,6 +1263,23 @@ export default function Home() {
   const [auditRestoreEntry, setAuditRestoreEntry] =
     useState<AuditEntry | null>(null);
   const [auditRestoring, setAuditRestoring] = useState(false);
+  const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyUpdate[]>([]);
+  const [paymentDocuments, setPaymentDocuments] = useState<PaymentDocument[]>([]);
+  const [documentUploadingId, setDocumentUploadingId] = useState("");
+  const [backups, setBackups] = useState<BackupSnapshot[]>([]);
+  const [backupSaving, setBackupSaving] = useState(false);
+  const [backupPreview, setBackupPreview] = useState<{
+    backup: BackupSnapshot;
+    counts: Record<string, number>;
+  } | null>(null);
+  const [transferPreviewVisible, setTransferPreviewVisible] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+  const [compareYear, setCompareYear] = useState(2026);
+  const [comparePlan, setComparePlan] = useState<{
+    year: number;
+    activities: Activity[];
+    budgetLines: BudgetLine[];
+  } | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("pfp-interface-language");
@@ -1384,6 +1481,7 @@ export default function Home() {
   const openUpdateEditor = useCallback(
     (target: EditableTarget) => {
       loadTarget(target);
+      setFormDirty(true);
     },
     [loadTarget],
   );
@@ -1577,6 +1675,128 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/quarterly-updates?year=${selectedYear}`)
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          history?: QuarterlyUpdate[];
+        };
+        if (!response.ok) throw new Error("Quarterly history unavailable");
+        return result.history ?? [];
+      })
+      .then((history) => {
+        if (active) setQuarterlyHistory(history);
+      })
+      .catch(() => {
+        if (active) setQuarterlyHistory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedYear]);
+
+  useEffect(() => {
+    if (!currentSession?.isAdmin) return;
+    let active = true;
+    fetch("/api/backups")
+      .then(async (response) => {
+        const result = (await response.json()) as { backups?: BackupSnapshot[] };
+        if (!response.ok) throw new Error("Backups unavailable");
+        return result.backups ?? [];
+      })
+      .then((items) => {
+        if (active) setBackups(items);
+      })
+      .catch(() => {
+        if (active) setBackups([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentSession?.isAdmin]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("pfp-erp-filters");
+    if (!saved) return;
+    const timer = window.setTimeout(() => {
+      try {
+        const filters = JSON.parse(saved) as Record<string, string>;
+        setQuery(filters.query ?? "");
+        setSection(filters.section ?? "all");
+        setGoal(filters.goal ?? "all");
+        setMember(filters.member ?? "all");
+        setStatus(filters.status ?? "all");
+        setWorkstream(filters.workstream ?? "all");
+        setFinanceCreatorFilter(filters.financeCreatorFilter ?? "all");
+        setFinanceDateFrom(filters.financeDateFrom ?? "");
+        setFinanceDateTo(filters.financeDateTo ?? "");
+        setContractQuery(filters.contractQuery ?? "");
+        setContractStatusFilter(filters.contractStatusFilter ?? "all");
+      } catch {
+        window.localStorage.removeItem("pfp-erp-filters");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "pfp-erp-filters",
+      JSON.stringify({
+        query,
+        section,
+        goal,
+        member,
+        status,
+        workstream,
+        financeCreatorFilter,
+        financeDateFrom,
+        financeDateTo,
+        contractQuery,
+        contractStatusFilter,
+      }),
+    );
+  }, [
+    contractQuery,
+    contractStatusFilter,
+    financeCreatorFilter,
+    financeDateFrom,
+    financeDateTo,
+    goal,
+    member,
+    query,
+    section,
+    status,
+    workstream,
+  ]);
+
+  useEffect(() => {
+    if (!formDirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [formDirty]);
+
+  function changeFormDialog(
+    open: boolean,
+    setOpen: (value: boolean) => void,
+  ) {
+    if (
+      !open &&
+      formDirty &&
+      !window.confirm("You have unsaved changes. Leave this form without saving?")
+    ) {
+      return false;
+    }
+    setOpen(open);
+    if (!open) setFormDirty(false);
+    return true;
+  }
+
   const persistUpdate = useCallback(
     async (payload: {
       activityKey: string;
@@ -1630,6 +1850,39 @@ export default function Home() {
         note: draft.note,
         supportNeeded: updates[activeTarget.key]?.supportNeeded ?? "",
       });
+      const quarterlyNote = parseQuarterlyNotes(
+        draft.note,
+        selectedYear,
+      ).quarters[noteQuarter].trim();
+      const latestForQuarter = quarterlyHistory.find(
+        (item) =>
+          item.activityKey === activeTarget.key &&
+          item.planYear === selectedYear &&
+          item.quarter === noteQuarter,
+      );
+      if (quarterlyNote && latestForQuarter?.note !== quarterlyNote) {
+        const historyResponse = await fetch("/api/quarterly-updates", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            activityKey: activeTarget.key,
+            planYear: selectedYear,
+            quarter: noteQuarter,
+            note: quarterlyNote,
+            status: update.status,
+            progress: update.progress,
+          }),
+        });
+        const historyResult = (await historyResponse.json()) as {
+          entry?: QuarterlyUpdate;
+          error?: string;
+        };
+        if (!historyResponse.ok || !historyResult.entry) {
+          throw new Error(historyResult.error || "Quarterly history could not be saved.");
+        }
+        setQuarterlyHistory((current) => [historyResult.entry!, ...current]);
+      }
+      setFormDirty(false);
       toast.success("Workplan update saved", {
         description: `${statusMeta[update.status].label} · ${update.progress}%`,
       });
@@ -1655,6 +1908,7 @@ export default function Home() {
         description: entry?.description ?? "",
         vendor: entry?.vendor ?? "",
       });
+      setFormDirty(true);
       setFinanceDialogOpen(true);
     },
     [],
@@ -1717,6 +1971,7 @@ export default function Home() {
       );
       setFinanceDialogOpen(false);
       setEditingFinanceId(null);
+      setFormDirty(false);
       toast.success(
         editingFinanceId
           ? "Finance entry updated"
@@ -1792,6 +2047,7 @@ export default function Home() {
   function openAddContract() {
     setEditingContractId(null);
     setContractDraft(emptyContractDraft(selectedYear));
+    setFormDirty(true);
     setContractDialogOpen(true);
   }
 
@@ -1808,6 +2064,15 @@ export default function Home() {
       startDate: contract.startDate,
       endDate: contract.endDate,
       amountMnt: formatNumberInput(contract.amountMnt),
+      currency: contract.currency || "MNT",
+      foreignAmount:
+        contract.currency === "USD"
+          ? formatDecimalInput((contract.foreignAmountMinor || 0) / 100)
+          : "",
+      exchangeRateMnt:
+        contract.currency === "USD"
+          ? formatNumberInput(contract.exchangeRateMnt || 0)
+          : "",
       payments: contract.payments.map((payment) => ({
         id: payment.id,
         label: payment.label,
@@ -1815,10 +2080,15 @@ export default function Home() {
         deliverable: payment.deliverable,
         percentage: String(payment.percentage),
         amountMnt: formatNumberInput(payment.amountMnt),
+        foreignAmount:
+          contract.currency === "USD"
+            ? formatDecimalInput((payment.foreignAmountMinor || 0) / 100)
+            : "",
         paid: Boolean(payment.paid),
         paidAt: payment.paidAt,
       })),
     });
+    setFormDirty(true);
     setContractDialogOpen(true);
   }
 
@@ -1864,6 +2134,65 @@ export default function Home() {
     }));
   }
 
+  function updateContractForeignTotal(value: string) {
+    const formatted = formatDecimalInput(value);
+    const totalMinor = dollarsToMinor(formatted);
+    setContractDraft((current) => {
+      const rate = Number(current.exchangeRateMnt.replace(/,/g, ""));
+      const amountMnt = Math.round((totalMinor / 100) * (rate || 0));
+      let assignedMinor = 0;
+      let assignedMnt = 0;
+      const payments = current.payments.map((payment, index) => {
+        const percentage = Number(payment.percentage || 0);
+        const last = index === current.payments.length - 1;
+        const foreignMinor = last
+          ? Math.max(totalMinor - assignedMinor, 0)
+          : Math.round((totalMinor * percentage) / 100);
+        const paymentMnt = last
+          ? Math.max(amountMnt - assignedMnt, 0)
+          : Math.round((foreignMinor / 100) * (rate || 0));
+        assignedMinor += foreignMinor;
+        assignedMnt += paymentMnt;
+        return {
+          ...payment,
+          foreignAmount: foreignMinor ? formatDecimalInput(foreignMinor / 100) : "",
+          amountMnt: paymentMnt ? formatNumberInput(paymentMnt) : "",
+        };
+      });
+      return {
+        ...current,
+        foreignAmount: formatted,
+        amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
+        payments,
+      };
+    });
+  }
+
+  function updateContractExchangeRate(value: string) {
+    const formatted = formatNumberInput(value);
+    setContractDraft((current) => {
+      const rate = Number(formatted.replace(/,/g, ""));
+      const totalMinor = dollarsToMinor(current.foreignAmount);
+      const amountMnt = Math.round((totalMinor / 100) * (rate || 0));
+      let assignedMnt = 0;
+      const payments = current.payments.map((payment, index) => {
+        const foreignMinor = dollarsToMinor(payment.foreignAmount);
+        const last = index === current.payments.length - 1;
+        const paymentMnt = last
+          ? Math.max(amountMnt - assignedMnt, 0)
+          : Math.round((foreignMinor / 100) * (rate || 0));
+        assignedMnt += paymentMnt;
+        return { ...payment, amountMnt: paymentMnt ? formatNumberInput(paymentMnt) : "" };
+      });
+      return {
+        ...current,
+        exchangeRateMnt: formatted,
+        amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
+        payments,
+      };
+    });
+  }
+
   function updateContractPayment(
     index: number,
     field: keyof ContractPaymentDraft,
@@ -1876,12 +2205,31 @@ export default function Home() {
         if (field === "percentage") {
           const total = Number(current.amountMnt.replace(/,/g, ""));
           const percentage = Number(value);
-          next.amountMnt =
-            total > 0 && percentage > 0
-              ? formatNumberInput(Math.round((total * percentage) / 100))
+          if (current.currency === "USD") {
+            const totalMinor = dollarsToMinor(current.foreignAmount);
+            const foreignMinor = Math.round((totalMinor * percentage) / 100);
+            const rate = Number(current.exchangeRateMnt.replace(/,/g, ""));
+            next.foreignAmount = foreignMinor
+              ? formatDecimalInput(foreignMinor / 100)
               : "";
+            next.amountMnt = foreignMinor && rate
+              ? formatNumberInput(Math.round((foreignMinor / 100) * rate))
+              : "";
+          } else {
+            next.amountMnt =
+              total > 0 && percentage > 0
+                ? formatNumberInput(Math.round((total * percentage) / 100))
+                : "";
+          }
         }
         if (field === "amountMnt") next.amountMnt = formatNumberInput(value);
+        if (field === "foreignAmount") {
+          next.foreignAmount = formatDecimalInput(value);
+          const rate = Number(current.exchangeRateMnt.replace(/,/g, ""));
+          next.amountMnt = rate
+            ? formatNumberInput(Math.round((dollarsToMinor(next.foreignAmount) / 100) * rate))
+            : "";
+        }
         return next;
       });
       return { ...current, payments };
@@ -1900,6 +2248,7 @@ export default function Home() {
           deliverable: "",
           percentage: "",
           amountMnt: "",
+          foreignAmount: "",
           paid: false,
           paidAt: "",
         },
@@ -1916,19 +2265,19 @@ export default function Home() {
 
   async function saveContract() {
     const amountMnt = Number(contractDraft.amountMnt.replace(/[\s,]/g, ""));
-    const payments = contractDraft.payments.map((payment) => ({
+    const foreignAmountMinor = dollarsToMinor(contractDraft.foreignAmount);
+    const exchangeRateMnt = Number(
+      contractDraft.exchangeRateMnt.replace(/[\s,]/g, ""),
+    );
+    let payments = contractDraft.payments.map((payment) => ({
       ...payment,
       percentage: Number(payment.percentage),
       amountMnt: Number(payment.amountMnt.replace(/[\s,]/g, "")),
+      foreignAmountMinor:
+        contractDraft.currency === "USD"
+          ? dollarsToMinor(payment.foreignAmount)
+          : 0,
     }));
-    const paymentAmountTotal = payments.reduce(
-      (total, payment) => total + payment.amountMnt,
-      0,
-    );
-    const percentageTotal = payments.reduce(
-      (total, payment) => total + payment.percentage,
-      0,
-    );
     if (!contractDraft.activityKey || !contractDraft.budgetKey) {
       toast.error("Choose a workplan activity or sub-activity.");
       return;
@@ -1937,6 +2286,34 @@ export default function Home() {
       toast.error("Enter a whole tugrik contract amount greater than zero.");
       return;
     }
+    if (
+      contractDraft.currency === "USD" &&
+      (!foreignAmountMinor ||
+        !Number.isSafeInteger(exchangeRateMnt) ||
+        exchangeRateMnt <= 0)
+    ) {
+      toast.error("Enter the USD amount and signed exchange rate.");
+      return;
+    }
+    if (contractDraft.currency === "USD" && payments.length) {
+      let allocatedMnt = 0;
+      payments = payments.map((payment, index) => {
+        const paymentAmount =
+          index === payments.length - 1
+            ? amountMnt - allocatedMnt
+            : Math.round((payment.foreignAmountMinor / 100) * exchangeRateMnt);
+        allocatedMnt += paymentAmount;
+        return { ...payment, amountMnt: paymentAmount };
+      });
+    }
+    const paymentAmountTotal = payments.reduce(
+      (total, payment) => total + payment.amountMnt,
+      0,
+    );
+    const percentageTotal = payments.reduce(
+      (total, payment) => total + payment.percentage,
+      0,
+    );
     if (paymentAmountTotal !== amountMnt || percentageTotal !== 100) {
       toast.error("Payments must total the contract amount and 100%.");
       return;
@@ -1951,6 +2328,8 @@ export default function Home() {
           ...contractDraft,
           planYear: selectedYear,
           amountMnt,
+          foreignAmountMinor,
+          exchangeRateMnt,
           payments,
         }),
       });
@@ -1970,6 +2349,7 @@ export default function Home() {
       );
       setContractDialogOpen(false);
       setEditingContractId(null);
+      setFormDirty(false);
       setContractState("ready");
       toast.success(editingContractId ? "Contract updated" : "Contract added", {
         description: `${result.contract.contractNumber} · ${formatMnt(result.contract.amountMnt)}`,
@@ -2061,6 +2441,139 @@ export default function Home() {
     }
   }
 
+  async function loadContractDocuments(contractId: string) {
+    try {
+      const response = await fetch(
+        `/api/documents?contractId=${encodeURIComponent(contractId)}`,
+      );
+      const result = (await response.json()) as {
+        documents?: PaymentDocument[];
+      };
+      if (!response.ok) throw new Error("Documents unavailable");
+      setPaymentDocuments((current) => [
+        ...current.filter((item) => item.contractId !== contractId),
+        ...(result.documents ?? []),
+      ]);
+    } catch {
+      toast.error("Payment documents could not be loaded.");
+    }
+  }
+
+  async function uploadPaymentDocument(
+    contract: ContractRecord,
+    payment: ContractPayment,
+    file: File | undefined,
+  ) {
+    if (!file) return;
+    setDocumentUploadingId(payment.id);
+    try {
+      const form = new FormData();
+      form.set("contractId", contract.id);
+      form.set("paymentId", payment.id);
+      form.set("file", file);
+      const response = await fetch("/api/documents", { method: "POST", body: form });
+      const result = (await response.json()) as {
+        document?: PaymentDocument;
+        error?: string;
+      };
+      if (!response.ok || !result.document) {
+        throw new Error(result.error || "Document upload failed.");
+      }
+      setPaymentDocuments((current) => [...current, result.document!]);
+      toast.success("Payment document uploaded", {
+        description: result.document.fileName,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Document upload failed.",
+      );
+    } finally {
+      setDocumentUploadingId("");
+    }
+  }
+
+  async function createBackup() {
+    setBackupSaving(true);
+    try {
+      const response = await fetch("/api/backups", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "create", source: "manual" }),
+      });
+      const result = (await response.json()) as {
+        backup?: BackupSnapshot;
+        error?: string;
+      };
+      if (!response.ok || !result.backup) {
+        throw new Error(result.error || "Backup could not be created.");
+      }
+      setBackups((current) => [result.backup!, ...current]);
+      toast.success("Backup created", {
+        description: `${result.backup.recordCount} records saved`,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Backup failed.");
+    } finally {
+      setBackupSaving(false);
+    }
+  }
+
+  async function previewBackup(backup: BackupSnapshot) {
+    setBackupSaving(true);
+    try {
+      const response = await fetch("/api/backups", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "preview", id: backup.id }),
+      });
+      const result = (await response.json()) as {
+        backup?: BackupSnapshot;
+        counts?: Record<string, number>;
+        error?: string;
+      };
+      if (!response.ok || !result.backup || !result.counts) {
+        throw new Error(result.error || "Backup preview failed.");
+      }
+      setBackupPreview({ backup: result.backup, counts: result.counts });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Backup preview failed.");
+    } finally {
+      setBackupSaving(false);
+    }
+  }
+
+  async function restoreBackup() {
+    if (!backupPreview) return;
+    setBackupSaving(true);
+    try {
+      const response = await fetch("/api/backups", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "restore",
+          id: backupPreview.backup.id,
+          confirmId: backupPreview.backup.id,
+        }),
+      });
+      const result = (await response.json()) as {
+        restored?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !result.restored) {
+        throw new Error(result.error || "Backup could not be restored.");
+      }
+      setBackupPreview(null);
+      toast.success("Backup restored", {
+        description: "Reloading the restored ERP data.",
+      });
+      window.location.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Restore failed.");
+    } finally {
+      setBackupSaving(false);
+    }
+  }
+
   function applyPlanResult(result: {
     activities?: Activity[];
     budgetLines?: BudgetLine[];
@@ -2080,12 +2593,17 @@ export default function Home() {
     const latest = Math.max(...workplanYears.map((item) => item.year), selectedYear);
     setNewYear(emptyDraft?.year ?? latest + 1);
     setCopyCurrentYear(false);
+    setTransferPreviewVisible(false);
     setYearDialogOpen(true);
   }
 
   async function createWorkplanYear() {
     if (!Number.isInteger(newYear) || newYear <= selectedYear || newYear > 2100) {
       toast.error("Choose a future year after the currently selected workplan.");
+      return;
+    }
+    if (!transferPreviewVisible) {
+      setTransferPreviewVisible(true);
       return;
     }
     setYearSaving(true);
@@ -2192,6 +2710,7 @@ export default function Home() {
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-12-31`,
     });
+    setFormDirty(true);
     setPlanDialogOpen(true);
   }
 
@@ -2218,6 +2737,7 @@ export default function Home() {
       baseline: activity.baseline,
       target: activity.target,
     });
+    setFormDirty(true);
     setPlanDialogOpen(true);
   }
 
@@ -2230,6 +2750,7 @@ export default function Home() {
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-12-31`,
     });
+    setFormDirty(true);
     setPlanDialogOpen(true);
   }
 
@@ -2246,6 +2767,7 @@ export default function Home() {
       status: subactivity.status as StatusKey,
       progressSummary: subactivity.progressSummary,
     });
+    setFormDirty(true);
     setPlanDialogOpen(true);
   }
 
@@ -2343,6 +2865,7 @@ export default function Home() {
       }
       applyPlanResult(result);
       setPlanDialogOpen(false);
+      setFormDirty(false);
       if (isActivity) setSelectedId(key);
       toast.success(editingPlanKey ? "Workplan item updated" : "Workplan item added");
     } catch (error) {
@@ -2394,6 +2917,7 @@ export default function Home() {
   function openAddBudgetLine() {
     setEditingBudgetKey(null);
     setBudgetLineDraft(emptyBudgetLineDraft);
+    setFormDirty(true);
     setBudgetLineDialogOpen(true);
   }
 
@@ -2411,6 +2935,7 @@ export default function Home() {
       ),
       linkedActivityKeys: linkedActivityKeysForEditor(line, allActivities),
     });
+    setFormDirty(true);
     setBudgetLineDialogOpen(true);
   }
 
@@ -2462,6 +2987,7 @@ export default function Home() {
       }
       applyPlanResult(result);
       setBudgetLineDialogOpen(false);
+      setFormDirty(false);
       toast.success(editingBudgetKey ? "Budget line updated" : "Budget line added");
     } catch (error) {
       toast.error(
@@ -2648,6 +3174,7 @@ export default function Home() {
       email: "",
       accessRole: "member",
     });
+    setFormDirty(true);
     setTeamDialogOpen(true);
   }
 
@@ -2662,6 +3189,7 @@ export default function Home() {
       email: teamMember.email,
       accessRole: teamMember.accessRole,
     });
+    setFormDirty(true);
     setTeamDialogOpen(true);
   }
 
@@ -2705,6 +3233,7 @@ export default function Home() {
       );
       setTeamState("ready");
       setTeamDialogOpen(false);
+      setFormDirty(false);
       toast.success(editingTeamId ? "Team member updated" : "Team member added");
     } catch (error) {
       setTeamState("unavailable");
@@ -3455,6 +3984,281 @@ export default function Home() {
     };
   }, [dashboardActivities, selectedYear, updates, workplanYears]);
 
+  const automaticAlerts = useMemo(() => {
+    const today = todayForInput();
+    const inThirtyDays = new Date(`${today}T00:00:00Z`);
+    inThirtyDays.setUTCDate(inThirtyDays.getUTCDate() + 30);
+    const cutoff = inThirtyDays.toISOString().slice(0, 10);
+    const workplanItems = allActivities.flatMap((activity) => [
+      {
+        key: activity.id,
+        label: `${activity.code || activity.uid} · ${activity.title}`,
+        endDate: activity.endDate,
+        status: deriveActivityStatus(activity, updates),
+        owner: activityOwner(activity, updates),
+      },
+      ...activity.subactivities.map((subactivity) => ({
+        key: subactivity.id,
+        label: `${activity.code || activity.uid} · ${subactivity.title}`,
+        endDate: subactivity.endDate,
+        status: recordStatus(
+          subactivity.id,
+          subactivity.status as StatusKey,
+          updates,
+        ),
+        owner: subactivityOwner(subactivity, updates),
+      })),
+    ]);
+    const overdue = workplanItems.filter(
+      (item) => item.endDate && item.endDate < today && item.status !== "completed",
+    );
+    const ownerless = workplanItems.filter(
+      (item) => !canonicalOwnerName(item.owner, teamMembers),
+    );
+    const upcomingPayments = contracts.flatMap((contract) =>
+      contract.payments
+        .filter(
+          (payment) =>
+            !payment.paid && payment.dueDate >= today && payment.dueDate <= cutoff,
+        )
+        .map((payment) => ({ contract, payment })),
+    );
+    const endingContracts = contracts.filter(
+      (contract) =>
+        !["completed", "closed"].includes(contract.status) &&
+        contract.endDate >= today &&
+        contract.endDate <= cutoff,
+    );
+    const contractsMissingDeliverables = contracts.filter((contract) =>
+      contract.payments.some((payment) => !payment.deliverable.trim()),
+    );
+    const quarter = quarterForDate(today);
+    const missingQuarterly = workplanItems.filter(
+      (item) =>
+        !quarterlyHistory.some(
+          (entry) =>
+            entry.activityKey === item.key &&
+            entry.planYear === selectedYear &&
+            entry.quarter === quarter,
+        ),
+    );
+    const overAllocated = allBudgetLines.filter((line) => {
+      const mainKeys = new Set(
+        allActivities
+          .filter((activity) => activityMatchesBudgetLine(activity, line))
+          .map((activity) => activity.id),
+      );
+      const allocated = allocations
+        .filter(
+          (allocation) =>
+            allocation.budgetKey === line.id && mainKeys.has(allocation.activityKey),
+        )
+        .reduce((total, allocation) => total + allocation.amountMnt, 0);
+      return allocated > Number(line.budgetMntMillion) * 1_000_000;
+    });
+    return [
+      {
+        id: "overdue",
+        label: "Overdue activities",
+        count: overdue.length,
+        detail: overdue[0]?.label || "No overdue activities",
+        view: "workplan",
+        tone: "rose",
+      },
+      {
+        id: "payments",
+        label: "Payments due in 30 days",
+        count: upcomingPayments.length,
+        detail: upcomingPayments[0]
+          ? `${upcomingPayments[0].contract.contractNumber} · ${upcomingPayments[0].payment.label}`
+          : "No upcoming payments",
+        view: "contracts",
+        tone: "amber",
+      },
+      {
+        id: "contracts",
+        label: "Contracts ending in 30 days",
+        count: endingContracts.length,
+        detail: endingContracts[0]?.contractNumber || "No contracts nearing end",
+        view: "contracts",
+        tone: "amber",
+      },
+      {
+        id: "owners",
+        label: "Activities without owners",
+        count: ownerless.length,
+        detail: ownerless[0]?.label || "All activities have owners",
+        view: "workplan",
+        tone: "rose",
+      },
+      {
+        id: "allocation",
+        label: "Budget lines over allocation",
+        count: overAllocated.length,
+        detail: overAllocated[0]?.code || "No allocation exceptions",
+        view: "finance",
+        tone: "rose",
+      },
+      {
+        id: "quarterly",
+        label: `${quarter} updates not submitted`,
+        count: missingQuarterly.length,
+        detail: missingQuarterly[0]?.label || "All quarterly updates submitted",
+        view: "workplan",
+        tone: "amber",
+      },
+      {
+        id: "deliverables",
+        label: "Contracts without deliverables",
+        count: contractsMissingDeliverables.length,
+        detail:
+          contractsMissingDeliverables[0]?.contractNumber ||
+          "All contracts include deliverables",
+        view: "contracts",
+        tone: "rose",
+      },
+    ];
+  }, [
+    allActivities,
+    allBudgetLines,
+    allocations,
+    contracts,
+    quarterlyHistory,
+    selectedYear,
+    teamMembers,
+    updates,
+  ]);
+
+  const financeReconciliation = useMemo(() => {
+    const budgetKeys = new Set(allBudgetLines.map((line) => line.id));
+    const activityKeys = new Set(
+      allActivities.flatMap((activity) => [
+        activity.id,
+        ...activity.subactivities.map((subactivity) => subactivity.id),
+      ]),
+    );
+    const unmatchedFinance = financeEntries.filter(
+      (entry) =>
+        !budgetKeys.has(entry.budgetKey) || !activityKeys.has(entry.activityKey),
+    );
+    const unmatchedAllocations = allocations.filter(
+      (allocation) =>
+        !budgetKeys.has(allocation.budgetKey) ||
+        !activityKeys.has(allocation.activityKey),
+    );
+    const unmatchedContracts = contracts.filter(
+      (contract) =>
+        !budgetKeys.has(contract.budgetKey) ||
+        !activityKeys.has(contract.activityKey),
+    );
+    return {
+      unmatchedFinance,
+      unmatchedAllocations,
+      unmatchedContracts,
+      total:
+        unmatchedFinance.length +
+        unmatchedAllocations.length +
+        unmatchedContracts.length,
+    };
+  }, [allActivities, allBudgetLines, allocations, contracts, financeEntries]);
+
+  const expenditureForecast = useMemo(() => {
+    const quarters: Record<QuarterKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
+    for (const contract of contracts) {
+      for (const payment of contract.payments) {
+        if (!payment.paid) quarters[quarterForDate(payment.dueDate)] += payment.amountMnt;
+      }
+    }
+    return quarterKeys.map((quarter) => ({ quarter, amountMnt: quarters[quarter] }));
+  }, [contracts]);
+
+  const dataCompleteness = useMemo(() => {
+    const items = allActivities.flatMap((activity) => [
+      {
+        owner: activityOwner(activity, updates),
+        startDate: activity.startDate,
+        endDate: activity.endDate,
+        title: activity.title,
+      },
+      ...activity.subactivities.map((subactivity) => ({
+        owner: subactivityOwner(subactivity, updates),
+        startDate: subactivity.startDate,
+        endDate: subactivity.endDate,
+        title: subactivity.title,
+      })),
+    ]);
+    const missingOwner = items.filter(
+      (item) => !canonicalOwnerName(item.owner, teamMembers),
+    ).length;
+    const missingDates = items.filter(
+      (item) => !item.startDate || !item.endDate,
+    ).length;
+    const missingQuarter = automaticAlerts.find((item) => item.id === "quarterly")?.count ?? 0;
+    const missingDeliverables = automaticAlerts.find((item) => item.id === "deliverables")?.count ?? 0;
+    return {
+      total: items.length,
+      missingOwner,
+      missingDates,
+      missingQuarter,
+      missingDeliverables,
+      completePercent: items.length
+        ? Math.max(
+            0,
+            Math.round(
+              ((items.length - Math.max(missingOwner, missingDates, missingQuarter)) /
+                items.length) *
+                100,
+            ),
+          )
+        : 100,
+    };
+  }, [allActivities, automaticAlerts, teamMembers, updates]);
+
+  const transferPreview = useMemo(() => {
+    const openContractKeys = new Set(
+      contracts
+        .filter((contract) => ["draft", "active"].includes(contract.status))
+        .map((contract) => contract.activityKey),
+    );
+    const activities = allActivities.filter((activity) => {
+      if (copyCurrentYear) return true;
+      if (openContractKeys.has(activity.id)) return true;
+      if (!activity.subactivities.length) {
+        return deriveActivityStatus(activity, updates) !== "completed";
+      }
+      return activity.subactivities.some(
+        (subactivity) =>
+          recordStatus(
+            subactivity.id,
+            subactivity.status as StatusKey,
+            updates,
+          ) !== "completed" || openContractKeys.has(subactivity.id),
+      );
+    });
+    const subactivities = activities.reduce(
+      (total, activity) =>
+        total +
+        activity.subactivities.filter(
+          (subactivity) =>
+            copyCurrentYear ||
+            recordStatus(
+              subactivity.id,
+              subactivity.status as StatusKey,
+              updates,
+            ) !== "completed" ||
+            openContractKeys.has(subactivity.id),
+        ).length,
+      0,
+    );
+    return {
+      activities,
+      subactivities,
+      contracts: contracts.filter((contract) =>
+        ["draft", "active"].includes(contract.status),
+      ),
+    };
+  }, [allActivities, contracts, copyCurrentYear, updates]);
+
   const overallStatusSummary = useMemo(() => {
     const counts = Object.fromEntries(
       Object.keys(statusMeta).map((key) => [key, 0]),
@@ -3594,6 +4398,47 @@ export default function Home() {
     [currentSession, teamSummaries],
   );
 
+  const myWork = useMemo(() => {
+    if (!currentSession) return { activities: [] as Activity[], contracts: [] as ContractRecord[], requiredUpdates: 0 };
+    const activities = allActivities.filter((activity) =>
+      isAssignedToMember(
+        activity,
+        currentSession.memberId,
+        updates,
+        teamMembers,
+      ),
+    );
+    const keys = new Set(
+      activities.flatMap((activity) => [
+        activity.id,
+        ...activity.subactivities.map((subactivity) => subactivity.id),
+      ]),
+    );
+    const quarter = quarterForDate(todayForInput());
+    const requiredUpdates = [...keys].filter(
+      (key) =>
+        !quarterlyHistory.some(
+          (entry) =>
+            entry.activityKey === key &&
+            entry.planYear === selectedYear &&
+            entry.quarter === quarter,
+        ),
+    ).length;
+    return {
+      activities,
+      contracts: contracts.filter((contract) => keys.has(contract.activityKey)),
+      requiredUpdates,
+    };
+  }, [
+    allActivities,
+    contracts,
+    currentSession,
+    quarterlyHistory,
+    selectedYear,
+    teamMembers,
+    updates,
+  ]);
+
   const exportWorkplan = useCallback(async () => {
     if (!allActivities.length) {
       toast.error("There are no workplan activities to export.");
@@ -3666,6 +4511,106 @@ export default function Home() {
       setWorkplanExporting(false);
     }
   }, [allActivities, selectedYear, updates]);
+
+  const exportQuarterlyReport = useCallback(async () => {
+    if (!allActivities.length) return;
+    const quarter = quarterForDate(todayForInput());
+    setWorkplanExporting(true);
+    try {
+      const { downloadWorkplanExcel } = await import("@/lib/workplan-excel");
+      const latestNote = (key: string, fallback: string) =>
+        quarterlyHistory.find(
+          (item) =>
+            item.activityKey === key &&
+            item.planYear === selectedYear &&
+            item.quarter === quarter,
+        )?.note ?? fallback;
+      const items = allActivities.flatMap((activity) => [
+        {
+          id: activity.id,
+          kind: "activity" as const,
+          code: activity.code || activity.uid,
+          title: activity.titleMn?.trim() || activity.title,
+          priority: activity.priority,
+          goal: activity.goal,
+          workstream: activity.workstream,
+          progressNote: latestNote(activity.id, activity.progressSummary ?? ""),
+          owner: activityOwner(activity, updates),
+          executor: "",
+          startDate: activity.startDate,
+          endDate: activity.endDate,
+          status: deriveActivityStatus(activity, updates),
+          progress: deriveActivityProgress(activity, updates),
+        },
+        ...activity.subactivities.map((subactivity) => ({
+          id: subactivity.id,
+          parentId: activity.id,
+          kind: "subactivity" as const,
+          code: "",
+          title: subactivity.title,
+          priority: "",
+          goal: activity.goal,
+          workstream: activity.workstream,
+          progressNote: latestNote(
+            subactivity.id,
+            subactivity.progressSummary ?? "",
+          ),
+          owner: subactivityOwner(subactivity, updates),
+          executor: subactivity.executor ?? "",
+          startDate: subactivity.startDate ?? "",
+          endDate: subactivity.endDate ?? "",
+          status: recordStatus(
+            subactivity.id,
+            subactivity.status as StatusKey,
+            updates,
+          ),
+          progress: recordProgress(
+            subactivity.id,
+            statusMeta[subactivity.status as StatusKey].weight,
+            updates,
+          ),
+        })),
+      ]);
+      downloadWorkplanExcel({ year: selectedYear, items });
+      toast.success(`${quarter} Excel report is ready`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Quarterly report failed.",
+      );
+    } finally {
+      setWorkplanExporting(false);
+    }
+  }, [allActivities, quarterlyHistory, selectedYear, updates]);
+
+  function printManagementSummary() {
+    const report = window.open("", "_blank", "noopener,noreferrer");
+    if (!report) {
+      toast.error("Allow pop-ups to create the PDF management summary.");
+      return;
+    }
+    const alerts = automaticAlerts.filter((item) => item.count > 0);
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${selectedYear} PFP management summary</title><style>body{font-family:Arial,sans-serif;color:#173228;margin:36px}h1{font-size:24px;margin:0 0 6px}h2{font-size:16px;margin-top:28px;border-bottom:1px solid #ccd7cf;padding-bottom:7px}.muted{color:#65766d}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{border:1px solid #d5dfd7;border-radius:10px;padding:14px}.value{font-size:19px;font-weight:700;margin-top:6px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid #e1e7e2;padding:8px;text-align:left}th{text-transform:uppercase;color:#65766d;font-size:10px}@media print{button{display:none}@page{size:A4 landscape;margin:14mm}}</style></head><body><button onclick="window.print()">Print or save as PDF</button><h1>PFP ${selectedYear} management summary</h1><p class="muted">Generated ${escapeHtml(formatUpdatedAt(new Date().toISOString(), language))}</p><div class="grid"><div class="card">Budget<div class="value">${escapeHtml(formatMnt(dashboardFinance.budgetMnt))}</div></div><div class="card">Commitments<div class="value">${escapeHtml(formatMnt(dashboardFinance.commitmentMnt))}</div></div><div class="card">Expenditure<div class="value">${escapeHtml(formatMnt(dashboardFinance.expenditureMnt))}</div></div><div class="card">Remaining<div class="value">${escapeHtml(formatMnt(dashboardFinance.remainingMnt))}</div></div></div><h2>Delivery</h2><div class="grid"><div class="card">Activity progress<div class="value">${deliveryIndicators.activityProgress}%</div></div><div class="card">Completed<div class="value">${deliveryIndicators.completed}</div></div><div class="card">Contracts<div class="value">${dashboardContractStats.total}</div></div><div class="card">Data completeness<div class="value">${dataCompleteness.completePercent}%</div></div></div><h2>Alerts</h2><table><thead><tr><th>Alert</th><th>Count</th><th>Example</th></tr></thead><tbody>${alerts.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${item.count}</td><td>${escapeHtml(item.detail)}</td></tr>`).join("") || '<tr><td colspan="3">No active alerts</td></tr>'}</tbody></table><h2>Progress and finance by goal</h2><table><thead><tr><th>Goal</th><th>Progress</th><th>Budget</th><th>Commitment</th><th>Expenditure</th><th>Remaining</th></tr></thead><tbody>${goalRows.map((row) => `<tr><td>${escapeHtml(row.goal)}</td><td>${row.progress}%</td><td>${escapeHtml(formatMnt(row.budgetMnt))}</td><td>${escapeHtml(formatMnt(row.commitmentMnt))}</td><td>${escapeHtml(formatMnt(row.expenditureMnt))}</td><td>${escapeHtml(formatMnt(row.remainingMnt))}</td></tr>`).join("")}</tbody></table><script>window.addEventListener('load',()=>window.print())</script></body></html>`;
+    report.document.write(html);
+    report.document.close();
+  }
+
+  async function loadComparison(year: number) {
+    setCompareYear(year);
+    try {
+      const response = await fetch(`/api/workplan?year=${year}`);
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "Comparison year unavailable.");
+      }
+      setComparePlan({ year, activities: result.activities, budgetLines: result.budgetLines });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Comparison failed.");
+    }
+  }
 
   const selectedAllocatedMnt = selected
     ? allocationByActivityKey.get(selected.id) ??
@@ -3889,6 +4834,46 @@ export default function Home() {
                 />
               </label>
             </div>
+            <div className="mt-4 border-t border-[#e4e9e2] pt-3">
+              <p className="text-xs font-black uppercase tracking-[0.08em] text-[#6b7c72]">
+                Saved history
+              </p>
+              <div className="mt-2 max-h-44 space-y-2 overflow-y-auto">
+                {quarterlyHistory
+                  .filter(
+                    (item) =>
+                      item.activityKey === target.key &&
+                      item.planYear === selectedYear,
+                  )
+                  .map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-[#e1e7df] bg-[#f8faf7] p-2.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className="font-black text-[#315845]">
+                          {item.quarter} · {item.progress}% · {statusMeta[item.status].label}
+                        </span>
+                        <span className="text-[#718178]">
+                          {formatUpdatedAt(item.submittedAt, language)} · {item.submittedBy}
+                        </span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-[#405a4d]">
+                        {item.note}
+                      </p>
+                    </div>
+                  ))}
+                {!quarterlyHistory.some(
+                  (item) =>
+                    item.activityKey === target.key &&
+                    item.planYear === selectedYear,
+                ) && (
+                  <p className="rounded-lg bg-[#f8faf7] px-3 py-2 text-xs text-[#718178]">
+                    No historical quarterly submissions yet.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </details>
 
@@ -3916,10 +4901,7 @@ export default function Home() {
       <Tabs
         value={activeView}
         className="block"
-        onValueChange={(value) => {
-          setActiveView(value);
-          setQuery("");
-        }}
+        onValueChange={setActiveView}
       >
       <header className="border-b border-[#d7ded5] bg-[#0c3b2d] text-white">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
@@ -3942,6 +4924,15 @@ export default function Home() {
                 <LayoutDashboard className="h-4 w-4" />
                 Dashboard
               </TabsTrigger>
+              {!currentSession?.isAdmin && (
+                <TabsTrigger
+                  value="mywork"
+                  className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  My Work
+                </TabsTrigger>
+              )}
               <TabsTrigger
                 value="workplan"
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
@@ -3969,6 +4960,13 @@ export default function Home() {
               >
                 <Users className="h-4 w-4" />
                 {currentSession?.isAdmin ? "Team Performance" : "My Performance"}
+              </TabsTrigger>
+              <TabsTrigger
+                value="reports"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Reports
               </TabsTrigger>
               <TabsTrigger
                 value="access"
@@ -4075,6 +5073,50 @@ export default function Home() {
           </div>
         </section>
 
+          <TabsContent value="mywork" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)]">
+              <h2 className="text-xl font-black">My Work</h2>
+              <p className="mt-1 text-sm text-[#718178]">
+                Your assignments, deadlines, contracts, and quarterly updates for {selectedYear}.
+              </p>
+            </section>
+            <section className="grid gap-3 sm:grid-cols-3">
+              {[
+                ["Assigned activities", myWork.activities.length],
+                ["Linked contracts", myWork.contracts.length],
+                ["Required quarterly updates", myWork.requiredUpdates],
+              ].map(([label, value]) => (
+                <article key={String(label)} className="rounded-2xl border border-[#d7ded5] bg-white p-5">
+                  <p className="text-sm font-semibold text-[#5d7467]">{label}</p>
+                  <p className="mt-2 text-3xl font-black">{value}</p>
+                </article>
+              ))}
+            </section>
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+              <div className="border-b border-[#e2e7e0] px-5 py-4">
+                <h2 className="text-lg font-black">Assignments and deadlines</h2>
+              </div>
+              <div className="divide-y divide-[#e8ece6]">
+                {myWork.activities.map((activity) => (
+                  <button
+                    type="button"
+                    key={activity.id}
+                    onClick={() => openActivity(activity)}
+                    className="grid w-full gap-2 px-5 py-4 text-left transition hover:bg-[#f7faf5] sm:grid-cols-[110px_1fr_130px_120px] sm:items-center"
+                  >
+                    <span className="font-mono text-sm font-black text-[#2f634c]">{activity.code || activity.uid}</span>
+                    <span className="font-bold">{activity.title}</span>
+                    <span className="text-sm text-[#718178]">Due {formatDate(activity.endDate, language)}</span>
+                    <StatusPill status={deriveActivityStatus(activity, updates)} />
+                  </button>
+                ))}
+                {!myWork.activities.length && (
+                  <p className="px-5 py-12 text-center text-sm text-[#718178]">No activities are assigned to your account.</p>
+                )}
+              </div>
+            </section>
+          </TabsContent>
+
           <TabsContent value="dashboard" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
@@ -4120,6 +5162,49 @@ export default function Home() {
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="flex items-center gap-2 text-lg font-black">
+                    <Bell className="h-5 w-5 text-[#2f634c]" /> Automatic alerts
+                  </h2>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Open an alert to review the underlying workplan, finance, or contract records.
+                  </p>
+                </div>
+                <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">
+                  {automaticAlerts.reduce((total, item) => total + item.count, 0)} open
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {automaticAlerts.map((alert) => (
+                  <button
+                    key={alert.id}
+                    type="button"
+                    onClick={() => {
+                      if (alert.id === "owners") setMember("no_owner");
+                      setActiveView(alert.view);
+                    }}
+                    className={`rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
+                      alert.count
+                        ? alert.tone === "rose"
+                          ? "border-rose-200 bg-rose-50"
+                          : "border-amber-200 bg-amber-50"
+                        : "border-[#e1e7df] bg-[#f8faf7]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-black">{alert.label}</span>
+                      <span className="text-lg font-black">{alert.count}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#65766d]">
+                      {alert.detail}
+                    </p>
+                  </button>
+                ))}
               </div>
             </section>
 
@@ -4195,7 +5280,12 @@ export default function Home() {
                 </div>
                 <div className="mt-5 space-y-4" role="img" aria-label="Horizontal financial position bar chart">
                   {dashboardFinanceBars.map((row) => (
-                    <div key={row.label}>
+                    <button
+                      type="button"
+                      key={row.label}
+                      onClick={() => setActiveView("finance")}
+                      className="block w-full rounded-lg p-1 text-left transition hover:bg-[#f6f9f4]"
+                    >
                       <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
                         <span className="font-bold text-[#315845]">{row.label}</span>
                         <span className={`font-black tabular-nums ${row.value < 0 ? "text-rose-700" : "text-[#183529]"}`}>
@@ -4208,7 +5298,7 @@ export default function Home() {
                           style={{ width: `${row.width}%`, backgroundColor: row.color }}
                         />
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </article>
@@ -4241,12 +5331,20 @@ export default function Home() {
                 />
                 <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {(Object.keys(contractStatusMeta) as ContractRecord["status"][]).map((contractStatus) => (
-                    <div key={contractStatus} className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-center">
+                    <button
+                      type="button"
+                      key={contractStatus}
+                      onClick={() => {
+                        setContractStatusFilter(contractStatus);
+                        setActiveView("contracts");
+                      }}
+                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-center transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
+                    >
                       <p className="text-2xl font-black">{dashboardContractStats.counts[contractStatus]}</p>
                       <p className="mt-1 text-xs font-bold text-[#5d7467]">
                         {contractStatusMeta[contractStatus].label}
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </article>
@@ -4332,13 +5430,21 @@ export default function Home() {
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {(Object.keys(statusMeta) as StatusKey[]).map((key) => {
+                  {(Object.keys(statusMeta) as StatusKey[]).map((key) => {
                   const count = overallStatusSummary.counts[key];
                   const percent = overallStatusSummary.total
                     ? Math.round((count / overallStatusSummary.total) * 100)
                     : 0;
                   return (
-                    <div key={key} className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-4">
+                    <button
+                      type="button"
+                      key={key}
+                      onClick={() => {
+                        setStatus(key);
+                        setActiveView("workplan");
+                      }}
+                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-4 text-left transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <span
@@ -4359,10 +5465,60 @@ export default function Home() {
                         />
                       </div>
                       <p className="mt-1 text-right text-xs font-semibold text-[#718178]">{percent}%</p>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+            </section>
+
+            <section className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black">Finance reconciliation</h2>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      Finds entries that no longer match a current budget or workplan item.
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-sm font-black ${financeReconciliation.total ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
+                    {financeReconciliation.total} unmatched
+                  </span>
+                </div>
+                <dl className="mt-4 grid grid-cols-3 gap-2">
+                  {[
+                    ["Finance entries", financeReconciliation.unmatchedFinance.length],
+                    ["Allocations", financeReconciliation.unmatchedAllocations.length],
+                    ["Contracts", financeReconciliation.unmatchedContracts.length],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3 text-center">
+                      <dt className="text-xs text-[#718178]">{label}</dt>
+                      <dd className="mt-1 text-xl font-black">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
+                <h2 className="text-lg font-black">Forecast expenditure</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Unpaid contract installments grouped by due quarter.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {expenditureForecast.map((item) => {
+                    const maximum = Math.max(...expenditureForecast.map((row) => row.amountMnt), 1);
+                    return (
+                      <div key={item.quarter}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="font-black">{item.quarter}</span>
+                          <span className="font-bold tabular-nums">{formatMnt(item.amountMnt)}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-[#e5ebe4]">
+                          <div className="h-full rounded-full bg-[#2c795a]" style={{ width: `${(item.amountMnt / maximum) * 100}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
@@ -4491,7 +5647,7 @@ export default function Home() {
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-          <div className="border-b border-[#e2e7e0] p-4 lg:flex lg:items-center lg:justify-between lg:p-5">
+          <div className="sticky top-0 z-20 border-b border-[#e2e7e0] bg-white p-4 lg:flex lg:items-center lg:justify-between lg:p-5">
             <div className="mb-4 lg:mb-0">
               <h2 className="text-xl font-bold">Workplan activities</h2>
               <p className="text-sm text-[#718178]">
@@ -4619,6 +5775,14 @@ export default function Home() {
                     <span className="font-mono text-sm font-black text-[#2f634c]">
                       {item.code || item.uid}
                     </span>
+                    {Number(
+                      (item as Activity & { transferredFromYear?: number })
+                        .transferredFromYear,
+                    ) > 0 && (
+                      <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">
+                        From {(item as Activity & { transferredFromYear?: number }).transferredFromYear}
+                      </span>
+                    )}
                     <span className="text-xs text-[#7a8a81] lg:hidden">
                       {item.subactivities.length} sub-activities
                     </span>
@@ -4713,7 +5877,16 @@ export default function Home() {
               </Button>
             </div>
           )}
-          <div className="flex justify-end border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-4 lg:px-5">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-4 lg:px-5">
+            <Button
+              variant="outline"
+              onClick={exportQuarterlyReport}
+              disabled={workplanExporting || planState === "loading"}
+              className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Quarterly Excel
+            </Button>
             <Button
               variant="outline"
               onClick={exportWorkplan}
@@ -4728,6 +5901,17 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="finance" className="space-y-6">
+            <nav className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Finance breadcrumb">
+              <button type="button" onClick={() => setSelectedBudgetKey(null)} className="hover:text-[#174734]">Finance</button>
+              {selectedBudgetKey && (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-[#174734]">
+                    {allBudgetLines.find((line) => line.id === selectedBudgetKey)?.code ?? "Budget line"}
+                  </span>
+                </>
+              )}
+            </nav>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 {
@@ -5283,6 +6467,15 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="contracts" className="space-y-6">
+            <nav className="flex items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
+              <button type="button" onClick={() => setContractStatusFilter("all")} className="hover:text-[#174734]">Contracts</button>
+              {contractStatusFilter !== "all" && (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-[#174734]">{contractStatusMeta[contractStatusFilter as ContractRecord["status"]]?.label}</span>
+                </>
+              )}
+            </nav>
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Contract management</h2>
@@ -5383,6 +6576,11 @@ export default function Home() {
                               <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
                                 {contract.contractNumber}
                               </span>
+                              {contract.transferredFromYear > 0 && (
+                                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
+                                  Transferred from {contract.transferredFromYear}
+                                </span>
+                              )}
                               <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusInfo.tone}`}>
                                 {statusInfo.label}
                               </span>
@@ -5407,7 +6605,7 @@ export default function Home() {
                               onClick={() => void openAuditHistory({ entityType: "contract", entityKey: contract.id, label: contract.contractNumber })}
                             >
                               <History className="h-4 w-4" />
-                              History
+                              Amendments
                             </Button>
                             <Button variant="outline" size="sm" onClick={() => openEditContract(contract)}>
                               <PencilLine className="h-4 w-4" />
@@ -5428,7 +6626,12 @@ export default function Home() {
 
                         <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
                           {[
-                            ["Contract amount", formatMnt(contract.amountMnt)],
+                            [
+                              "Contract amount",
+                              contract.currency === "USD"
+                                ? `${formatUsd(contract.foreignAmountMinor)} · ${formatMnt(contract.amountMnt)}`
+                                : formatMnt(contract.amountMnt),
+                            ],
                             ["Outstanding commitment", formatMnt(commitmentMnt)],
                             ["Paid expenditure", formatMnt(paidMnt)],
                           ].map(([label, value]) => (
@@ -5448,7 +6651,10 @@ export default function Home() {
                             setExpandedContractIds((current) => {
                               const next = new Set(current);
                               if (next.has(contract.id)) next.delete(contract.id);
-                              else next.add(contract.id);
+                              else {
+                                next.add(contract.id);
+                                void loadContractDocuments(contract.id);
+                              }
                               return next;
                             })
                           }
@@ -5486,7 +6692,12 @@ export default function Home() {
                                 </div>
                                 <div>
                                   <p className="text-xs font-semibold text-[#718178]">Amount</p>
-                                  <p className="mt-1 whitespace-nowrap font-black tabular-nums">{formatMnt(payment.amountMnt)}</p>
+                                  <p className="mt-1 whitespace-nowrap font-black tabular-nums">
+                                    {contract.currency === "USD" && payment.foreignAmountMinor
+                                      ? `${formatUsd(payment.foreignAmountMinor)} · `
+                                      : ""}
+                                    {formatMnt(payment.amountMnt)}
+                                  </p>
                                 </div>
                                 <Button
                                   size="sm"
@@ -5508,6 +6719,41 @@ export default function Home() {
                                     Paid {formatDate(payment.paidAt, language)}
                                   </p>
                                 )}
+                                <div className="flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3 lg:col-span-6">
+                                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
+                                    <FileUp className="h-4 w-4" />
+                                    {documentUploadingId === payment.id ? "Uploading…" : "Upload payment document"}
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.jpg,.jpeg,.png,.xlsx"
+                                      className="sr-only"
+                                      disabled={documentUploadingId === payment.id}
+                                      onChange={(event) => {
+                                        void uploadPaymentDocument(
+                                          contract,
+                                          payment,
+                                          event.target.files?.[0],
+                                        );
+                                        event.currentTarget.value = "";
+                                      }}
+                                    />
+                                  </label>
+                                  {paymentDocuments
+                                    .filter((document) => document.paymentId === payment.id)
+                                    .map((document) => (
+                                      <a
+                                        key={document.id}
+                                        href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`}
+                                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]"
+                                      >
+                                        <FileText className="h-3.5 w-3.5" />
+                                        {document.fileName}
+                                      </a>
+                                    ))}
+                                  {!paymentDocuments.some((document) => document.paymentId === payment.id) && (
+                                    <span className="text-xs text-[#718178]">No documents attached</span>
+                                  )}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -5725,6 +6971,82 @@ export default function Home() {
             </section>
           </TabsContent>
 
+          <TabsContent value="reports" className="space-y-6">
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-black">Reports and year comparison</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Management outputs, data quality, and year-to-year planning evidence.
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 sm:mt-0">
+                <Button variant="outline" onClick={exportQuarterlyReport} disabled={workplanExporting}>
+                  <FileSpreadsheet className="h-4 w-4" /> Quarterly Excel
+                </Button>
+                <Button onClick={printManagementSummary} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
+                  <FileText className="h-4 w-4" /> PDF summary
+                </Button>
+              </div>
+            </section>
+            <section className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-black">Data completeness</h3>
+                    <p className="mt-1 text-sm text-[#718178]">Checks the records required for reporting and accountability.</p>
+                  </div>
+                  <span className="text-3xl font-black text-[#245f47]">{dataCompleteness.completePercent}%</span>
+                </div>
+                <Progress value={dataCompleteness.completePercent} className="mt-4 h-2.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
+                <dl className="mt-4 grid grid-cols-2 gap-2">
+                  {[
+                    ["Missing owners", dataCompleteness.missingOwner],
+                    ["Missing dates", dataCompleteness.missingDates],
+                    ["Quarterly updates due", dataCompleteness.missingQuarter],
+                    ["Contracts missing deliverables", dataCompleteness.missingDeliverables],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3">
+                      <dt className="text-xs text-[#718178]">{label}</dt>
+                      <dd className="mt-1 text-xl font-black">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
+                <h3 className="text-lg font-black">Year-to-year comparison</h3>
+                <p className="mt-1 text-sm text-[#718178]">Compare the selected workplan with another saved year.</p>
+                <div className="mt-4 flex gap-2">
+                  <NativeSelect
+                    value={String(compareYear)}
+                    onChange={(event) => void loadComparison(Number(event.target.value))}
+                    className="h-10 flex-1 border-[#ced8cf] bg-white"
+                  >
+                    {workplanYears.map((item) => (
+                      <NativeSelectOption key={item.year} value={String(item.year)}>{item.year} workplan</NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <Button variant="outline" onClick={() => void loadComparison(compareYear)}>Compare</Button>
+                </div>
+                <div className="mt-4 grid grid-cols-[1fr_100px_100px] gap-2 text-sm">
+                  <span className="font-bold text-[#718178]">Metric</span>
+                  <span className="text-right font-bold text-[#718178]">{selectedYear}</span>
+                  <span className="text-right font-bold text-[#718178]">{comparePlan?.year ?? compareYear}</span>
+                  {[
+                    ["Activities", allActivities.length, comparePlan?.activities.length ?? "—"],
+                    ["Average progress", `${averageActivityProgress(allActivities, updates)}%`, comparePlan ? `${averageActivityProgress(comparePlan.activities, updates)}%` : "—"],
+                    ["Budget", formatMnt(allBudgetLines.reduce((total, line) => total + Number(line.budgetMntMillion) * 1_000_000, 0)), comparePlan ? formatMnt(comparePlan.budgetLines.reduce((total, line) => total + Number(line.budgetMntMillion) * 1_000_000, 0)) : "—"],
+                  ].map(([label, current, previous]) => (
+                    <div key={String(label)} className="contents">
+                      <span className="border-t border-[#e5eae4] py-2 font-semibold">{label}</span>
+                      <span className="border-t border-[#e5eae4] py-2 text-right font-black">{current}</span>
+                      <span className="border-t border-[#e5eae4] py-2 text-right font-black">{previous}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
+          </TabsContent>
+
           <TabsContent value="access" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
@@ -5906,6 +7228,37 @@ export default function Home() {
                 A user must sign in with the exact email saved here. Invitations open as a prepared email for the administrator to review and send.
               </div>
             </section>
+            {currentSession?.isAdmin && (
+              <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+                <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-black">Backups and restore</h2>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      Database snapshots are retained for 30 days. Preview is required before restore.
+                    </p>
+                  </div>
+                  <Button onClick={() => void createBackup()} disabled={backupSaving} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
+                    <ShieldCheck className="h-4 w-4" /> {backupSaving ? "Working…" : "Create backup now"}
+                  </Button>
+                </div>
+                <div className="divide-y divide-[#e8ece6]">
+                  {backups.slice(0, 12).map((backup) => (
+                    <div key={backup.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-bold">{formatUpdatedAt(backup.createdAt, language)}</p>
+                        <p className="mt-1 text-xs text-[#718178]">{backup.recordCount} records · {backup.source} · {backup.createdBy}</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => void previewBackup(backup)} disabled={backupSaving}>
+                        Preview restore
+                      </Button>
+                    </div>
+                  ))}
+                  {!backups.length && (
+                    <p className="px-5 py-8 text-center text-sm text-[#718178]">No backup snapshots yet.</p>
+                  )}
+                </div>
+              </section>
+            )}
           </TabsContent>
       </div>
       </Tabs>
@@ -6010,6 +7363,42 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={Boolean(backupPreview)}
+        onOpenChange={(open) => {
+          if (!open && !backupSaving) setBackupPreview(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Preview backup restore</AlertDialogTitle>
+            <AlertDialogDescription>
+              Restoring will replace the current database records with this snapshot. Payment document files already stored in the system are not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {backupPreview && (
+            <div className="max-h-56 overflow-y-auto rounded-xl border border-[#d7ded5] bg-[#f7faf5] p-3">
+              <p className="mb-2 text-sm font-black">
+                {formatUpdatedAt(backupPreview.backup.createdAt, language)} · {backupPreview.backup.recordCount} records
+              </p>
+              <dl className="grid grid-cols-2 gap-2 text-xs">
+                {Object.entries(backupPreview.counts).map(([table, count]) => (
+                  <div key={table} className="flex items-center justify-between rounded-lg bg-white px-2.5 py-2">
+                    <dt>{auditFieldLabel(table)}</dt><dd className="font-black">{count}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={backupSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void restoreBackup()} disabled={backupSaving} className="bg-rose-700 text-white hover:bg-rose-800">
+              {backupSaving ? "Restoring…" : "Restore this snapshot"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={yearDialogOpen} onOpenChange={setYearDialogOpen}>
         <DialogContent className="bg-white text-[#14241b] sm:max-w-lg">
           <DialogHeader>
@@ -6027,14 +7416,20 @@ export default function Home() {
                 max="2100"
                 step="1"
                 value={newYear}
-                onChange={(event) => setNewYear(Number(event.target.value))}
+                onChange={(event) => {
+                  setNewYear(Number(event.target.value));
+                  setTransferPreviewVisible(false);
+                }}
                 className="h-11 border-[#cbd6cc] bg-white"
               />
             </label>
             <label className="flex items-start gap-3 rounded-xl border border-[#d8e0d6] bg-[#f7faf5] p-4">
               <Checkbox
                 checked={copyCurrentYear}
-                onCheckedChange={(checked) => setCopyCurrentYear(Boolean(checked))}
+                onCheckedChange={(checked) => {
+                  setCopyCurrentYear(Boolean(checked));
+                  setTransferPreviewVisible(false);
+                }}
                 className="mt-0.5"
               />
               <span>
@@ -6044,6 +7439,40 @@ export default function Home() {
                 </span>
               </span>
             </label>
+            {transferPreviewVisible && (
+              <section className="rounded-xl border border-[#b9cabb] bg-[#eef4eb] p-4">
+                <h3 className="font-black">Transfer preview</h3>
+                <p className="mt-1 text-sm text-[#5d7467]">
+                  The following records will be highlighted as transferred in the {newYear} draft.
+                </p>
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-white p-3">
+                    <dt className="text-xs text-[#718178]">Activities</dt>
+                    <dd className="mt-1 text-xl font-black">{transferPreview.activities.length}</dd>
+                  </div>
+                  <div className="rounded-lg bg-white p-3">
+                    <dt className="text-xs text-[#718178]">Sub-activities</dt>
+                    <dd className="mt-1 text-xl font-black">{transferPreview.subactivities}</dd>
+                  </div>
+                  <div className="rounded-lg bg-white p-3">
+                    <dt className="text-xs text-[#718178]">Contracts</dt>
+                    <dd className="mt-1 text-xl font-black">{transferPreview.contracts.length}</dd>
+                  </div>
+                </dl>
+                <div className="mt-3 max-h-28 overflow-y-auto text-xs text-[#405a4d]">
+                  {transferPreview.activities.slice(0, 8).map((activity) => (
+                    <p key={activity.id} className="py-1">
+                      <strong>{activity.code || activity.uid}</strong> · {activity.title}
+                    </p>
+                  ))}
+                  {transferPreview.activities.length > 8 && (
+                    <p className="py-1 font-bold">
+                      + {transferPreview.activities.length - 8} more activities
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setYearDialogOpen(false)}>
@@ -6054,7 +7483,11 @@ export default function Home() {
               disabled={yearSaving}
               className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
             >
-              {yearSaving ? "Creating…" : `Create ${newYear} workplan`}
+              {yearSaving
+                ? "Creating…"
+                : transferPreviewVisible
+                  ? `Confirm and create ${newYear}`
+                  : "Preview transfer"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -6081,7 +7514,7 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
+      <Dialog open={planDialogOpen} onOpenChange={(open) => changeFormDialog(open, setPlanDialogOpen)}>
         <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-4xl!">
           <DialogHeader>
             <DialogTitle>
@@ -6385,7 +7818,10 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setPlanDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => changeFormDialog(false, setPlanDialogOpen)}
+              >
                 Cancel
               </Button>
               <Button
@@ -6421,7 +7857,7 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={budgetLineDialogOpen} onOpenChange={setBudgetLineDialogOpen}>
+      <Dialog open={budgetLineDialogOpen} onOpenChange={(open) => changeFormDialog(open, setBudgetLineDialogOpen)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingBudgetKey ? "Edit" : "Add"} budget line</DialogTitle>
@@ -6587,7 +8023,10 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setBudgetLineDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => changeFormDialog(false, setBudgetLineDialogOpen)}
+              >
                 Cancel
               </Button>
               <Button
@@ -7253,7 +8692,7 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={financeDialogOpen} onOpenChange={setFinanceDialogOpen}>
+      <Dialog open={financeDialogOpen} onOpenChange={(open) => changeFormDialog(open, setFinanceDialogOpen)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
@@ -7380,7 +8819,10 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setFinanceDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => changeFormDialog(false, setFinanceDialogOpen)}
+              >
                 Cancel
               </Button>
               <Button
@@ -7428,8 +8870,16 @@ export default function Home() {
       <Dialog
         open={contractDialogOpen}
         onOpenChange={(open) => {
+          if (
+            !open &&
+            formDirty &&
+            !window.confirm("You have unsaved changes. Leave this form without saving?")
+          ) return;
           setContractDialogOpen(open);
-          if (!open) setEditingContractId(null);
+          if (!open) {
+            setEditingContractId(null);
+            setFormDirty(false);
+          }
         }}
       >
         <DialogContent className="max-h-[94vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-5xl!">
@@ -7575,23 +9025,77 @@ export default function Home() {
                   className="h-11 border-[#cbd6cc] bg-white"
                 />
               </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Total contract amount (MNT)</span>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Contract currency</span>
+                <NativeSelect
+                  value={contractDraft.currency}
+                  disabled={contractDraft.payments.some((payment) => payment.paid)}
+                  onChange={(event) => {
+                    const currency = event.target.value as "MNT" | "USD";
+                    setContractDraft((current) => ({
+                      ...current,
+                      currency,
+                      amountMnt: "",
+                      foreignAmount: "",
+                      exchangeRateMnt: "",
+                      payments: current.payments.map((payment) => ({
+                        ...payment,
+                        amountMnt: "",
+                        foreignAmount: "",
+                      })),
+                    }));
+                  }}
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="MNT">MNT · Mongolian tugrik</NativeSelectOption>
+                  <NativeSelectOption value="USD">USD · US dollar</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              {contractDraft.currency === "USD" && (
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-bold">Signed exchange rate (MNT per USD)</span>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={contractDraft.exchangeRateMnt}
+                    onChange={(event) => updateContractExchangeRate(event.target.value)}
+                    disabled={contractDraft.payments.some((payment) => payment.paid)}
+                    className="h-11 border-[#cbd6cc] bg-white"
+                    placeholder="3,450"
+                  />
+                </label>
+              )}
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">
+                  Total contract amount ({contractDraft.currency})
+                </span>
                 <Input
                   type="text"
-                  inputMode="numeric"
-                  value={contractDraft.amountMnt}
-                  onChange={(event) => updateContractTotal(event.target.value)}
+                  inputMode={contractDraft.currency === "USD" ? "decimal" : "numeric"}
+                  value={
+                    contractDraft.currency === "USD"
+                      ? contractDraft.foreignAmount
+                      : contractDraft.amountMnt
+                  }
+                  onChange={(event) =>
+                    contractDraft.currency === "USD"
+                      ? updateContractForeignTotal(event.target.value)
+                      : updateContractTotal(event.target.value)
+                  }
                   disabled={contractDraft.payments.some((payment) => payment.paid)}
                   className="h-11 border-[#cbd6cc] bg-white"
-                  placeholder="100,000,000"
+                  placeholder={contractDraft.currency === "USD" ? "100,000.00" : "100,000,000"}
                 />
-                <span className="mt-1.5 block text-xs text-[#718178]">
-                  {contractDraft.payments.some((payment) => payment.paid)
-                    ? "Mark paid installments unpaid before changing the contract total."
-                    : "This amount becomes the contract's commitment."}
-                </span>
               </label>
+              <div className="rounded-xl border border-[#d8e0d6] bg-[#f2f6f0] p-3">
+                <p className="text-xs font-semibold text-[#718178]">Committed amount in MNT</p>
+                <p className="mt-1 text-lg font-black">
+                  {formatMnt(Number(contractDraft.amountMnt.replace(/,/g, "")) || 0)}
+                </p>
+                <p className="mt-1 text-xs text-[#718178]">
+                  The signed exchange rate is locked once a payment is paid.
+                </p>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-[#cbd8c9] bg-[#eef4eb] p-4">
@@ -7676,15 +9180,34 @@ export default function Home() {
                         />
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-xs font-bold text-[#53685c]">Amount (MNT)</span>
+                        <span className="mb-1 block text-xs font-bold text-[#53685c]">
+                          Amount ({contractDraft.currency})
+                        </span>
                         <Input
                           type="text"
-                          inputMode="numeric"
-                          value={payment.amountMnt}
-                          onChange={(event) => updateContractPayment(index, "amountMnt", event.target.value)}
+                          inputMode={contractDraft.currency === "USD" ? "decimal" : "numeric"}
+                          value={
+                            contractDraft.currency === "USD"
+                              ? payment.foreignAmount
+                              : payment.amountMnt
+                          }
+                          onChange={(event) =>
+                            updateContractPayment(
+                              index,
+                              contractDraft.currency === "USD"
+                                ? "foreignAmount"
+                                : "amountMnt",
+                              event.target.value,
+                            )
+                          }
                           disabled={payment.paid}
                           className="h-10 border-[#cbd6cc] bg-white"
                         />
+                        {contractDraft.currency === "USD" && (
+                          <span className="mt-1 block text-[11px] text-[#718178]">
+                            {formatMnt(Number(payment.amountMnt.replace(/,/g, "")) || 0)}
+                          </span>
+                        )}
                       </label>
                     </div>
                   </div>
@@ -7724,7 +9247,14 @@ export default function Home() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setContractDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (changeFormDialog(false, setContractDialogOpen)) {
+                  setEditingContractId(null);
+                }
+              }}
+            >
               Cancel
             </Button>
             <Button
@@ -7766,7 +9296,7 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+      <Dialog open={teamDialogOpen} onOpenChange={(open) => changeFormDialog(open, setTeamDialogOpen)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
@@ -7888,7 +9418,10 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setTeamDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => changeFormDialog(false, setTeamDialogOpen)}
+              >
                 Cancel
               </Button>
               <Button
@@ -7927,7 +9460,9 @@ export default function Home() {
       <Dialog
         open={Boolean(selected)}
         onOpenChange={(open) => {
-          if (!open) setSelectedId(null);
+          if (!open && changeFormDialog(false, () => setSelectedId(null))) {
+            setEditKey("");
+          }
         }}
       >
         <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-none! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:max-w-[96vw]! 2xl:max-w-[1640px]!">

@@ -396,6 +396,7 @@ export async function POST(request: Request) {
         void _subactivities;
         const copied = copyForYear(activityPayload, toYear, "activity");
         copied.id = key;
+        copied.transferredFromYear = fromYear;
         rows.push({
           id: recordId(toYear, "activity", key),
           planYear: toYear,
@@ -417,6 +418,7 @@ export async function POST(request: Request) {
           const copied = copyForYear(subactivity, toYear, "subactivity");
           copied.id = key;
           copied.activityId = parentKey;
+          copied.transferredFromYear = fromYear;
           rows.push({
             id: recordId(toYear, "subactivity", key),
             planYear: toYear,
@@ -436,6 +438,7 @@ export async function POST(request: Request) {
         budgetKeys.set(budget.id, key);
         const copied = copyForYear(budget, toYear, "budget");
         copied.id = key;
+        copied.transferredFromYear = fromYear;
         if (Array.isArray(budget.linkedActivityKeys)) {
           copied.linkedActivityKeys = budget.linkedActivityKeys
             .filter((activityKey): activityKey is string =>
@@ -489,6 +492,15 @@ export async function POST(request: Request) {
           startDate: contract.startDate,
           endDate: contract.endDate,
           amountMnt: outstandingMnt,
+          currency: contract.currency,
+          foreignAmountMinor: contract.currency === "USD"
+            ? unpaidPayments.reduce(
+                (total, payment) => total + payment.foreignAmountMinor,
+                0,
+              )
+            : 0,
+          exchangeRateMnt: contract.exchangeRateMnt,
+          transferredFromYear: fromYear,
           createdAt: now,
           updatedAt: now,
           updatedBy,
@@ -517,6 +529,7 @@ export async function POST(request: Request) {
               deliverable: payment.deliverable,
               percentage,
               amountMnt: payment.amountMnt,
+              foreignAmountMinor: payment.foreignAmountMinor,
               paid: 0,
               paidAt: "",
               updatedAt: now,

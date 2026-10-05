@@ -36,6 +36,58 @@ async function validKeys(year: number) {
   return { budgetKeys, activityKeys };
 }
 
+function safePayload(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function allocationContext(year: number) {
+  const records = await getDb()
+    .select()
+    .from(workplanRecords)
+    .where(eq(workplanRecords.planYear, year));
+  const budgetAmount = new Map<string, number>();
+  const parentByActivity = new Map<string, string>();
+  const mainActivityKeys = new Set<string>();
+  if (year === BASE_YEAR) {
+    for (const line of workplan.budgetLines) {
+      budgetAmount.set(line.id, Number(line.budgetMntMillion) * 1_000_000);
+    }
+    for (const activity of workplan.activities) {
+      mainActivityKeys.add(activity.id);
+      for (const subactivity of activity.subactivities) {
+        parentByActivity.set(subactivity.id, activity.id);
+      }
+    }
+  }
+  for (const record of records) {
+    if (record.isDeleted) {
+      budgetAmount.delete(record.recordKey);
+      mainActivityKeys.delete(record.recordKey);
+      parentByActivity.delete(record.recordKey);
+      continue;
+    }
+    const payload = safePayload(record.payload);
+    if (record.recordType === "budget") {
+      budgetAmount.set(
+        record.recordKey,
+        Number(payload.budgetMntMillion ?? 0) * 1_000_000,
+      );
+    } else if (record.recordType === "activity") {
+      mainActivityKeys.add(record.recordKey);
+    } else if (record.recordType === "subactivity") {
+      parentByActivity.set(record.recordKey, record.parentKey);
+    }
+  }
+  return { budgetAmount, parentByActivity, mainActivityKeys };
+}
+
 function storageMessage(error: unknown) {
   const text = error instanceof Error ? error.message : "Unexpected error";
   if (text.includes("no such table") || text.includes("budget_allocations")) {
@@ -97,6 +149,80 @@ export async function PUT(request: Request) {
         { status: 400 },
       );
     }
+    const db = getDb();
+    const context = await allocationContext(planYear);
+    const approvedBudget = context.budgetAmount.get(budgetKey) ?? 0;
+    if (approvedBudget <= 0) {
+      return Response.json(
+        { error: "Enter the approved budget for this budget line before allocating it." },
+        { status: 400 },
+      );
+    }
+    const existingAllocations = await db
+      .select()
+      .from(budgetAllocations)
+      .where(eq(budgetAllocations.planYear, planYear));
+    const mainActivityKey = context.parentByActivity.get(activityKey) ?? activityKey;
+    if (context.parentByActivity.has(activityKey)) {
+      const mainAllocation = existingAllocations.find(
+        (item) =>
+          item.budgetKey === budgetKey && item.activityKey === mainActivityKey,
+      );
+      if (!mainAllocation) {
+        return Response.json(
+          { error: "Allocate a budget to the main activity before allocating its sub-activities." },
+          { status: 400 },
+        );
+      }
+      const otherSubTotal = existingAllocations
+        .filter(
+          (item) =>
+            item.budgetKey === budgetKey &&
+            item.activityKey !== activityKey &&
+            context.parentByActivity.get(item.activityKey) === mainActivityKey,
+        )
+        .reduce((total, item) => total + item.amountMnt, 0);
+      if (otherSubTotal + amountMnt > mainAllocation.amountMnt) {
+        return Response.json(
+          {
+            error: `Sub-activity allocations cannot exceed the main activity allocation of ${mainAllocation.amountMnt.toLocaleString("en-US")} MNT.`,
+          },
+          { status: 400 },
+        );
+      }
+    } else if (context.mainActivityKeys.has(activityKey)) {
+      const otherMainTotal = existingAllocations
+        .filter(
+          (item) =>
+            item.budgetKey === budgetKey &&
+            item.activityKey !== activityKey &&
+            context.mainActivityKeys.has(item.activityKey),
+        )
+        .reduce((total, item) => total + item.amountMnt, 0);
+      if (otherMainTotal + amountMnt > approvedBudget) {
+        return Response.json(
+          {
+            error: `Main activity allocations cannot exceed the approved budget of ${approvedBudget.toLocaleString("en-US")} MNT.`,
+          },
+          { status: 400 },
+        );
+      }
+      const currentSubTotal = existingAllocations
+        .filter(
+          (item) =>
+            item.budgetKey === budgetKey &&
+            context.parentByActivity.get(item.activityKey) === activityKey,
+        )
+        .reduce((total, item) => total + item.amountMnt, 0);
+      if (currentSubTotal > amountMnt) {
+        return Response.json(
+          {
+            error: `This main activity already has ${currentSubTotal.toLocaleString("en-US")} MNT allocated across sub-activities.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
     const now = new Date().toISOString();
     const values = {
       id: allocationId(planYear, budgetKey, activityKey),
@@ -108,7 +234,7 @@ export async function PUT(request: Request) {
       updatedAt: now,
       updatedBy: session.email,
     };
-    const [allocation] = await getDb()
+    const [allocation] = await db
       .insert(budgetAllocations)
       .values({ ...values, createdAt: now })
       .onConflictDoUpdate({

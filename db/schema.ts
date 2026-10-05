@@ -18,6 +18,28 @@ export const activityUpdates = sqliteTable("activity_updates", {
   updatedBy: text("updated_by").notNull().default(""),
 });
 
+export const quarterlyUpdates = sqliteTable(
+  "quarterly_updates",
+  {
+    id: text("id").primaryKey(),
+    activityKey: text("activity_key").notNull(),
+    planYear: integer("plan_year").notNull(),
+    quarter: text("quarter").notNull(),
+    note: text("note").notNull().default(""),
+    status: text("status").notNull(),
+    progress: integer("progress").notNull().default(0),
+    submittedAt: text("submitted_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    submittedBy: text("submitted_by").notNull().default(""),
+  },
+  (table) => [
+    index("idx_quarterly_updates_activity_year").on(
+      table.activityKey,
+      table.planYear,
+    ),
+    index("idx_quarterly_updates_submitted_at").on(table.submittedAt),
+  ],
+);
+
 export const financeEntries = sqliteTable("finance_entries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   budgetKey: text("budget_key").notNull(),
@@ -138,6 +160,10 @@ export const contracts = sqliteTable(
     startDate: text("start_date").notNull(),
     endDate: text("end_date").notNull(),
     amountMnt: integer("amount_mnt").notNull(),
+    currency: text("currency").notNull().default("MNT"),
+    foreignAmountMinor: integer("foreign_amount_minor").notNull().default(0),
+    exchangeRateMnt: integer("exchange_rate_mnt").notNull().default(1),
+    transferredFromYear: integer("transferred_from_year").notNull().default(0),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedBy: text("updated_by").notNull().default(""),
@@ -163,6 +189,7 @@ export const contractPayments = sqliteTable(
     deliverable: text("deliverable").notNull(),
     percentage: integer("percentage").notNull(),
     amountMnt: integer("amount_mnt").notNull(),
+    foreignAmountMinor: integer("foreign_amount_minor").notNull().default(0),
     paid: integer("paid").notNull().default(0),
     paidAt: text("paid_at").notNull().default(""),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -174,6 +201,38 @@ export const contractPayments = sqliteTable(
     ),
     index("idx_contract_payments_contract").on(table.contractId),
   ],
+);
+
+export const paymentDocuments = sqliteTable(
+  "payment_documents",
+  {
+    id: text("id").primaryKey(),
+    contractId: text("contract_id").notNull(),
+    paymentId: text("payment_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    uploadedAt: text("uploaded_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    uploadedBy: text("uploaded_by").notNull().default(""),
+  },
+  (table) => [
+    index("idx_payment_documents_contract").on(table.contractId),
+    index("idx_payment_documents_payment").on(table.paymentId),
+  ],
+);
+
+export const backupSnapshots = sqliteTable(
+  "backup_snapshots",
+  {
+    id: text("id").primaryKey(),
+    objectKey: text("object_key").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdBy: text("created_by").notNull().default(""),
+    source: text("source").notNull().default("manual"),
+    recordCount: integer("record_count").notNull().default(0),
+  },
+  (table) => [index("idx_backup_snapshots_created_at").on(table.createdAt)],
 );
 
 export const auditLogs = sqliteTable(

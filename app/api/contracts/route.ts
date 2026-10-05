@@ -24,6 +24,7 @@ type PaymentPayload = {
   deliverable?: string;
   percentage?: number;
   amountMnt?: number;
+  foreignAmountMinor?: number;
   paid?: boolean;
   paidAt?: string;
 };
@@ -41,6 +42,9 @@ type ContractPayload = {
   startDate?: string;
   endDate?: string;
   amountMnt?: number;
+  currency?: string;
+  foreignAmountMinor?: number;
+  exchangeRateMnt?: number;
   payments?: PaymentPayload[];
 };
 
@@ -160,6 +164,9 @@ function validateDate(value: string) {
 function validateContract(payload: ContractPayload) {
   const planYear = Number(payload.planYear);
   const amountMnt = Number(payload.amountMnt);
+  const currency = payload.currency === "USD" ? "USD" : "MNT";
+  const foreignAmountMinor = Number(payload.foreignAmountMinor ?? 0);
+  const exchangeRateMnt = Number(payload.exchangeRateMnt ?? 1);
   const status = payload.status?.trim() ?? "";
   const startDate = payload.startDate?.trim() ?? "";
   const endDate = payload.endDate?.trim() ?? "";
@@ -184,10 +191,21 @@ function validateContract(payload: ContractPayload) {
   if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
     return "Enter a whole tugrik contract amount greater than zero.";
   }
+  if (
+    currency === "USD" &&
+    (!Number.isSafeInteger(foreignAmountMinor) ||
+      foreignAmountMinor <= 0 ||
+      !Number.isSafeInteger(exchangeRateMnt) ||
+      exchangeRateMnt <= 0 ||
+      Math.round((foreignAmountMinor / 100) * exchangeRateMnt) !== amountMnt)
+  ) {
+    return "Enter a valid USD amount and the signed exchange rate.";
+  }
   if (!payments.length) return "Add at least one payment installment.";
 
   let amountTotal = 0;
   let percentageTotal = 0;
+  let foreignAmountTotal = 0;
   for (const payment of payments) {
     const paymentAmount = Number(payment.amountMnt);
     const percentage = Number(payment.percentage);
@@ -208,12 +226,16 @@ function validateContract(payload: ContractPayload) {
     }
     amountTotal += paymentAmount;
     percentageTotal += percentage;
+    foreignAmountTotal += Number(payment.foreignAmountMinor ?? 0);
   }
   if (amountTotal !== amountMnt) {
     return "Payment amounts must add up exactly to the total contract amount.";
   }
   if (percentageTotal !== 100) {
     return "Payment percentages must add up to 100%.";
+  }
+  if (currency === "USD" && foreignAmountTotal !== foreignAmountMinor) {
+    return "USD payment amounts must add up exactly to the USD contract amount.";
   }
   return "";
 }
@@ -301,6 +323,10 @@ export async function POST(request: Request) {
       startDate: payload.startDate!.trim(),
       endDate: payload.endDate!.trim(),
       amountMnt: Number(payload.amountMnt),
+      currency: payload.currency === "USD" ? "USD" : "MNT",
+      foreignAmountMinor: payload.currency === "USD" ? Number(payload.foreignAmountMinor) : 0,
+      exchangeRateMnt: payload.currency === "USD" ? Number(payload.exchangeRateMnt) : 1,
+      transferredFromYear: 0,
       createdAt: now,
       updatedAt: now,
       updatedBy,
@@ -315,6 +341,8 @@ export async function POST(request: Request) {
         deliverable: payment.deliverable!.trim().slice(0, 2000),
         percentage: Number(payment.percentage),
         amountMnt: Number(payment.amountMnt),
+        foreignAmountMinor:
+          payload.currency === "USD" ? Number(payment.foreignAmountMinor ?? 0) : 0,
         paid: payment.paid ? 1 : 0,
         paidAt: payment.paid ? payment.paidAt!.trim() : "",
         updatedAt: now,
@@ -372,6 +400,17 @@ export async function PUT(request: Request) {
       .select()
       .from(contractPayments)
       .where(eq(contractPayments.contractId, id));
+    if (
+      existingPayments.some((payment) => Boolean(payment.paid)) &&
+      (existing.currency !== (payload.currency === "USD" ? "USD" : "MNT") ||
+        existing.exchangeRateMnt !==
+          (payload.currency === "USD" ? Number(payload.exchangeRateMnt) : 1))
+    ) {
+      return Response.json(
+        { error: "Currency and exchange rate are locked after a payment is marked paid." },
+        { status: 400 },
+      );
+    }
     const currentPayments = new Map(existingPayments.map((payment) => [payment.id, payment]));
     for (const previous of existingPayments.filter((payment) => Boolean(payment.paid))) {
       const incoming = payload.payments!.find((payment) => payment.id === previous.id);
@@ -381,7 +420,8 @@ export async function PUT(request: Request) {
         Number(incoming.percentage) !== previous.percentage ||
         incoming.dueDate?.trim() !== previous.dueDate ||
         incoming.deliverable?.trim() !== previous.deliverable ||
-        incoming.label?.trim() !== previous.label
+        incoming.label?.trim() !== previous.label ||
+        Number(incoming.foreignAmountMinor ?? 0) !== previous.foreignAmountMinor
       ) {
         return Response.json(
           { error: "Paid installments are locked. Mark one unpaid before changing or removing it." },
@@ -406,6 +446,9 @@ export async function PUT(request: Request) {
         startDate: payload.startDate!.trim(),
         endDate: payload.endDate!.trim(),
         amountMnt: Number(payload.amountMnt),
+        currency: payload.currency === "USD" ? "USD" : "MNT",
+        foreignAmountMinor: payload.currency === "USD" ? Number(payload.foreignAmountMinor) : 0,
+        exchangeRateMnt: payload.currency === "USD" ? Number(payload.exchangeRateMnt) : 1,
         updatedAt: now,
         updatedBy,
       })
@@ -425,6 +468,8 @@ export async function PUT(request: Request) {
           deliverable: payment.deliverable!.trim().slice(0, 2000),
           percentage: Number(payment.percentage),
           amountMnt: Number(payment.amountMnt),
+          foreignAmountMinor:
+            payload.currency === "USD" ? Number(payment.foreignAmountMinor ?? 0) : 0,
           paid,
           paidAt,
           updatedAt: now,
