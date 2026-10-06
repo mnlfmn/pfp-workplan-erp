@@ -10,6 +10,7 @@ const allowedStatuses = new Set([
   "completed",
   "in_progress",
   "delayed",
+  "delayed_externally",
   "on_hold",
   "not_started",
   "not_reported",

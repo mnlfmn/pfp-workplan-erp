@@ -100,6 +100,7 @@ type StatusKey =
   | "completed"
   | "in_progress"
   | "delayed"
+  | "delayed_externally"
   | "on_hold"
   | "not_started"
   | "not_reported";
@@ -403,6 +404,12 @@ const statusMeta: Record<
     dot: "bg-rose-600",
     weight: 35,
   },
+  delayed_externally: {
+    label: "Delayed externally",
+    tone: "bg-violet-50 text-violet-800 border-violet-200",
+    dot: "bg-violet-600",
+    weight: 35,
+  },
   on_hold: {
     label: "On hold",
     tone: "bg-amber-50 text-amber-900 border-amber-200",
@@ -427,6 +434,7 @@ const statusChartColors: Record<StatusKey, string> = {
   completed: "#16825d",
   in_progress: "#2878c8",
   delayed: "#c44757",
+  delayed_externally: "#7c3aed",
   on_hold: "#d39222",
   not_started: "#829089",
   not_reported: "#c4ccc7",
@@ -1135,6 +1143,7 @@ export default function Home() {
     "loading" | "ready" | "unavailable"
   >("loading");
   const [workplanExporting, setWorkplanExporting] = useState(false);
+  const [contractExporting, setContractExporting] = useState(false);
   const [yearDialogOpen, setYearDialogOpen] = useState(false);
   const [yearDeleteOpen, setYearDeleteOpen] = useState(false);
   const [newYear, setNewYear] = useState(2027);
@@ -1212,6 +1221,9 @@ export default function Home() {
   const [editingContractId, setEditingContractId] = useState<string | null>(null);
   const [contractToClose, setContractToClose] =
     useState<ContractRecord | null>(null);
+  const [contractToDelete, setContractToDelete] =
+    useState<ContractRecord | null>(null);
+  const [paymentTransferDates, setPaymentTransferDates] = useState<Record<string, string>>({});
   const [contractQuery, setContractQuery] = useState("");
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
   const [expandedContractIds, setExpandedContractIds] =
@@ -2368,6 +2380,11 @@ export default function Home() {
     payment: ContractPayment,
     paid: boolean,
   ) {
+    const transferDate = paymentTransferDates[payment.id] || payment.paidAt;
+    if (paid && !/^\d{4}-\d{2}-\d{2}$/.test(transferDate)) {
+      toast.error("Choose the exact payment transfer date first.");
+      return;
+    }
     setContractSaving(true);
     try {
       const response = await fetch("/api/contracts", {
@@ -2377,7 +2394,7 @@ export default function Home() {
           action: "set_payment_paid",
           paymentId: payment.id,
           paid,
-          paidAt: paid ? todayForInput() : "",
+          paidAt: paid ? transferDate : "",
         }),
       });
       const result = (await response.json()) as {
@@ -2392,6 +2409,10 @@ export default function Home() {
           item.id === contract.id ? result.contract! : item,
         ),
       );
+      setPaymentTransferDates((current) => ({
+        ...current,
+        [payment.id]: paid ? transferDate : "",
+      }));
       toast.success(paid ? "Payment marked as paid" : "Payment marked as unpaid", {
         description: formatMnt(payment.amountMnt),
       });
@@ -2399,6 +2420,34 @@ export default function Home() {
       toast.error(
         error instanceof Error ? error.message : "Payment status could not be changed.",
       );
+    } finally {
+      setContractSaving(false);
+    }
+  }
+
+  async function deleteContract() {
+    if (!contractToDelete) return;
+    setContractSaving(true);
+    try {
+      const response = await fetch("/api/contracts", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: contractToDelete.id }),
+      });
+      const result = (await response.json()) as { deletedId?: string; error?: string };
+      if (!response.ok || !result.deletedId) {
+        throw new Error(result.error || "The contract could not be deleted.");
+      }
+      setContracts((current) => current.filter((item) => item.id !== result.deletedId));
+      setPaymentDocuments((current) =>
+        current.filter((document) => document.contractId !== result.deletedId),
+      );
+      setContractToDelete(null);
+      toast.success("Contract deleted", {
+        description: "Its unpaid commitment, payments, and attachments were removed.",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The contract could not be deleted.");
     } finally {
       setContractSaving(false);
     }
@@ -3591,6 +3640,14 @@ export default function Home() {
     [allActivities],
   );
 
+  const actionPlanReferences = useMemo(
+    () =>
+      Array.from(
+        new Set(allActivities.map((item) => String(item.actionPlan || "")).filter(Boolean)),
+      ).sort((left, right) => left.localeCompare(right, undefined, { numeric: true })),
+    [allActivities],
+  );
+
   const memberActivities = useMemo(
     () =>
       allActivities.filter((item) =>
@@ -3866,7 +3923,7 @@ export default function Home() {
     ).length;
     const attention = allSubs.filter((item) => {
       const current = recordStatus(item.id, item.status as StatusKey, updates);
-      return current === "delayed" || current === "on_hold";
+      return current === "delayed" || current === "delayed_externally" || current === "on_hold";
     }).length;
     const overall = Math.round(
       filtered.reduce(
@@ -3955,7 +4012,7 @@ export default function Home() {
       (item) => deriveActivityStatus(item, updates) === "completed",
     ).length;
     const atRisk = dashboardActivities.filter((item) =>
-      ["delayed", "on_hold"].includes(deriveActivityStatus(item, updates)),
+      ["delayed", "delayed_externally", "on_hold"].includes(deriveActivityStatus(item, updates)),
     ).length;
     const reported = dashboardActivities.filter(
       (item) => deriveActivityStatus(item, updates) !== "not_reported",
@@ -4042,20 +4099,6 @@ export default function Home() {
             entry.quarter === quarter,
         ),
     );
-    const overAllocated = allBudgetLines.filter((line) => {
-      const mainKeys = new Set(
-        allActivities
-          .filter((activity) => activityMatchesBudgetLine(activity, line))
-          .map((activity) => activity.id),
-      );
-      const allocated = allocations
-        .filter(
-          (allocation) =>
-            allocation.budgetKey === line.id && mainKeys.has(allocation.activityKey),
-        )
-        .reduce((total, allocation) => total + allocation.amountMnt, 0);
-      return allocated > Number(line.budgetMntMillion) * 1_000_000;
-    });
     return [
       {
         id: "overdue",
@@ -4092,14 +4135,6 @@ export default function Home() {
         tone: "rose",
       },
       {
-        id: "allocation",
-        label: "Budget lines over allocation",
-        count: overAllocated.length,
-        detail: overAllocated[0]?.code || "No allocation exceptions",
-        view: "finance",
-        tone: "rose",
-      },
-      {
         id: "quarterly",
         label: `${quarter} updates not submitted`,
         count: missingQuarterly.length,
@@ -4120,8 +4155,6 @@ export default function Home() {
     ];
   }, [
     allActivities,
-    allBudgetLines,
-    allocations,
     contracts,
     quarterlyHistory,
     selectedYear,
@@ -4313,7 +4346,7 @@ export default function Home() {
         (item) => deriveActivityStatus(item, updates) === "completed",
       ).length;
       const atRisk = activities.filter((item) =>
-        ["delayed", "on_hold"].includes(deriveActivityStatus(item, updates)),
+        ["delayed", "delayed_externally", "on_hold"].includes(deriveActivityStatus(item, updates)),
       ).length;
       return {
         goal: goalValue,
@@ -4340,11 +4373,27 @@ export default function Home() {
   const teamSummaries = useMemo(
     () =>
       teamMembers.map((teamMember) => {
-        const activities = allActivities.filter(
+        const scopedActivities = allActivities.filter(
           (item) =>
             (section === "all" || item.section === section) &&
-            (goal === "all" || item.goal === goal) &&
-            isAssignedToMember(item, teamMember.id, updates, teamMembers),
+            (goal === "all" || item.goal === goal),
+        );
+        const mainAssignments = scopedActivities.filter((activity) => {
+          const roles = responsibilityParts(activityOwner(activity, updates), teamMembers);
+          return roles.accountable === teamMember.name || roles.supporting.includes(teamMember.name);
+        });
+        const subAssignments = scopedActivities.flatMap((activity) =>
+          activity.subactivities
+            .filter((subactivity) => {
+              const roles = responsibilityParts(subactivityOwner(subactivity, updates), teamMembers);
+              return roles.accountable === teamMember.name || roles.supporting.includes(teamMember.name);
+            })
+            .map((subactivity) => ({ activity, subactivity })),
+        );
+        const activities = scopedActivities.filter(
+          (activity) =>
+            mainAssignments.some((assigned) => assigned.id === activity.id) ||
+            subAssignments.some((assigned) => assigned.activity.id === activity.id),
         );
         const budgetKeys = budgetKeysForActivities(activities, allBudgetLines);
         const lines = allBudgetLines.filter(
@@ -4354,19 +4403,51 @@ export default function Home() {
             budgetKeys.has(line.id),
         );
         const finance = summarizeFinance(lines, financeEntries, contracts);
+        const assignedRecords = [
+          ...mainAssignments.map((activity) => ({
+            status: deriveActivityStatus(activity, updates),
+            progress: deriveActivityProgress(activity, updates),
+          })),
+          ...subAssignments.map(({ subactivity }) => ({
+            status: recordStatus(subactivity.id, subactivity.status as StatusKey, updates),
+            progress: recordProgress(
+              subactivity.id,
+              statusMeta[subactivity.status as StatusKey].weight,
+              updates,
+            ),
+          })),
+        ];
         const statusCounts = Object.fromEntries(
           (Object.keys(statusMeta) as StatusKey[]).map((key) => [
             key,
-            activities.filter(
-              (activity) => deriveActivityStatus(activity, updates) === key,
-            ).length,
+            assignedRecords.filter((record) => record.status === key).length,
           ]),
         ) as Record<StatusKey, number>;
+        const accountableMainCount = mainAssignments.filter(
+          (activity) =>
+            responsibilityParts(activityOwner(activity, updates), teamMembers).accountable === teamMember.name,
+        ).length;
+        const supportingMainCount = mainAssignments.length - accountableMainCount;
+        const accountableSubactivityCount = subAssignments.filter(
+          ({ subactivity }) =>
+            responsibilityParts(subactivityOwner(subactivity, updates), teamMembers).accountable === teamMember.name,
+        ).length;
+        const supportingSubactivityCount = subAssignments.length - accountableSubactivityCount;
         return {
           ...teamMember,
-          activityCount: activities.length,
+          activityCount: mainAssignments.length,
+          accountableMainCount,
+          supportingMainCount,
+          subactivityCount: subAssignments.length,
+          accountableSubactivityCount,
+          supportingSubactivityCount,
           statusCounts,
-          progress: averageActivityProgress(activities, updates),
+          progress: assignedRecords.length
+            ? Math.round(
+                assignedRecords.reduce((total, record) => total + record.progress, 0) /
+                  assignedRecords.length,
+              )
+            : 0,
           ...finance,
         };
       }),
@@ -4511,6 +4592,66 @@ export default function Home() {
       setWorkplanExporting(false);
     }
   }, [allActivities, selectedYear, updates]);
+
+  const exportContracts = useCallback(async () => {
+    if (!filteredContracts.length) {
+      toast.error("There are no contracts matching the current filters.");
+      return;
+    }
+    setContractExporting(true);
+    try {
+      const { downloadContractsExcel } = await import("@/lib/contracts-excel");
+      downloadContractsExcel({
+        year: selectedYear,
+        contracts: filteredContracts.map((contract) => {
+          const line = allBudgetLines.find((item) => item.id === contract.budgetKey);
+          const target = contractTargets.find((item) => item.key === contract.activityKey);
+          return {
+            contractNumber: contract.contractNumber,
+            status: contractStatusMeta[contract.status].label,
+            budgetLine: line ? `${line.code} · ${line.title}` : "Removed budget line",
+            activityCode: target?.code ?? "",
+            activityTitle: target?.label ?? "Removed workplan item",
+            activityLevel: target?.kind === "subactivity" ? "Sub-activity" : "Main activity",
+            torName: contract.torName,
+            providerName: contract.serviceProviderName,
+            providerType: contract.serviceProviderType,
+            startDate: contract.startDate,
+            endDate: contract.endDate,
+            currency: contract.currency,
+            foreignAmountMinor: contract.foreignAmountMinor,
+            exchangeRateMnt: contract.exchangeRateMnt,
+            amountMnt: contract.amountMnt,
+            paidMnt: contractPaidMnt(contract),
+            commitmentMnt: contractCommitmentMnt(contract),
+            updatedAt: contract.updatedAt,
+            updatedBy: contract.updatedBy,
+            transferredFromYear: contract.transferredFromYear,
+            payments: contract.payments.map((payment) => ({
+              sequence: payment.sequence,
+              label: payment.label,
+              dueDate: payment.dueDate,
+              transferDate: payment.paidAt,
+              deliverable: payment.deliverable,
+              percentage: payment.percentage,
+              amountMnt: payment.amountMnt,
+              foreignAmountMinor: payment.foreignAmountMinor,
+              paid: Boolean(payment.paid),
+            })),
+          };
+        }),
+      });
+      toast.success("Contract Excel export is ready", {
+        description: `${filteredContracts.length} contract${filteredContracts.length === 1 ? "" : "s"} and their latest payment records were included.`,
+      });
+    } catch (error) {
+      toast.error("The contract export could not be created", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setContractExporting(false);
+    }
+  }, [allBudgetLines, contractTargets, filteredContracts, selectedYear]);
 
   const exportQuarterlyReport = useCallback(async () => {
     if (!allActivities.length) return;
@@ -5162,49 +5303,6 @@ export default function Home() {
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="flex items-center gap-2 text-lg font-black">
-                    <Bell className="h-5 w-5 text-[#2f634c]" /> Automatic alerts
-                  </h2>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    Open an alert to review the underlying workplan, finance, or contract records.
-                  </p>
-                </div>
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">
-                  {automaticAlerts.reduce((total, item) => total + item.count, 0)} open
-                </span>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {automaticAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={() => {
-                      if (alert.id === "owners") setMember("no_owner");
-                      setActiveView(alert.view);
-                    }}
-                    className={`rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
-                      alert.count
-                        ? alert.tone === "rose"
-                          ? "border-rose-200 bg-rose-50"
-                          : "border-amber-200 bg-amber-50"
-                        : "border-[#e1e7df] bg-[#f8faf7]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-black">{alert.label}</span>
-                      <span className="text-lg font-black">{alert.count}</span>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#65766d]">
-                      {alert.detail}
-                    </p>
-                  </button>
-                ))}
               </div>
             </section>
 
@@ -6483,14 +6581,25 @@ export default function Home() {
                   Link contracts and payment deliverables to the workplan. Unpaid contract value is commitment; paid installments become expenditure.
                 </p>
               </div>
-              <Button
-                onClick={openAddContract}
-                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                disabled={!contractTargets.length}
-              >
-                <Plus className="h-4 w-4" />
-                Add contract
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => void exportContracts()}
+                  disabled={contractExporting || !filteredContracts.length}
+                  className="border-[#b9cabb] bg-white"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  {contractExporting ? "Preparing…" : "Export Excel"}
+                </Button>
+                <Button
+                  onClick={openAddContract}
+                  className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                  disabled={!contractTargets.length}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add contract
+                </Button>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-[#b9cabb] bg-[#e9f1e6] p-3 sm:p-4">
@@ -6611,6 +6720,17 @@ export default function Home() {
                               <PencilLine className="h-4 w-4" />
                               Edit
                             </Button>
+                            {currentSession?.isAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setContractToDelete(contract)}
+                                className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </Button>
+                            )}
                             {contract.status !== "closed" && (
                               <Button
                                 variant="outline"
@@ -6672,7 +6792,7 @@ export default function Home() {
                             {contract.payments.map((payment) => (
                               <div
                                 key={payment.id}
-                                className="grid gap-3 rounded-xl border border-[#dfe7dc] bg-white p-4 lg:grid-cols-[minmax(110px,0.7fr)_minmax(130px,0.8fr)_minmax(220px,2fr)_90px_150px_120px] lg:items-center"
+                                className="grid gap-3 rounded-xl border border-[#dfe7dc] bg-white p-4 lg:grid-cols-[minmax(100px,0.7fr)_minmax(120px,0.8fr)_minmax(190px,1.8fr)_70px_140px_150px_105px] lg:items-center"
                               >
                                 <div>
                                   <p className="text-xs font-semibold text-[#718178]">Payment</p>
@@ -6699,12 +6819,29 @@ export default function Home() {
                                     {formatMnt(payment.amountMnt)}
                                   </p>
                                 </div>
+                                <label className="block">
+                                  <span className="text-xs font-semibold text-[#718178]">
+                                    Transfer date
+                                  </span>
+                                  <Input
+                                    type="date"
+                                    value={paymentTransferDates[payment.id] ?? payment.paidAt ?? ""}
+                                    onChange={(event) =>
+                                      setPaymentTransferDates((current) => ({
+                                        ...current,
+                                        [payment.id]: event.target.value,
+                                      }))
+                                    }
+                                    disabled={Boolean(payment.paid) || contract.status === "closed"}
+                                    className="mt-1 h-8 border-[#cbd6cc] bg-white px-2 text-xs"
+                                  />
+                                </label>
                                 <Button
                                   size="sm"
                                   variant={payment.paid ? "outline" : "default"}
                                   disabled={contractSaving || contract.status === "closed"}
                                   onClick={() => setPaymentPaid(contract, payment, !payment.paid)}
-                                  className={payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}
+                                  className={`h-8 px-2.5 text-xs ${payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}`}
                                 >
                                   {payment.paid ? (
                                     <>
@@ -6719,7 +6856,7 @@ export default function Home() {
                                     Paid {formatDate(payment.paidAt, language)}
                                   </p>
                                 )}
-                                <div className="flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3 lg:col-span-6">
+                                <div className="flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3 lg:col-span-7">
                                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
                                     <FileUp className="h-4 w-4" />
                                     {documentUploadingId === payment.id ? "Uploading…" : "Upload payment document"}
@@ -6830,145 +6967,107 @@ export default function Home() {
               </div>
             )}
 
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-black">
-                    {currentSession?.isAdmin
-                      ? "Team workplan and finance report"
-                      : "My workplan and finance report"}
-                  </h2>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    Activity counts and status use each member&apos;s assigned main activities. Financial values use the linked budget lines.
-                  </p>
-                </div>
-                {currentSession?.isAdmin && (
-                  <span className="text-sm font-semibold text-[#5d7467]">
-                    {teamMembers.filter((item) => item.group === "PCU").length} PCU members · {teamMembers.filter((item) => item.group === "MNLF").length} MNLF members · {teamMembers.filter((item) => item.group === "Workplan").length} additional members
-                  </span>
-                )}
-              </div>
-              <div className="overflow-x-auto">
-                <Table className="min-w-[1580px]">
-                  <TableHeader>
-                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[270px] pl-5">Team member</TableHead>
-                      <TableHead className="w-[110px] text-center">Activities</TableHead>
-                      <TableHead className="w-[320px]">Activity status</TableHead>
-                      <TableHead className="w-[180px]">Average progress</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Commitment</TableHead>
-                      <TableHead className="text-right">Expenditure</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="w-[140px] pr-5 text-right">Report</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleTeamSummaries.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="pl-5">
-                          <div className="flex items-start gap-3">
-                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e7efe3] text-sm font-black text-[#275b45]">
-                              {item.name
-                                .split(/[.\s]/)
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((part) => part[0])
-                                .join("")}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-black">{item.name}</p>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : item.group === "MNLF" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
-                                >
-                                  {item.group}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-xs text-[#718178]">{item.role}</p>
-                            </div>
+            {visibleTeamSummaries.length > 0 ? (
+              <>
+                <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  {[
+                    { label: "Team members", value: visibleTeamSummaries.length, icon: Users },
+                    { label: "Accountable activities", value: visibleTeamSummaries.reduce((total, item) => total + item.accountableMainCount, 0), icon: Target },
+                    { label: "Supporting assignments", value: visibleTeamSummaries.reduce((total, item) => total + item.supportingMainCount + item.supportingSubactivityCount, 0), icon: HandCoins },
+                    { label: "Sub-activities", value: visibleTeamSummaries.reduce((total, item) => total + item.subactivityCount, 0), icon: ListChecks },
+                    { label: "Average progress", value: `${Math.round(visibleTeamSummaries.reduce((total, item) => total + item.progress, 0) / visibleTeamSummaries.length)}%`, icon: Gauge },
+                  ].map(({ label, value, icon: Icon }) => (
+                    <article key={label} className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_22px_rgba(20,36,27,0.04)]">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#718178]">{label}</p>
+                        <Icon className="h-4 w-4 text-[#2f634c]" />
+                      </div>
+                      <p className="mt-2 text-2xl font-black tabular-nums text-[#183529]">{value}</p>
+                    </article>
+                  ))}
+                </section>
+
+                <section className="grid gap-4 xl:grid-cols-2">
+                  {visibleTeamSummaries.map((item) => (
+                    <article key={item.id} className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                      <div className="flex items-start justify-between gap-4 bg-gradient-to-r from-[#0c3b2d] to-[#245f47] p-4 text-white sm:p-5">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#dbf081] text-sm font-black text-[#173b2d]">
+                            {item.name.split(/[.\s]/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}
                           </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-xl font-black tabular-nums text-[#183529]">
-                            {item.activityCount}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-[#718178]">
-                            assigned
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {item.activityCount ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {(Object.keys(statusMeta) as StatusKey[]).map((key) =>
-                                item.statusCounts[key] ? (
-                                  <span
-                                    key={key}
-                                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold ${statusMeta[key].tone}`}
-                                  >
-                                    <span className={`h-1.5 w-1.5 rounded-full ${statusMeta[key].dot}`} />
-                                    {statusMeta[key].label} {item.statusCounts[key]}
-                                  </span>
-                                ) : null,
-                              )}
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="truncate text-base font-black">{item.name}</h3>
+                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold">{item.group}</span>
                             </div>
-                          ) : (
-                            <span className="text-sm text-[#718178]">No assigned activities</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
+                            <p className="mt-1 text-xs text-emerald-50/75">{item.role}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setMember(item.id);
+                            setActiveView("dashboard");
+                          }}
+                          className="h-8 shrink-0 border-white/30 bg-white/10 px-2.5 text-xs text-white hover:bg-white/20 hover:text-white"
+                        >
+                          View report
+                        </Button>
+                      </div>
+
+                      <div className="p-4 sm:p-5">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {[
+                            ["Accountable", item.accountableMainCount],
+                            ["Supporting main", item.supportingMainCount],
+                            ["Sub-activities", item.subactivityCount],
+                            ["Supporting subs", item.supportingSubactivityCount],
+                          ].map(([label, value]) => (
+                            <div key={String(label)} className="rounded-xl bg-[#f2f6f0] p-3">
+                              <p className="text-[11px] font-semibold text-[#718178]">{label}</p>
+                              <p className="mt-1 text-xl font-black tabular-nums text-[#183529]">{value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-4">
                           <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                            <span>Combined delivery progress</span>
                             <span>{item.progress}%</span>
                           </div>
-                          <Progress
-                            value={item.progress}
-                            className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right font-bold tabular-nums">
-                          {formatMnt(item.budgetMnt)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatMnt(item.commitmentMnt)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatMnt(item.expenditureMnt)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right font-black tabular-nums ${item.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
-                        >
-                          {formatMnt(item.remainingMnt)}
-                        </TableCell>
-                        <TableCell className="pr-5">
-                          <div className="flex justify-end">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setMember(item.id);
-                                setActiveView("dashboard");
-                              }}
-                            >
-                              View report
-                            </Button>
+                          <Progress value={item.progress} className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {(Object.keys(statusMeta) as StatusKey[]).map((key) =>
+                              item.statusCounts[key] ? (
+                                <span key={key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${statusMeta[key].tone}`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${statusMeta[key].dot}`} />
+                                  {statusMeta[key].label} {item.statusCounts[key]}
+                                </span>
+                              ) : null,
+                            )}
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!visibleTeamSummaries.length && (
-                      <TableRow>
-                        <TableCell colSpan={9} className="py-10 text-center text-sm text-[#718178]">
-                          Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email to User Access.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                        </div>
+
+                        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[#e2e7e0] pt-4 text-sm">
+                          <div><dt className="text-xs text-[#718178]">Budget</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.budgetMnt)}</dd></div>
+                          <div><dt className="text-xs text-[#718178]">Commitment</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.commitmentMnt)}</dd></div>
+                          <div><dt className="text-xs text-[#718178]">Expenditure</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.expenditureMnt)}</dd></div>
+                          <div><dt className="text-xs text-[#718178]">Remaining</dt><dd className={`mt-1 font-black tabular-nums ${item.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}>{formatMnt(item.remainingMnt)}</dd></div>
+                        </dl>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+                <p className="rounded-xl border border-[#d7ded5] bg-[#f8faf7] px-4 py-3 text-xs leading-5 text-[#718178]">
+                  Counts distinguish accountable and supporting roles across main activities and sub-activities. Shared budget lines can appear for more than one person, so team financial figures should not be added together.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-white px-6 py-12 text-center text-sm text-[#718178]">
+                Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email to User Access.
               </div>
-              <div className="border-t border-[#e2e7e0] bg-[#f8faf7] px-5 py-3 text-xs leading-5 text-[#718178]">
-                Shared budget lines can be linked to more than one team member. Use the Dashboard for programme totals; team rows should not be added together.
-              </div>
-            </section>
+            )}
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
@@ -6986,6 +7085,48 @@ export default function Home() {
                 <Button onClick={printManagementSummary} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
                   <FileText className="h-4 w-4" /> PDF summary
                 </Button>
+              </div>
+            </section>
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="flex items-center gap-2 text-lg font-black">
+                    <Bell className="h-5 w-5 text-[#2f634c]" /> Automatic alerts
+                  </h2>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Open an alert to review the underlying workplan or contract records.
+                  </p>
+                </div>
+                <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">
+                  {automaticAlerts.reduce((total, item) => total + item.count, 0)} open
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {automaticAlerts.map((alert) => (
+                  <button
+                    key={alert.id}
+                    type="button"
+                    onClick={() => {
+                      if (alert.id === "owners") setMember("no_owner");
+                      setActiveView(alert.view);
+                    }}
+                    className={`rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
+                      alert.count
+                        ? alert.tone === "rose"
+                          ? "border-rose-200 bg-rose-50"
+                          : "border-amber-200 bg-amber-50"
+                        : "border-[#e1e7df] bg-[#f8faf7]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-black">{alert.label}</span>
+                      <span className="text-lg font-black">{alert.count}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#65766d]">
+                      {alert.detail}
+                    </p>
+                  </button>
+                ))}
               </div>
             </section>
             <section className="grid gap-5 lg:grid-cols-2">
@@ -7541,13 +7682,21 @@ export default function Home() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Workstream</span>
-                <Input
+                <NativeSelect
                   value={activityPlanDraft.workstream}
                   onChange={(event) =>
                     setActivityPlanDraft((current) => ({ ...current, workstream: event.target.value }))
                   }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Choose workstream</NativeSelectOption>
+                  {activityPlanDraft.workstream && !workstreams.includes(activityPlanDraft.workstream) && (
+                    <NativeSelectOption value={activityPlanDraft.workstream}>{activityPlanDraft.workstream}</NativeSelectOption>
+                  )}
+                  {workstreams.map((value) => (
+                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                  ))}
+                </NativeSelect>
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1.5 block text-sm font-bold">Activity title</span>
@@ -7584,14 +7733,21 @@ export default function Home() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Goal</span>
-                <Input
+                <NativeSelect
                   value={activityPlanDraft.goal}
                   onChange={(event) =>
                     setActivityPlanDraft((current) => ({ ...current, goal: event.target.value }))
                   }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                  placeholder="Goal 1"
-                />
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Choose goal</NativeSelectOption>
+                  {activityPlanDraft.goal && !goals.includes(activityPlanDraft.goal) && (
+                    <NativeSelectOption value={activityPlanDraft.goal}>{activityPlanDraft.goal}</NativeSelectOption>
+                  )}
+                  {goals.map((value) => (
+                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                  ))}
+                </NativeSelect>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Priority</span>
@@ -7609,13 +7765,21 @@ export default function Home() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Action plan reference</span>
-                <Input
+                <NativeSelect
                   value={activityPlanDraft.actionPlan}
                   onChange={(event) =>
                     setActivityPlanDraft((current) => ({ ...current, actionPlan: event.target.value }))
                   }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Choose reference</NativeSelectOption>
+                  {activityPlanDraft.actionPlan && !actionPlanReferences.includes(activityPlanDraft.actionPlan) && (
+                    <NativeSelectOption value={activityPlanDraft.actionPlan}>{activityPlanDraft.actionPlan}</NativeSelectOption>
+                  )}
+                  {actionPlanReferences.map((value) => (
+                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                  ))}
+                </NativeSelect>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Start date</span>
@@ -7639,9 +7803,35 @@ export default function Home() {
                   className="h-11 border-[#cbd6cc] bg-white"
                 />
               </label>
+              {([[
+                "Lead",
+                "lead",
+              ], ["Technical lead", "technicalLead"]] as const).map(([label, field]) => (
+                <label key={field} className="block">
+                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
+                  <NativeSelect
+                    value={activityPlanDraft[field]}
+                    onChange={(event) =>
+                      setActivityPlanDraft((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                    className="h-11 w-full border-[#cbd6cc] bg-white"
+                  >
+                    <NativeSelectOption value="">Unassigned</NativeSelectOption>
+                    {activityPlanDraft[field] && !teamMembers.some((member) => member.name === activityPlanDraft[field]) && (
+                      <NativeSelectOption value={activityPlanDraft[field]}>{activityPlanDraft[field]}</NativeSelectOption>
+                    )}
+                    {teamMembers.map((member) => (
+                      <NativeSelectOption key={member.id} value={member.name}>
+                        {member.group} · {member.name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </label>
+              ))}
               {[
-                ["Lead", "lead"],
-                ["Technical lead", "technicalLead"],
                 ["Support", "support"],
                 ["Partners", "partners"],
               ].map(([label, field]) => (
@@ -9296,6 +9486,34 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={Boolean(contractToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setContractToDelete(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this contract?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {contractToDelete
+                ? `${contractToDelete.contractNumber}, its payment schedule, and attached payment documents will be removed. The audit history will keep a record of what was deleted.`
+                : "The contract and its related records will be removed."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={contractSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={deleteContract}
+              disabled={contractSaving}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {contractSaving ? "Deleting…" : "Delete contract"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={teamDialogOpen} onOpenChange={(open) => changeFormDialog(open, setTeamDialogOpen)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-xl">
           <DialogHeader>
@@ -9548,28 +9766,31 @@ export default function Home() {
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
                     <Button
+                      size="sm"
                       onClick={() =>
                         openUpdateEditor(targetForActivity(selected, updates))
                       }
-                      className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                      className="h-8 rounded-lg bg-[#0c3b2d] px-2.5 text-xs text-white hover:bg-[#174d3a]"
                     >
-                      <PencilLine className="h-4 w-4" />
+                      <PencilLine className="h-3.5 w-3.5" />
                       Update activity
                     </Button>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => openEditActivity(selected)}
-                      className="border-[#b9cabb] bg-white"
+                      className="h-8 rounded-lg border-[#b9cabb] bg-white px-2.5 text-xs"
                     >
-                      <PencilLine className="h-4 w-4" />
+                      <PencilLine className="h-3.5 w-3.5" />
                       Edit details
                     </Button>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
-                      className="border-[#b9cabb] bg-white"
+                      className="h-8 rounded-lg border-[#b9cabb] bg-white px-2.5 text-xs"
                     >
-                      <History className="h-4 w-4" />
+                      <History className="h-3.5 w-3.5" />
                       History
                     </Button>
                   </div>
@@ -9741,7 +9962,7 @@ export default function Home() {
                               variant="outline"
                               size="sm"
                               onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}
-                              className="border-[#c7d2c7] bg-white"
+                              className="h-8 rounded-lg border-[#c7d2c7] bg-white px-2.5 text-xs"
                             >
                               <History className="h-3.5 w-3.5" />
                               History
@@ -9750,7 +9971,7 @@ export default function Home() {
                               variant="outline"
                               size="sm"
                               onClick={() => openEditSubactivity(selected, sub)}
-                              className="border-[#c7d2c7] bg-white"
+                              className="h-8 rounded-lg border-[#c7d2c7] bg-white px-2.5 text-xs"
                             >
                               <PencilLine className="h-3.5 w-3.5" />
                               Edit details
@@ -9760,7 +9981,7 @@ export default function Home() {
                               onClick={() =>
                                 openUpdateEditor(targetForSubactivity(sub))
                               }
-                              className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                              className="h-8 rounded-lg bg-[#0c3b2d] px-2.5 text-xs text-white hover:bg-[#174d3a]"
                             >
                               <PencilLine className="h-3.5 w-3.5" />
                               {isEditing ? "Editing update" : "Edit update"}

@@ -1,9 +1,10 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { contractPayments, contracts, workplanRecords } from "@/db/schema";
-import { requireAppSession } from "@/lib/app-auth";
+import { contractPayments, contracts, paymentDocuments, workplanRecords } from "@/db/schema";
+import { requireAdminSession, requireAppSession } from "@/lib/app-auth";
 import { snapshot, writeAuditLog } from "@/lib/audit-log";
+import { getBucket } from "@/lib/storage";
 import workplan from "@/lib/workplan-data.json";
 
 const validStatuses = new Set(["draft", "active", "completed", "closed"]);
@@ -541,7 +542,7 @@ export async function PATCH(request: Request) {
 
     if (payload.action === "set_payment_paid") {
       const paymentId = payload.paymentId?.trim() ?? "";
-      const paidAt = payload.paid ? payload.paidAt?.trim() || now.slice(0, 10) : "";
+      const paidAt = payload.paid ? payload.paidAt?.trim() ?? "" : "";
       if (!paymentId || (payload.paid && !validateDate(paidAt))) {
         return Response.json({ error: "Choose a valid payment and paid date." }, { status: 400 });
       }
@@ -590,6 +591,45 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Choose a valid contract action." }, { status: 400 });
   } catch (error) {
     console.error("Unable to update contract status", error);
+    return Response.json({ error: errorMessage(error) }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await requireAdminSession(request);
+    if (session instanceof Response) return session;
+    const payload = (await request.json()) as { id?: unknown };
+    const id = String(payload.id ?? "").trim();
+    if (!id) {
+      return Response.json({ error: "Choose a valid contract." }, { status: 400 });
+    }
+    const db = getDb();
+    const [contract] = await db.select().from(contracts).where(eq(contracts.id, id)).limit(1);
+    if (!contract) {
+      return Response.json({ error: "Contract not found." }, { status: 404 });
+    }
+    const [payments, documents] = await Promise.all([
+      db.select().from(contractPayments).where(eq(contractPayments.contractId, id)),
+      db.select().from(paymentDocuments).where(eq(paymentDocuments.contractId, id)),
+    ]);
+    for (const document of documents) {
+      await getBucket().delete(document.objectKey);
+    }
+    await db.delete(paymentDocuments).where(eq(paymentDocuments.contractId, id));
+    await db.delete(contractPayments).where(eq(contractPayments.contractId, id));
+    await db.delete(contracts).where(eq(contracts.id, id));
+    await writeAuditLog({
+      entityType: "contract",
+      entityKey: id,
+      action: "deleted",
+      previousValue: snapshot("contract", { contract, payments }),
+      newValue: null,
+      changedBy: session.email,
+    });
+    return Response.json({ deletedId: id });
+  } catch (error) {
+    console.error("Unable to delete contract", error);
     return Response.json({ error: errorMessage(error) }, { status: 503 });
   }
 }

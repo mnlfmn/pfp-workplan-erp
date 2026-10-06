@@ -4,6 +4,7 @@ type ExportStatus =
   | "completed"
   | "in_progress"
   | "delayed"
+  | "delayed_externally"
   | "on_hold"
   | "not_started"
   | "not_reported";
@@ -35,6 +36,7 @@ const statusLabels: Record<ExportStatus, string> = {
   completed: "Дууссан",
   in_progress: "Хийгдэж байгаа",
   delayed: "Хойшилсон",
+  delayed_externally: "Гадаад шалтгаанаар хойшилсон",
   on_hold: "Түр зогссон",
   not_started: "Эхлээгүй",
   not_reported: "Мэдээлээгүй",
@@ -44,6 +46,7 @@ const statusStyles: Record<ExportStatus, number> = {
   completed: 12,
   in_progress: 13,
   delayed: 14,
+  delayed_externally: 14,
   on_hold: 15,
   not_started: 16,
   not_reported: 16,
