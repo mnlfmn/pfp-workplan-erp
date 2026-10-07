@@ -347,6 +347,41 @@ type ContractDraft = {
   payments: ContractPaymentDraft[];
 };
 
+type MyWorkAssignment = {
+  key: string;
+  kind: "activity" | "subactivity";
+  activity: Activity;
+  subactivity?: Subactivity;
+  code: string;
+  title: string;
+  role: "accountable" | "supporting";
+  status: StatusKey;
+  progress: number;
+  startDate: string;
+  endDate: string;
+  owner: string;
+  quarterlyDue: boolean;
+  missingFields: string[];
+};
+
+type MyWorkPayment = {
+  contract: ContractRecord;
+  payment: ContractPayment;
+  daysUntil: number;
+};
+
+type MyWorkAlert = {
+  id: string;
+  urgency: "critical" | "high" | "medium" | "low";
+  score: number;
+  label: string;
+  detail: string;
+  kind: "update" | "payment" | "activity_info" | "contract_info";
+  assignment?: MyWorkAssignment;
+  contract?: ContractRecord;
+  payment?: ContractPayment;
+};
+
 type PaymentDocument = {
   id: string;
   contractId: string;
@@ -444,6 +479,32 @@ const statusChartColors: Record<StatusKey, string> = {
   on_hold: "#d39222",
   not_started: "#829089",
   not_reported: "#c4ccc7",
+};
+
+const alertUrgencyMeta: Record<
+  MyWorkAlert["urgency"],
+  { label: string; tone: string; dot: string }
+> = {
+  critical: {
+    label: "Critical",
+    tone: "border-rose-200 bg-rose-50 text-rose-800",
+    dot: "bg-rose-600",
+  },
+  high: {
+    label: "High",
+    tone: "border-orange-200 bg-orange-50 text-orange-800",
+    dot: "bg-orange-500",
+  },
+  medium: {
+    label: "Medium",
+    tone: "border-amber-200 bg-amber-50 text-amber-800",
+    dot: "bg-amber-500",
+  },
+  low: {
+    label: "Low",
+    tone: "border-[#d7ded5] bg-[#f6f9f4] text-[#49705c]",
+    dot: "bg-[#7c9385]",
+  },
 };
 
 const baseActivities = workplan.activities as Activity[];
@@ -1547,7 +1608,10 @@ export default function Home() {
         return result.session;
       })
       .then((session) => {
-        if (active) setCurrentSession(session);
+        if (active) {
+          setCurrentSession(session);
+          if (!session.isAdmin) setActiveView("mywork");
+        }
       })
       .catch(() => {
         if (active) setCurrentSession(null);
@@ -4508,45 +4572,286 @@ export default function Home() {
   );
 
   const myWork = useMemo(() => {
-    if (!currentSession) return { activities: [] as Activity[], contracts: [] as ContractRecord[], requiredUpdates: 0 };
-    const activities = allActivities.filter((activity) =>
-      isAssignedToMember(
-        activity,
-        currentSession.memberId,
-        updates,
-        teamMembers,
+    const empty = {
+      assignments: [] as MyWorkAssignment[],
+      accountable: [] as MyWorkAssignment[],
+      supporting: [] as MyWorkAssignment[],
+      updatesDue: [] as MyWorkAssignment[],
+      overdue: [] as MyWorkAssignment[],
+      contracts: [] as ContractRecord[],
+      upcomingPayments: [] as MyWorkPayment[],
+      missingInformation: [] as MyWorkAlert[],
+      alerts: [] as MyWorkAlert[],
+      progress: 0,
+      quarter: quarterForDate(todayForInput()),
+    };
+    if (!currentSession) return empty;
+
+    const memberName =
+      teamMembers.find((item) => item.id === currentSession.memberId)?.name ||
+      currentSession.memberName;
+    if (!memberName) return empty;
+
+    const today = todayForInput();
+    const quarter = quarterForDate(today);
+    const dueCutoffDate = new Date(`${today}T00:00:00Z`);
+    dueCutoffDate.setUTCDate(dueCutoffDate.getUTCDate() + 30);
+    const dueCutoff = dueCutoffDate.toISOString().slice(0, 10);
+    const dayDifference = (date: string) =>
+      Math.round(
+        (new Date(`${date}T00:00:00Z`).getTime() -
+          new Date(`${today}T00:00:00Z`).getTime()) /
+          86_400_000,
+      );
+    const hasQuarterlyUpdate = (key: string) =>
+      quarterlyHistory.some(
+        (entry) =>
+          entry.activityKey === key &&
+          entry.planYear === selectedYear &&
+          entry.quarter === quarter,
+      );
+    const assignedRole = (owner: string) => {
+      const responsibility = responsibilityParts(owner, teamMembers);
+      if (responsibility.accountable === memberName) return "accountable" as const;
+      if (responsibility.supporting.includes(memberName)) return "supporting" as const;
+      return null;
+    };
+
+    const assignments = allActivities.flatMap((activity) => {
+      const records: MyWorkAssignment[] = [];
+      const mainOwner = activityOwner(activity, updates);
+      const mainRole = assignedRole(mainOwner);
+      if (mainRole) {
+        const missingFields = [
+          !activity.startDate ? "Start date" : "",
+          !activity.endDate ? "Due date" : "",
+          !activity.lead?.trim() ? "MECC lead" : "",
+        ].filter(Boolean);
+        records.push({
+          key: activity.id,
+          kind: "activity",
+          activity,
+          code: activity.code || activity.uid,
+          title: activity.titleMn?.trim() || activity.title,
+          role: mainRole,
+          status: deriveActivityStatus(activity, updates),
+          progress: deriveActivityProgress(activity, updates),
+          startDate: activity.startDate,
+          endDate: activity.endDate,
+          owner: mainOwner,
+          quarterlyDue: !hasQuarterlyUpdate(activity.id),
+          missingFields,
+        });
+      }
+      for (const subactivity of activity.subactivities) {
+        const subOwner = subactivityOwner(subactivity, updates);
+        const subRole = assignedRole(subOwner);
+        if (!subRole) continue;
+        const missingFields = [
+          !subactivity.startDate ? "Start date" : "",
+          !subactivity.endDate ? "Due date" : "",
+        ].filter(Boolean);
+        records.push({
+          key: subactivity.id,
+          kind: "subactivity",
+          activity,
+          subactivity,
+          code: activity.code || activity.uid,
+          title: subactivity.title,
+          role: subRole,
+          status: recordStatus(
+            subactivity.id,
+            subactivity.status as StatusKey,
+            updates,
+          ),
+          progress: recordProgress(
+            subactivity.id,
+            statusMeta[subactivity.status as StatusKey].weight,
+            updates,
+          ),
+          startDate: subactivity.startDate,
+          endDate: subactivity.endDate,
+          owner: subOwner,
+          quarterlyDue: !hasQuarterlyUpdate(subactivity.id),
+          missingFields,
+        });
+      }
+      return records;
+    }).sort((left, right) => {
+      const leftOverdue = Boolean(
+        left.endDate && left.endDate < today && left.status !== "completed",
+      );
+      const rightOverdue = Boolean(
+        right.endDate && right.endDate < today && right.status !== "completed",
+      );
+      if (leftOverdue !== rightOverdue) return leftOverdue ? -1 : 1;
+      return (left.endDate || "9999-12-31").localeCompare(
+        right.endDate || "9999-12-31",
+      );
+    });
+
+    const assignmentKeys = new Set(
+      assignments.flatMap((item) =>
+        item.kind === "activity"
+          ? [
+              item.activity.id,
+              ...item.activity.subactivities.map((subactivity) => subactivity.id),
+            ]
+          : [item.key],
       ),
     );
-    const keys = new Set(
-      activities.flatMap((activity) => [
-        activity.id,
-        ...activity.subactivities.map((subactivity) => subactivity.id),
-      ]),
+    const scopedContracts = contracts.filter((contract) =>
+      assignmentKeys.has(contract.activityKey),
     );
-    const quarter = quarterForDate(todayForInput());
-    const requiredUpdates = [...keys].filter(
-      (key) =>
-        !quarterlyHistory.some(
-          (entry) =>
-            entry.activityKey === key &&
-            entry.planYear === selectedYear &&
-            entry.quarter === quarter,
-        ),
-    ).length;
+    const upcomingPayments = scopedContracts
+      .flatMap((contract) =>
+        contract.payments
+          .filter(
+            (payment) =>
+              !payment.paid && payment.dueDate && payment.dueDate <= dueCutoff,
+          )
+          .map((payment) => ({
+            contract,
+            payment,
+            daysUntil: dayDifference(payment.dueDate),
+          })),
+      )
+      .sort((left, right) => left.daysUntil - right.daysUntil);
+    const overdue = assignments.filter(
+      (item) =>
+        item.endDate && item.endDate < today && item.status !== "completed",
+    );
+    const updatesDue = assignments.filter((item) => item.quarterlyDue);
+
+    const missingInformation: MyWorkAlert[] = [
+      ...assignments
+        .filter((item) => item.missingFields.length)
+        .map((item) => ({
+          id: `missing-${item.key}`,
+          urgency: "high" as const,
+          score: 820,
+          label: `${item.code} needs information`,
+          detail: `${item.missingFields.join(", ")} missing`,
+          kind: "activity_info" as const,
+          assignment: item,
+        })),
+      ...scopedContracts
+        .filter(
+          (contract) =>
+            !contract.torName.trim() ||
+            !contract.serviceProviderName.trim() ||
+            contract.payments.some((payment) => !payment.deliverable.trim()),
+        )
+        .map((contract) => ({
+          id: `missing-contract-${contract.id}`,
+          urgency: "high" as const,
+          score: 810,
+          label: `${contract.contractNumber} needs information`,
+          detail: !contract.torName.trim()
+            ? "Terms of Reference is missing"
+            : !contract.serviceProviderName.trim()
+              ? "Service provider is missing"
+              : "A payment deliverable is missing",
+          kind: "contract_info" as const,
+          contract,
+        })),
+    ];
+
+    const alerts: MyWorkAlert[] = [
+      ...overdue.map((item) => {
+        const daysOverdue = Math.max(1, -dayDifference(item.endDate));
+        return {
+          id: `overdue-${item.key}`,
+          urgency: daysOverdue > 30 ? ("critical" as const) : ("high" as const),
+          score: 1_000 + daysOverdue,
+          label: `${item.code} is overdue`,
+          detail: `${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue · ${item.title}`,
+          kind: "update" as const,
+          assignment: item,
+        };
+      }),
+      ...upcomingPayments.map(({ contract, payment, daysUntil }) => ({
+        id: `payment-${payment.id}`,
+        urgency:
+          daysUntil < 0
+            ? ("critical" as const)
+            : daysUntil <= 7
+              ? ("high" as const)
+              : ("medium" as const),
+        score: daysUntil < 0 ? 950 + Math.abs(daysUntil) : 760 - daysUntil,
+        label:
+          daysUntil < 0
+            ? `${contract.contractNumber} payment is overdue`
+            : `${contract.contractNumber} payment is due soon`,
+        detail: `${payment.label} · ${formatMnt(payment.amountMnt)} · ${formatDate(payment.dueDate, language)}`,
+        kind: "payment" as const,
+        contract,
+        payment,
+      })),
+      ...missingInformation,
+      ...updatesDue.map((item) => ({
+        id: `quarter-${item.key}`,
+        urgency: "medium" as const,
+        score: 600,
+        label: `${quarter} update due for ${item.code}`,
+        detail: item.title,
+        kind: "update" as const,
+        assignment: item,
+      })),
+    ].sort((left, right) => right.score - left.score);
+
     return {
-      activities,
-      contracts: contracts.filter((contract) => keys.has(contract.activityKey)),
-      requiredUpdates,
+      assignments,
+      accountable: assignments.filter((item) => item.role === "accountable"),
+      supporting: assignments.filter((item) => item.role === "supporting"),
+      updatesDue,
+      overdue,
+      contracts: scopedContracts,
+      upcomingPayments,
+      missingInformation,
+      alerts,
+      progress: assignments.length
+        ? Math.round(
+            assignments.reduce((total, item) => total + item.progress, 0) /
+              assignments.length,
+          )
+        : 0,
+      quarter,
     };
   }, [
     allActivities,
     contracts,
     currentSession,
+    language,
     quarterlyHistory,
     selectedYear,
     teamMembers,
     updates,
   ]);
+
+  const openMyWorkUpdate = useCallback(
+    (assignment: MyWorkAssignment) => {
+      setSelectedId(assignment.activity.id);
+      openUpdateEditor(
+        assignment.kind === "activity"
+          ? targetForActivity(assignment.activity, updates)
+          : targetForSubactivity(assignment.subactivity!),
+      );
+    },
+    [openUpdateEditor, updates],
+  );
+
+  const openMyWorkDetails = useCallback((assignment: MyWorkAssignment) => {
+    if (assignment.kind === "activity") openEditActivity(assignment.activity);
+    else openEditSubactivity(assignment.activity, assignment.subactivity!);
+  }, []);
+
+  const reviewMyWorkContract = useCallback((contract: ContractRecord) => {
+    setContractQuery(contract.contractNumber);
+    setContractStatusFilter("all");
+    setExpandedContractIds(new Set([contract.id]));
+    setActiveView("contracts");
+  }, []);
 
   const exportWorkplan = useCallback(async () => {
     if (!allActivities.length) {
@@ -5093,15 +5398,13 @@ export default function Home() {
                 <LayoutDashboard className="h-4 w-4" />
                 Dashboard
               </TabsTrigger>
-              {!currentSession?.isAdmin && (
-                <TabsTrigger
-                  value="mywork"
-                  className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
-                >
-                  <CalendarClock className="h-4 w-4" />
-                  My Work
-                </TabsTrigger>
-              )}
+              <TabsTrigger
+                value="mywork"
+                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+              >
+                <CalendarClock className="h-4 w-4" />
+                My Work
+              </TabsTrigger>
               <TabsTrigger
                 value="workplan"
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
@@ -5243,47 +5546,203 @@ export default function Home() {
         </section>
 
           <TabsContent value="mywork" className="space-y-6">
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)]">
-              <h2 className="text-xl font-black">My Work</h2>
-              <p className="mt-1 text-sm text-[#718178]">
-                Your assignments, deadlines, contracts, and quarterly updates for {selectedYear}.
-              </p>
+            <section className="overflow-hidden rounded-3xl border border-[#224f3c] bg-gradient-to-br from-[#0c3b2d] via-[#174d3a] to-[#2d674d] text-white shadow-[0_16px_38px_rgba(12,59,45,0.18)]">
+              <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-[#dbf081] px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[#153829]">
+                      {myWork.quarter} action center
+                    </span>
+                    <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold text-emerald-50">
+                      {selectedYear} workplan
+                    </span>
+                  </div>
+                  <h2 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">
+                    {currentSession?.memberName || "My Work"}
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50/75">
+                    Your accountable and supporting work, deadlines, quarterly reporting, and linked contract actions in one place.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 rounded-2xl border border-white/15 bg-black/10 px-5 py-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.08em] text-emerald-100/65">Combined progress</p>
+                    <p className="mt-1 text-4xl font-black text-[#dbf081]">{myWork.progress}%</p>
+                  </div>
+                  <div className="h-14 w-14 rounded-full border-[7px] border-white/15 border-t-[#dbf081]" aria-hidden="true" />
+                </div>
+              </div>
             </section>
-            <section className="grid gap-3 sm:grid-cols-3">
+
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {[
-                ["Assigned activities", myWork.activities.length],
-                ["Linked contracts", myWork.contracts.length],
-                ["Required quarterly updates", myWork.requiredUpdates],
-              ].map(([label, value]) => (
-                <article key={String(label)} className="rounded-2xl border border-[#d7ded5] bg-white p-5">
-                  <p className="text-sm font-semibold text-[#5d7467]">{label}</p>
-                  <p className="mt-2 text-3xl font-black">{value}</p>
+                { label: "Accountable", value: myWork.accountable.length, icon: Target, tone: "text-[#245f47]" },
+                { label: "Supporting", value: myWork.supporting.length, icon: HandCoins, tone: "text-[#245f47]" },
+                { label: `${myWork.quarter} updates due`, value: myWork.updatesDue.length, icon: FileText, tone: myWork.updatesDue.length ? "text-amber-700" : "text-[#245f47]" },
+                { label: "Overdue work", value: myWork.overdue.length, icon: Clock3, tone: myWork.overdue.length ? "text-rose-700" : "text-[#245f47]" },
+                { label: "Payments due", value: myWork.upcomingPayments.length, icon: ReceiptText, tone: myWork.upcomingPayments.some((item) => item.daysUntil < 0) ? "text-rose-700" : "text-[#245f47]" },
+                { label: "Missing information", value: myWork.missingInformation.length, icon: AlertTriangle, tone: myWork.missingInformation.length ? "text-orange-700" : "text-[#245f47]" },
+              ].map(({ label, value, icon: Icon, tone }) => (
+                <article key={label} className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_22px_rgba(20,36,27,0.04)]">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.07em] text-[#718178]">{label}</p>
+                    <Icon className={`h-4 w-4 ${tone}`} />
+                  </div>
+                  <p className={`mt-2 text-3xl font-black tabular-nums ${tone}`}>{value}</p>
                 </article>
               ))}
             </section>
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-              <div className="border-b border-[#e2e7e0] px-5 py-4">
-                <h2 className="text-lg font-black">Assignments and deadlines</h2>
-              </div>
-              <div className="divide-y divide-[#e8ece6]">
-                {myWork.activities.map((activity) => (
-                  <button
-                    type="button"
-                    key={activity.id}
-                    onClick={() => openActivity(activity)}
-                    className="grid w-full gap-2 px-5 py-4 text-left transition hover:bg-[#f7faf5] sm:grid-cols-[110px_1fr_130px_120px] sm:items-center"
-                  >
-                    <span className="font-mono text-sm font-black text-[#2f634c]">{activity.code || activity.uid}</span>
-                    <span className="font-bold">{activity.title}</span>
-                    <span className="text-sm text-[#718178]">Due {formatDate(activity.endDate, language)}</span>
-                    <StatusPill status={deriveActivityStatus(activity, updates)} />
-                  </button>
-                ))}
-                {!myWork.activities.length && (
-                  <p className="px-5 py-12 text-center text-sm text-[#718178]">No activities are assigned to your account.</p>
-                )}
-              </div>
+
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.8fr)]">
+              <article className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#e2e7e0] px-5 py-4">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-lg font-black">
+                      <Bell className="h-5 w-5 text-[#2f634c]" /> Priority actions
+                    </h3>
+                    <p className="mt-1 text-xs text-[#718178]">Ranked by urgency across your workplan and contracts.</p>
+                  </div>
+                  <span className="rounded-full bg-[#edf3ec] px-3 py-1 text-xs font-black text-[#315845]">
+                    {myWork.alerts.length} open
+                  </span>
+                </div>
+                <div className="divide-y divide-[#e8ece6]">
+                  {myWork.alerts.slice(0, 10).map((alert) => {
+                    const urgency = alertUrgencyMeta[alert.urgency];
+                    return (
+                      <div key={alert.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                        <span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black ${urgency.tone}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${urgency.dot}`} />
+                          {urgency.label}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-black text-[#183529]">{alert.label}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#718178]">{alert.detail}</p>
+                        </div>
+                        {alert.kind === "update" && alert.assignment && (
+                          <Button size="sm" onClick={() => openMyWorkUpdate(alert.assignment!)} className="h-8 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]">
+                            <PencilLine className="h-3.5 w-3.5" /> Update now
+                          </Button>
+                        )}
+                        {alert.kind === "payment" && alert.contract && (
+                          <Button size="sm" variant="outline" onClick={() => reviewMyWorkContract(alert.contract!)} className="h-8 border-[#b9cabb] px-3 text-xs">
+                            Review payment
+                          </Button>
+                        )}
+                        {alert.kind === "activity_info" && alert.assignment && (
+                          <Button size="sm" variant="outline" onClick={() => openMyWorkDetails(alert.assignment!)} className="h-8 border-[#b9cabb] px-3 text-xs">
+                            Complete details
+                          </Button>
+                        )}
+                        {alert.kind === "contract_info" && alert.contract && (
+                          <Button size="sm" variant="outline" onClick={() => openEditContract(alert.contract!)} className="h-8 border-[#b9cabb] px-3 text-xs">
+                            Edit contract
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!myWork.alerts.length && (
+                    <div className="px-6 py-12 text-center">
+                      <CircleCheck className="mx-auto h-8 w-8 text-emerald-600" />
+                      <p className="mt-3 font-black">You are all caught up</p>
+                      <p className="mt-1 text-sm text-[#718178]">No overdue work, reporting gaps, or upcoming payment actions.</p>
+                    </div>
+                  )}
+                </div>
+              </article>
+
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-black">Upcoming contract payments</h3>
+                    <p className="mt-1 text-xs text-[#718178]">Overdue and next 30 days.</p>
+                  </div>
+                  <ReceiptText className="h-5 w-5 text-[#2f634c]" />
+                </div>
+                <div className="mt-4 space-y-2.5">
+                  {myWork.upcomingPayments.slice(0, 6).map(({ contract, payment, daysUntil }) => (
+                    <button
+                      type="button"
+                      key={payment.id}
+                      onClick={() => reviewMyWorkContract(contract)}
+                      className="block w-full rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-left transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-black text-[#315845]">{contract.contractNumber}</span>
+                        <span className={`text-[11px] font-black ${daysUntil < 0 ? "text-rose-700" : daysUntil <= 7 ? "text-orange-700" : "text-[#718178]"}`}>
+                          {daysUntil < 0
+                            ? `${Math.abs(daysUntil)}d overdue`
+                            : daysUntil === 0
+                              ? "Due today"
+                              : `Due in ${daysUntil}d`}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-sm font-bold">{payment.label} · {payment.deliverable || "Deliverable missing"}</p>
+                      <p className="mt-1 text-xs font-semibold text-[#718178]">{formatMnt(payment.amountMnt)}</p>
+                    </button>
+                  ))}
+                  {!myWork.upcomingPayments.length && (
+                    <div className="rounded-xl border border-dashed border-[#cbd6cc] px-4 py-8 text-center text-sm text-[#718178]">
+                      No payments due in the next 30 days.
+                    </div>
+                  )}
+                </div>
+              </article>
             </section>
+
+            <section className="grid gap-5 xl:grid-cols-2">
+              {[
+                { title: "Accountable assignments", items: myWork.accountable, accent: "bg-[#0c3b2d]" },
+                { title: "Supporting assignments", items: myWork.supporting, accent: "bg-[#49705c]" },
+              ].map((group) => (
+                <article key={group.title} className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#e2e7e0] px-5 py-4">
+                    <h3 className="text-lg font-black">{group.title}</h3>
+                    <span className="rounded-full bg-[#edf3ec] px-3 py-1 text-xs font-black text-[#315845]">{group.items.length}</span>
+                  </div>
+                  <div className="divide-y divide-[#e8ece6]">
+                    {group.items.map((item) => (
+                      <div key={item.key} className="p-4 sm:p-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`h-2 w-2 rounded-full ${group.accent}`} />
+                              <span className="font-mono text-xs font-black text-[#2f634c]">{item.code}</span>
+                              <span className="rounded-full bg-[#edf3ec] px-2 py-0.5 text-[10px] font-bold uppercase text-[#5d7467]">
+                                {item.kind === "activity" ? "Main activity" : "Sub-activity"}
+                              </span>
+                              <StatusPill status={item.status} />
+                            </div>
+                            <p className="mt-2 line-clamp-2 font-black leading-6">{item.title}</p>
+                            <p className={`mt-1 text-xs font-semibold ${item.endDate && item.endDate < todayForInput() && item.status !== "completed" ? "text-rose-700" : "text-[#718178]"}`}>
+                              Due {formatDate(item.endDate, language)}
+                              {item.quarterlyDue ? ` · ${myWork.quarter} update due` : " · Quarterly update submitted"}
+                            </p>
+                          </div>
+                          <Button size="sm" onClick={() => openMyWorkUpdate(item)} className="h-8 shrink-0 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]">
+                            <PencilLine className="h-3.5 w-3.5" /> Update now
+                          </Button>
+                        </div>
+                        <div className="mt-3 flex items-center gap-3">
+                          <Progress value={item.progress} className="h-1.5 flex-1 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
+                          <span className="w-10 text-right text-xs font-black text-[#315845]">{item.progress}%</span>
+                        </div>
+                      </div>
+                    ))}
+                    {!group.items.length && (
+                      <p className="px-5 py-10 text-center text-sm text-[#718178]">No {group.title.toLocaleLowerCase()}.</p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </section>
+
+            {currentSession && !teamMembers.some((item) => item.id === currentSession.memberId) && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-5 text-sm text-amber-900">
+                Your signed-in account is not linked to a team member record. Ask an administrator to connect your email in User Access.
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="dashboard" className="space-y-6">
