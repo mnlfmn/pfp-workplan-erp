@@ -252,6 +252,11 @@ type SubactivityPlanDraft = {
   progressSummary: string;
 };
 
+type WorkplanPreview = {
+  activityId: string;
+  subactivityId?: string;
+};
+
 type BudgetLineDraft = {
   code: string;
   title: string;
@@ -1203,6 +1208,13 @@ export default function Home() {
   const [status, setStatus] = useState("all");
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workplanPreview, setWorkplanPreview] =
+    useState<WorkplanPreview | null>(null);
+  const [expandedWorkplanIds, setExpandedWorkplanIds] =
+    useState<Set<string>>(new Set());
+  const [workplanDensity, setWorkplanDensity] = useState<
+    "compact" | "comfortable"
+  >("compact");
   const [updates, setUpdates] = useState<Record<string, UpdateRecord>>({});
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
     defaultTeamMembers,
@@ -1292,6 +1304,7 @@ export default function Home() {
     note: "",
   });
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [planFormStep, setPlanFormStep] = useState(0);
   const [planRecordType, setPlanRecordType] = useState<
     "activity" | "subactivity"
   >("activity");
@@ -1494,6 +1507,22 @@ export default function Home() {
   const selected = useMemo(
     () => allActivities.find((item) => item.id === selectedId) ?? null,
     [allActivities, selectedId],
+  );
+
+  const workplanPreviewActivity = useMemo(
+    () =>
+      allActivities.find(
+        (item) => item.id === workplanPreview?.activityId,
+      ) ?? null,
+    [allActivities, workplanPreview],
+  );
+
+  const workplanPreviewSubactivity = useMemo(
+    () =>
+      workplanPreviewActivity?.subactivities.find(
+        (item) => item.id === workplanPreview?.subactivityId,
+      ) ?? null,
+    [workplanPreview, workplanPreviewActivity],
   );
 
   const selectableTargets = useMemo(() => {
@@ -2797,6 +2826,7 @@ export default function Home() {
   }
 
   function openAddActivity() {
+    setPlanFormStep(0);
     setPlanRecordType("activity");
     setEditingPlanKey(null);
     setEditingPlanParentKey("");
@@ -2810,6 +2840,7 @@ export default function Home() {
   }
 
   function openEditActivity(activity: Activity) {
+    setPlanFormStep(0);
     setPlanRecordType("activity");
     setEditingPlanKey(activity.id);
     setEditingPlanParentKey("");
@@ -2834,6 +2865,7 @@ export default function Home() {
   }
 
   function openAddSubactivity(activity: Activity) {
+    setPlanFormStep(0);
     setPlanRecordType("subactivity");
     setEditingPlanKey(null);
     setEditingPlanParentKey(activity.id);
@@ -2847,6 +2879,7 @@ export default function Home() {
   }
 
   function openEditSubactivity(activity: Activity, subactivity: Subactivity) {
+    setPlanFormStep(0);
     setPlanRecordType("subactivity");
     setEditingPlanKey(subactivity.id);
     setEditingPlanParentKey(activity.id);
@@ -2962,7 +2995,12 @@ export default function Home() {
       applyPlanResult(result);
       setPlanDialogOpen(false);
       setFormDirty(false);
-      if (isActivity) setSelectedId(key);
+      setWorkplanPreview(
+        isActivity
+          ? { activityId: key }
+          : { activityId: editingPlanParentKey, subactivityId: key },
+      );
+      if (isActivity && selectedId) setSelectedId(key);
       toast.success(editingPlanKey ? "Workplan item updated" : "Workplan item added");
     } catch (error) {
       setPlanState("unavailable");
@@ -2997,7 +3035,18 @@ export default function Home() {
         throw new Error(result.error || "The workplan item could not be removed.");
       }
       applyPlanResult(result);
-      if (planRecordType === "activity") setSelectedId(null);
+      if (planRecordType === "activity") {
+        setSelectedId(null);
+        if (workplanPreview?.activityId === editingPlanKey) {
+          setWorkplanPreview(null);
+        }
+      } else if (workplanPreview?.subactivityId === editingPlanKey) {
+        setWorkplanPreview(
+          workplanPreview?.activityId
+            ? { activityId: workplanPreview.activityId }
+            : null,
+        );
+      }
       setPlanDeleteOpen(false);
       setPlanDialogOpen(false);
       toast.success("Workplan item removed");
@@ -3734,6 +3783,11 @@ export default function Home() {
         item.technicalLead,
         item.lead,
         activityAssignmentText(item, updates),
+        ...item.subactivities.flatMap((subactivity) => [
+          subactivity.title,
+          subactivityOwner(subactivity, updates),
+          subactivity.progressSummary,
+        ]),
       ]
         .join(" ")
         .toLocaleLowerCase();
@@ -5686,28 +5740,71 @@ export default function Home() {
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-          <div className="sticky top-0 z-20 border-b border-[#e2e7e0] bg-white p-4 lg:flex lg:items-center lg:justify-between lg:p-5">
-            <div className="mb-4 lg:mb-0">
-              <h2 className="text-xl font-bold">Workplan activities</h2>
-              <p className="text-sm text-[#718178]">
-                {filtered.length} of {allActivities.length} activities
-              </p>
+          <div className="sticky top-0 z-30 border-b border-[#dbe3d9] bg-white/95 p-4 backdrop-blur lg:p-5">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-xl font-black">Workplan activities</h2>
+                <p className="mt-0.5 text-sm text-[#718178]">
+                  {filtered.length} of {allActivities.length} main activities · select a row for quick details
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-lg border border-[#cbd6cc] bg-[#f5f8f3] p-1">
+                  {(["compact", "comfortable"] as const).map((density) => (
+                    <button
+                      type="button"
+                      key={density}
+                      onClick={() => setWorkplanDensity(density)}
+                      className={[
+                        "h-7 rounded-md px-2.5 text-xs font-black capitalize transition",
+                        workplanDensity === density
+                          ? "bg-white text-[#174734] shadow-sm"
+                          : "text-[#718178] hover:text-[#174734]",
+                      ].join(" ")}
+                    >
+                      {density}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setExpandedWorkplanIds(
+                      expandedWorkplanIds.size
+                        ? new Set()
+                        : new Set(filtered.map((item) => item.id)),
+                    )
+                  }
+                  className="h-9 border-[#cbd6cc] px-3 text-xs"
+                >
+                  {expandedWorkplanIds.size ? "Collapse all" : "Expand all"}
+                </Button>
+                <Button
+                  onClick={openAddActivity}
+                  className="h-9 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add activity
+                </Button>
+              </div>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
-              <label className="relative block min-w-[240px]">
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_repeat(5,minmax(135px,0.65fr))]">
+              <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9 text-base md:text-sm"
-                  placeholder="Search code, activity or lead"
+                  className="h-9 border-[#ced8cf] bg-[#f8faf7] pl-9 text-base md:text-sm"
+                  placeholder="Search activities, sub-activities or owners"
                   aria-label="Search workplan activities"
                 />
               </label>
               <NativeSelect
                 value={section}
                 onChange={(event) => setSection(event.target.value)}
-                className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by workplan section"
               >
                 <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
@@ -5717,7 +5814,7 @@ export default function Home() {
               <NativeSelect
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
-                className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by goal"
               >
                 <NativeSelectOption value="all">Every goal</NativeSelectOption>
@@ -5730,7 +5827,7 @@ export default function Home() {
               <NativeSelect
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
-                className="h-10 min-w-[150px] border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by status"
               >
                 <NativeSelectOption value="all">All statuses</NativeSelectOption>
@@ -5743,7 +5840,7 @@ export default function Home() {
               <NativeSelect
                 value={workstream}
                 onChange={(event) => setWorkstream(event.target.value)}
-                className="h-10 min-w-[210px] border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by workstream"
               >
                 <NativeSelectOption value="all">All workstreams</NativeSelectOption>
@@ -5756,7 +5853,7 @@ export default function Home() {
               <NativeSelect
                 value={member}
                 onChange={(event) => setMember(event.target.value)}
-                className="h-10 min-w-[220px] border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter workplan by team member"
               >
                 <NativeSelectOption value="all">All team members</NativeSelectOption>
@@ -5767,174 +5864,536 @@ export default function Home() {
                 ))}
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
               </NativeSelect>
-              <Button
-                onClick={openAddActivity}
-                className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-              >
-                <Plus className="h-4 w-4" />
-                Add activity
-              </Button>
             </div>
           </div>
 
-          <div className="hidden grid-cols-[100px_minmax(300px,1.4fr)_minmax(150px,.6fr)_180px_120px_120px_42px] gap-4 border-b border-[#e2e7e0] bg-[#f7f9f5] px-5 py-3 text-xs font-bold uppercase tracking-[0.08em] text-[#718178] lg:grid">
-            <span>Code</span>
-            <span>Activity</span>
-            <span>Workstream</span>
-            <span>Responsibility</span>
-            <span>Status</span>
-            <span>Progress</span>
-            <span>Update</span>
-          </div>
-          <div className="max-h-[720px] divide-y divide-[#e8ece6] overflow-y-auto">
-            {filtered.map((item) => {
-              const currentStatus = deriveActivityStatus(item, updates);
-              const currentProgress = deriveActivityProgress(item, updates);
-              const currentResponsibility = responsibilityParts(
-                activityOwner(item, updates),
-                teamMembers,
-              );
-              const currentOwner = currentResponsibility.accountable;
-              return (
-                <div
-                  key={item.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openActivity(item)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openActivity(item);
-                    }
-                  }}
-                  className="grid w-full cursor-pointer gap-3 px-4 py-4 text-left transition-colors hover:bg-[#f7faf5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2b7357] lg:grid-cols-[100px_minmax(300px,1.4fr)_minmax(150px,.6fr)_180px_120px_120px_42px] lg:items-center lg:gap-4 lg:px-5"
-                >
-                  <div className="flex items-center justify-between lg:block">
-                    <span className="font-mono text-sm font-black text-[#2f634c]">
-                      {item.code || item.uid}
-                    </span>
-                    {Number(
-                      (item as Activity & { transferredFromYear?: number })
-                        .transferredFromYear,
-                    ) > 0 && (
-                      <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">
-                        From {(item as Activity & { transferredFromYear?: number }).transferredFromYear}
-                      </span>
+          <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0 xl:border-r xl:border-[#dbe3d9]">
+              <div className="overflow-x-auto">
+                <div className="min-w-[820px]">
+                  <div className="sticky top-0 z-10 grid grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]">
+                    <span>Code</span>
+                    <span>Activity</span>
+                    <span>Owner</span>
+                    <span>Status</span>
+                    <span>Progress</span>
+                    <span className="text-right">Budget</span>
+                  </div>
+
+                  <div className="max-h-[720px] overflow-y-auto">
+                    {filtered.map((item) => {
+                      const currentStatus = deriveActivityStatus(item, updates);
+                      const currentProgress = deriveActivityProgress(item, updates);
+                      const currentResponsibility = responsibilityParts(
+                        activityOwner(item, updates),
+                        teamMembers,
+                      );
+                      const currentOwner = currentResponsibility.accountable;
+                      const normalizedSearch = query.trim().toLocaleLowerCase();
+                      const matchingSubactivity = Boolean(
+                        normalizedSearch &&
+                          item.subactivities.some((subactivity) =>
+                            [
+                              subactivity.title,
+                              subactivityOwner(subactivity, updates),
+                              subactivity.progressSummary,
+                            ]
+                              .join(" ")
+                              .toLocaleLowerCase()
+                              .includes(normalizedSearch),
+                          ),
+                      );
+                      const isExpanded =
+                        expandedWorkplanIds.has(item.id) || matchingSubactivity;
+                      const isSelected =
+                        workplanPreview?.activityId === item.id &&
+                        !workplanPreview?.subactivityId;
+                      const allocatedMnt =
+                        allocationByActivityKey.get(item.id) ??
+                        item.subactivities.reduce(
+                          (total, subactivity) =>
+                            total +
+                            (allocationByActivityKey.get(subactivity.id) ?? 0),
+                          0,
+                        );
+                      const rowSpacing =
+                        workplanDensity === "compact" ? "py-2.5" : "py-4";
+
+                      return (
+                        <div key={item.id} className="border-b border-[#e4e9e2]">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() =>
+                              setWorkplanPreview({ activityId: item.id })
+                            }
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) return;
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setWorkplanPreview({ activityId: item.id });
+                              }
+                            }}
+                            className={[
+                              "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-l-4 px-3 text-left transition",
+                              rowSpacing,
+                              isSelected
+                                ? "border-l-[#0c3b2d] bg-[#eaf3e6]"
+                                : "border-l-[#7ca08d] bg-[#f5f9f2] hover:bg-[#edf5e9]",
+                            ].join(" ")}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setExpandedWorkplanIds((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                aria-label={
+                                  isExpanded
+                                    ? "Collapse sub-activities"
+                                    : "Expand sub-activities"
+                                }
+                                aria-expanded={isExpanded}
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c4d1c6] bg-white text-[#315845] hover:bg-[#e3eee0]"
+                              >
+                                <ChevronRight
+                                  className={[
+                                    "h-4 w-4 transition-transform",
+                                    isExpanded ? "rotate-90" : "",
+                                  ].join(" ")}
+                                />
+                              </button>
+                              <span className="truncate font-mono text-xs font-black text-[#245f47]">
+                                {item.code || item.uid}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <p
+                                className={[
+                                  "font-black text-[#173228]",
+                                  workplanDensity === "compact"
+                                    ? "line-clamp-1 text-sm"
+                                    : "line-clamp-2 text-[15px] leading-5",
+                                ].join(" ")}
+                              >
+                                {language === "mn" && item.titleMn?.trim()
+                                  ? item.titleMn
+                                  : item.title}
+                              </p>
+                              <p className="mt-0.5 truncate text-[11px] font-semibold text-[#718178]">
+                                Main activity · {item.subactivities.length} sub-activities · due {formatDate(item.endDate, language)}
+                              </p>
+                            </div>
+                            <div className="min-w-0">
+                              <p
+                                className={[
+                                  "truncate text-xs font-bold",
+                                  currentOwner ? "text-[#315845]" : "text-rose-700",
+                                ].join(" ")}
+                              >
+                                {currentOwner || "Owner required"}
+                              </p>
+                              {currentResponsibility.supporting.length > 0 && (
+                                <p className="mt-0.5 truncate text-[11px] text-[#718178]">
+                                  +{currentResponsibility.supporting.length} supporting
+                                </p>
+                              )}
+                            </div>
+                            <StatusPill status={currentStatus} />
+                            <div>
+                              <div className="mb-1 flex items-center justify-between text-[11px] font-black text-[#315845]">
+                                <span>{currentProgress}%</span>
+                              </div>
+                              <Progress
+                                value={currentProgress}
+                                className="h-1.5 bg-[#dfe7dc] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
+                              />
+                            </div>
+                            <p className="text-right text-xs font-black tabular-nums text-[#315845]">
+                              {formatMnt(allocatedMnt)}
+                            </p>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="bg-white">
+                              {item.subactivities.map((subactivity, subIndex) => {
+                                const subStatus = recordStatus(
+                                  subactivity.id,
+                                  subactivity.status as StatusKey,
+                                  updates,
+                                );
+                                const subProgress = recordProgress(
+                                  subactivity.id,
+                                  statusMeta[subactivity.status as StatusKey].weight,
+                                  updates,
+                                );
+                                const subResponsibility = responsibilityParts(
+                                  subactivityOwner(subactivity, updates),
+                                  teamMembers,
+                                );
+                                const subSelected =
+                                  workplanPreview?.subactivityId === subactivity.id;
+                                return (
+                                  <div
+                                    key={subactivity.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() =>
+                                      setWorkplanPreview({
+                                        activityId: item.id,
+                                        subactivityId: subactivity.id,
+                                      })
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.target !== event.currentTarget) return;
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        setWorkplanPreview({
+                                          activityId: item.id,
+                                          subactivityId: subactivity.id,
+                                        });
+                                      }
+                                    }}
+                                    className={[
+                                      "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-t border-[#edf0eb] border-l-4 px-3 text-left transition",
+                                      workplanDensity === "compact" ? "py-2" : "py-3.5",
+                                      subSelected
+                                        ? "border-l-[#2c795a] bg-[#f0f7ed]"
+                                        : "border-l-transparent hover:bg-[#f8faf7]",
+                                    ].join(" ")}
+                                  >
+                                    <div className="flex items-center gap-2 pl-9">
+                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
+                                      <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">
+                                        Sub {subIndex + 1}
+                                      </span>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p
+                                        className={[
+                                          "font-bold text-[#294438]",
+                                          workplanDensity === "compact"
+                                            ? "line-clamp-1 text-xs"
+                                            : "line-clamp-2 text-sm",
+                                        ].join(" ")}
+                                      >
+                                        {subactivity.title}
+                                      </p>
+                                      <p className="mt-0.5 text-[11px] text-[#819087]">
+                                        {procurementTypeForSubactivity(subactivity)} · due {formatDate(subactivity.endDate, language)}
+                                      </p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p
+                                        className={[
+                                          "truncate text-xs font-semibold",
+                                          subResponsibility.accountable
+                                            ? "text-[#53685c]"
+                                            : "text-rose-700",
+                                        ].join(" ")}
+                                      >
+                                        {subResponsibility.accountable || "Owner required"}
+                                      </p>
+                                      {subResponsibility.supporting.length > 0 && (
+                                        <p className="mt-0.5 truncate text-[11px] text-[#819087]">
+                                          +{subResponsibility.supporting.length} supporting
+                                        </p>
+                                      )}
+                                    </div>
+                                    <StatusPill status={subStatus} />
+                                    <div>
+                                      <div className="mb-1 text-[11px] font-black text-[#53685c]">
+                                        {subProgress}%
+                                      </div>
+                                      <Progress
+                                        value={subProgress}
+                                        className="h-1 bg-[#e4eae2] [&_[data-slot=progress-indicator]]:bg-[#5a8d73]"
+                                      />
+                                    </div>
+                                    <p className="text-right text-xs font-bold tabular-nums text-[#53685c]">
+                                      {formatMnt(
+                                        allocationByActivityKey.get(subactivity.id) ?? 0,
+                                      )}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                              {!item.subactivities.length && (
+                                <div className="border-t border-[#edf0eb] px-12 py-3 text-xs text-[#718178]">
+                                  No sub-activities yet.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {filtered.length === 0 && (
+                      <div className="px-6 py-16 text-center">
+                        <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
+                        <p className="font-bold">
+                          {allActivities.length
+                            ? "No activities match these filters"
+                            : "No activities in " + selectedYear + " draft yet"}
+                        </p>
+                        <p className="mt-1 text-sm text-[#718178]">
+                          {allActivities.length
+                            ? "Try a different status or search term."
+                            : "Add the first activity to begin developing this workplan."}
+                        </p>
+                        <Button
+                          variant={allActivities.length ? "outline" : "default"}
+                          className="mt-4"
+                          onClick={() => {
+                            if (!allActivities.length) {
+                              openAddActivity();
+                              return;
+                            }
+                            setQuery("");
+                            setSection("all");
+                            setGoal("all");
+                            setStatus("all");
+                            setWorkstream("all");
+                            setMember("all");
+                          }}
+                        >
+                          {allActivities.length ? "Clear filters" : "Add first activity"}
+                        </Button>
+                      </div>
                     )}
-                    <span className="text-xs text-[#7a8a81] lg:hidden">
-                      {item.subactivities.length} sub-activities
-                    </span>
                   </div>
-                  <div className="min-w-0">
-                    <p className="line-clamp-2 text-[15px] font-bold leading-5 text-[#183529]">
-                      {language === "mn" && item.titleMn?.trim()
-                        ? item.titleMn
-                        : item.title}
-                    </p>
-                    <p className="mt-1 text-xs text-[#718178]">
-                      {item.subactivities.length} sub-activities · due{" "}
-                      {formatDate(item.endDate, language)}
-                    </p>
-                    {!currentOwner && (
-                      <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-rose-700">
-                        <span className="h-2 w-2 rounded-full bg-rose-600" />
-                        Owner required
-                      </p>
-                    )}
-                  </div>
-                  <p className="line-clamp-2 text-sm font-medium text-[#53685c]">
-                    {item.workstream || "Programme management"}
-                  </p>
-                  <div>
-                    <p
-                      className={`flex items-center gap-2 text-sm font-semibold ${
-                        currentOwner ? "text-[#315845]" : "text-rose-700"
-                      }`}
-                    >
-                      <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${
-                          currentOwner ? "bg-emerald-600" : "bg-rose-600"
-                        }`}
-                      />
-                      {currentOwner || "Owner required"}
-                    </p>
-                    {currentResponsibility.supporting.length > 0 && (
-                      <p className="mt-1 text-xs text-[#718178]">
-                        + {currentResponsibility.supporting.length} supporting
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <StatusPill status={currentStatus} />
-                  </div>
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between text-xs font-bold text-[#53685c]">
-                      <span>{currentProgress}%</span>
-                      <span className="lg:hidden">progress</span>
-                    </div>
-                    <Progress
-                      value={currentProgress}
-                      className="h-1.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                    />
-                  </div>
-                  <PencilLine className="hidden h-5 w-5 text-[#4f725f] lg:block" />
                 </div>
-              );
-            })}
-          </div>
-          {filtered.length === 0 && (
-            <div className="px-6 py-16 text-center">
-              <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
-              <p className="font-bold">
-                {allActivities.length
-                  ? "No activities match these filters"
-                  : `No activities in the ${selectedYear} draft yet`}
-              </p>
-              <p className="mt-1 text-sm text-[#718178]">
-                {allActivities.length
-                  ? "Try a different status or search term."
-                  : "Add the first activity to begin developing this workplan."}
-              </p>
-              <Button
-                variant={allActivities.length ? "outline" : "default"}
-                className="mt-4"
-                onClick={() => {
-                  if (!allActivities.length) {
-                    openAddActivity();
-                    return;
-                  }
-                  setQuery("");
-                  setSection("all");
-                  setGoal("all");
-                  setStatus("all");
-                  setWorkstream("all");
-                  setMember("all");
-                }}
-              >
-                {allActivities.length ? "Clear filters" : "Add first activity"}
-              </Button>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportQuarterlyReport}
+                  disabled={workplanExporting || planState === "loading"}
+                  className="h-9 border-[#9fb1a5] bg-white text-xs font-bold text-[#174734] hover:bg-[#eef5ed]"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Quarterly Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportWorkplan}
+                  disabled={workplanExporting || planState === "loading"}
+                  className="h-9 border-[#9fb1a5] bg-white text-xs font-bold text-[#174734] hover:bg-[#eef5ed]"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {workplanExporting ? "Preparing…" : "Export Excel"}
+                </Button>
+              </div>
             </div>
-          )}
-          <div className="flex flex-wrap justify-end gap-2 border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-4 lg:px-5">
-            <Button
-              variant="outline"
-              onClick={exportQuarterlyReport}
-              disabled={workplanExporting || planState === "loading"}
-              className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              Quarterly Excel
-            </Button>
-            <Button
-              variant="outline"
-              onClick={exportWorkplan}
-              disabled={workplanExporting || planState === "loading"}
-              className="h-10 border-[#9fb1a5] bg-white font-bold text-[#174734] hover:bg-[#eef5ed]"
-            >
-              <Download className="h-4 w-4" />
-              {workplanExporting ? "Preparing…" : "Export Excel"}
-            </Button>
+
+            <aside className="border-t border-[#dbe3d9] bg-[#f7f9f5] p-4 xl:border-t-0">
+              <div className="sticky top-4">
+                {workplanPreviewActivity ? (
+                  (() => {
+                    const activity = workplanPreviewActivity;
+                    const subactivity = workplanPreviewSubactivity;
+                    const targetKey = subactivity?.id ?? activity.id;
+                    const previewStatus = subactivity
+                      ? recordStatus(
+                          subactivity.id,
+                          subactivity.status as StatusKey,
+                          updates,
+                        )
+                      : deriveActivityStatus(activity, updates);
+                    const previewProgress = subactivity
+                      ? recordProgress(
+                          subactivity.id,
+                          statusMeta[subactivity.status as StatusKey].weight,
+                          updates,
+                        )
+                      : deriveActivityProgress(activity, updates);
+                    const previewResponsibility = responsibilityParts(
+                      subactivity
+                        ? subactivityOwner(subactivity, updates)
+                        : activityOwner(activity, updates),
+                      teamMembers,
+                    );
+                    const previewAllocation = subactivity
+                      ? allocationByActivityKey.get(subactivity.id) ?? 0
+                      : allocationByActivityKey.get(activity.id) ??
+                        activity.subactivities.reduce(
+                          (total, item) =>
+                            total + (allocationByActivityKey.get(item.id) ?? 0),
+                          0,
+                        );
+
+                    return (
+                      <div className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-sm">
+                        <div className="bg-[#0c3b2d] p-4 text-white">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-100/70">
+                                {subactivity ? "Sub-activity" : "Main activity"}
+                              </p>
+                              <p className="mt-1 font-mono text-xs font-black text-[#dbf081]">
+                                {activity.code || activity.uid}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setWorkplanPreview(null)}
+                              className="rounded-md border border-white/20 px-2 py-1 text-[10px] font-bold text-white/75 hover:bg-white/10 hover:text-white"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                          <h3 className="mt-3 text-base font-black leading-6">
+                            {subactivity
+                              ? subactivity.title
+                              : language === "mn" && activity.titleMn?.trim()
+                                ? activity.titleMn
+                                : activity.title}
+                          </h3>
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <StatusPill status={previewStatus} />
+                            <span className="text-xl font-black text-[#dbf081]">
+                              {previewProgress}%
+                            </span>
+                          </div>
+                          <Progress
+                            value={previewProgress}
+                            className="mt-2 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
+                          />
+                        </div>
+
+                        <div className="space-y-4 p-4">
+                          <dl className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <dt className="font-bold text-[#819087]">Start</dt>
+                              <dd className="mt-1 font-black text-[#294438]">
+                                {formatDate(
+                                  subactivity?.startDate || activity.startDate,
+                                  language,
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold text-[#819087]">Due</dt>
+                              <dd className="mt-1 font-black text-[#294438]">
+                                {formatDate(
+                                  subactivity?.endDate || activity.endDate,
+                                  language,
+                                )}
+                              </dd>
+                            </div>
+                            <div className="col-span-2">
+                              <dt className="font-bold text-[#819087]">Accountable owner</dt>
+                              <dd
+                                className={[
+                                  "mt-1 font-black",
+                                  previewResponsibility.accountable
+                                    ? "text-[#294438]"
+                                    : "text-rose-700",
+                                ].join(" ")}
+                              >
+                                {previewResponsibility.accountable || "Owner required"}
+                              </dd>
+                              {previewResponsibility.supporting.length > 0 && (
+                                <dd className="mt-1 text-[#718178]">
+                                  Supporting: {previewResponsibility.supporting.join(", ")}
+                                </dd>
+                              )}
+                            </div>
+                            <div className="col-span-2">
+                              <dt className="font-bold text-[#819087]">Allocated budget</dt>
+                              <dd className="mt-1 text-lg font-black text-[#245f47]">
+                                {formatMnt(previewAllocation)}
+                              </dd>
+                            </div>
+                            {subactivity && (
+                              <div className="col-span-2">
+                                <dt className="font-bold text-[#819087]">Type of procurement</dt>
+                                <dd className="mt-1 font-bold text-[#294438]">
+                                  {procurementTypeForSubactivity(subactivity)}
+                                </dd>
+                              </div>
+                            )}
+                          </dl>
+
+                          <div className="grid gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setSelectedId(activity.id);
+                                openUpdateEditor(
+                                  subactivity
+                                    ? targetForSubactivity(subactivity)
+                                    : targetForActivity(activity, updates),
+                                );
+                              }}
+                              className="h-9 bg-[#0c3b2d] text-xs text-white hover:bg-[#174d3a]"
+                            >
+                              <PencilLine className="h-3.5 w-3.5" />
+                              Update status and progress
+                            </Button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  subactivity
+                                    ? openEditSubactivity(activity, subactivity)
+                                    : openEditActivity(activity)
+                                }
+                                className="h-9 border-[#b8c7bb] text-xs"
+                              >
+                                Edit details
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openActivity(activity)}
+                                className="h-9 border-[#b8c7bb] text-xs"
+                              >
+                                Full view
+                              </Button>
+                            </div>
+                            {!subactivity && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openAddSubactivity(activity)}
+                                className="h-9 border-[#b8c7bb] text-xs"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add sub-activity
+                              </Button>
+                            )}
+                          </div>
+
+                          <p className="border-t border-[#e2e8df] pt-3 text-[11px] leading-5 text-[#718178]">
+                            Selected record: {targetKey}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-[#bac9bd] bg-white px-5 py-12 text-center">
+                    <ListChecks className="mx-auto h-7 w-7 text-[#6f8a7b]" />
+                    <h3 className="mt-3 font-black">Quick details</h3>
+                    <p className="mt-1 text-xs leading-5 text-[#718178]">
+                      Select a main activity or sub-activity to view its owner, status, progress, budget, and available actions.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </aside>
           </div>
         </section>
           </TabsContent>
@@ -7608,320 +8067,413 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          {planRecordType === "activity" ? (
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Activity code</span>
-                <Input
-                  value={activityPlanDraft.code}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, code: event.target.value }))
-                  }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                  placeholder="A.1.1.1"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Workstream</span>
-                <NativeSelect
-                  value={activityPlanDraft.workstream}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, workstream: event.target.value }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
+          <div className="rounded-2xl border border-[#dbe3d9] bg-[#f7f9f5] p-3">
+            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(" + (planRecordType === "activity" ? 3 : 2) + ", minmax(0, 1fr))" }}>
+              {(planRecordType === "activity"
+                ? ["Basics", "Schedule & responsibility", "Results"]
+                : ["Details", "Responsibility"]
+              ).map((label, index) => (
+                <button
+                  type="button"
+                  key={label}
+                  onClick={() => index <= planFormStep && setPlanFormStep(index)}
+                  className={[
+                    "rounded-xl border px-3 py-2 text-left transition",
+                    index === planFormStep
+                      ? "border-[#0c3b2d] bg-[#0c3b2d] text-white"
+                      : index < planFormStep
+                        ? "border-[#adc0b1] bg-white text-[#245f47]"
+                        : "border-transparent bg-[#edf2eb] text-[#819087]",
+                  ].join(" ")}
                 >
-                  <NativeSelectOption value="">Choose workstream</NativeSelectOption>
-                  {activityPlanDraft.workstream && !workstreams.includes(activityPlanDraft.workstream) && (
-                    <NativeSelectOption value={activityPlanDraft.workstream}>{activityPlanDraft.workstream}</NativeSelectOption>
-                  )}
-                  {workstreams.map((value) => (
-                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Activity title</span>
-                <Textarea
-                  value={activityPlanDraft.title}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, title: event.target.value }))
-                  }
-                  className="min-h-20 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Mongolian title</span>
-                <Textarea
-                  value={activityPlanDraft.titleMn}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, titleMn: event.target.value }))
-                  }
-                  className="min-h-20 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Section</span>
-                <NativeSelect
-                  value={activityPlanDraft.section}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, section: event.target.value }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  <NativeSelectOption value="A">Section A</NativeSelectOption>
-                  <NativeSelectOption value="B">Section B</NativeSelectOption>
-                </NativeSelect>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Goal</span>
-                <NativeSelect
-                  value={activityPlanDraft.goal}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, goal: event.target.value }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  <NativeSelectOption value="">Choose goal</NativeSelectOption>
-                  {activityPlanDraft.goal && !goals.includes(activityPlanDraft.goal) && (
-                    <NativeSelectOption value={activityPlanDraft.goal}>{activityPlanDraft.goal}</NativeSelectOption>
-                  )}
-                  {goals.map((value) => (
-                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Priority</span>
-                <NativeSelect
-                  value={activityPlanDraft.priority}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, priority: event.target.value }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  <NativeSelectOption value="High">High</NativeSelectOption>
-                  <NativeSelectOption value="Medium">Medium</NativeSelectOption>
-                  <NativeSelectOption value="Low">Low</NativeSelectOption>
-                </NativeSelect>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Action plan reference</span>
-                <NativeSelect
-                  value={activityPlanDraft.actionPlan}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, actionPlan: event.target.value }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  <NativeSelectOption value="">Choose reference</NativeSelectOption>
-                  {activityPlanDraft.actionPlan && !actionPlanReferences.includes(activityPlanDraft.actionPlan) && (
-                    <NativeSelectOption value={activityPlanDraft.actionPlan}>{activityPlanDraft.actionPlan}</NativeSelectOption>
-                  )}
-                  {actionPlanReferences.map((value) => (
-                    <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Start date</span>
-                <Input
-                  type="date"
-                  value={activityPlanDraft.startDate}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
-                  }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Due date</span>
-                <Input
-                  type="date"
-                  value={activityPlanDraft.endDate}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
-                  }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">MECC lead</span>
-                <Input
-                  value={activityPlanDraft.lead}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({
-                      ...current,
-                      lead: event.target.value,
-                    }))
-                  }
-                  placeholder="Write name(s)"
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Support/Partners</span>
-                <Textarea
-                  value={activityPlanDraft.support}
-                  onChange={(event) =>
-                    setActivityPlanDraft((current) => ({
-                      ...current,
-                      support: event.target.value,
-                    }))
-                  }
-                  className="min-h-20 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              {[
-                ["Baseline", "baseline"],
-                [`${selectedYear} target`, "target"],
-              ].map(([label, field]) => (
-                <label key={field} className="block sm:col-span-2">
-                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
-                  <Textarea
-                    value={activityPlanDraft[field as keyof ActivityPlanDraft]}
-                    onChange={(event) =>
-                      setActivityPlanDraft((current) => ({
-                        ...current,
-                        [field]: event.target.value,
-                      }))
-                    }
-                    className="min-h-24 border-[#cbd6cc] bg-white"
-                  />
-                </label>
+                  <span className="block text-[10px] font-black uppercase tracking-[0.08em] opacity-70">
+                    Step {index + 1}
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs font-black">{label}</span>
+                </button>
               ))}
             </div>
-          ) : (
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">Sub-activity title</span>
-                <Textarea
-                  value={subactivityPlanDraft.title}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({ ...current, title: event.target.value }))
-                  }
-                  className="min-h-20 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <fieldset className="block">
-                <legend className="mb-1.5 block text-sm font-bold">
-                  Responsibility assignment
-                </legend>
-                <div className="space-y-2">
-                  {[0, 1, 2].map((ownerIndex) => {
-                    const selectedOwners = ownerNames(
-                      subactivityPlanDraft.owner,
-                      teamMembers,
-                    );
-                    return (
-                      <NativeSelect
-                        key={ownerIndex}
-                        value={selectedOwners[ownerIndex] ?? ""}
-                        onChange={(event) =>
-                          setSubactivityPlanDraft((current) => ({
-                            ...current,
-                            owner: setOwnerSlot(
-                              current.owner,
-                              ownerIndex,
-                              event.target.value,
-                              teamMembers,
-                            ),
-                          }))
-                        }
-                        className={`h-10 w-full bg-white ${
-                          ownerIndex === 0 && !selectedOwners.length
-                            ? "border-rose-300"
-                            : "border-[#cbd6cc]"
-                        }`}
-                        aria-label={
-                          ownerIndex === 0
-                            ? "Sub-activity accountable owner"
-                            : `Sub-activity supporting owner ${ownerIndex}`
-                        }
-                      >
-                        <NativeSelectOption value="">
-                          {ownerIndex === 0
-                            ? "Accountable owner required"
-                            : `Supporting owner ${ownerIndex} (optional)`}
-                        </NativeSelectOption>
-                        {teamMembers.map((item) => (
-                          <NativeSelectOption
-                            key={item.id}
-                            value={item.name}
-                            disabled={selectedOwners.some(
-                              (owner, index) =>
-                                index !== ownerIndex && owner === item.name,
-                            )}
-                          >
-                            {item.name} · {item.role}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    );
-                  })}
+          </div>
+
+          {planRecordType === "activity" ? (
+            <>
+              {planFormStep === 0 && (
+                <div className="grid gap-4 py-2 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <h3 className="font-black">Activity basics</h3>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Identify the activity and place it in the workplan structure.
+                    </p>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Activity code</span>
+                    <Input
+                      value={activityPlanDraft.code}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, code: event.target.value }))
+                      }
+                      className="h-11 border-[#cbd6cc] bg-white"
+                      placeholder="A.1.1.1"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Workstream</span>
+                    <NativeSelect
+                      value={activityPlanDraft.workstream}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, workstream: event.target.value }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      <NativeSelectOption value="">Choose workstream</NativeSelectOption>
+                      {activityPlanDraft.workstream && !workstreams.includes(activityPlanDraft.workstream) && (
+                        <NativeSelectOption value={activityPlanDraft.workstream}>{activityPlanDraft.workstream}</NativeSelectOption>
+                      )}
+                      {workstreams.map((value) => (
+                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">Activity title</span>
+                    <Textarea
+                      value={activityPlanDraft.title}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, title: event.target.value }))
+                      }
+                      className="min-h-20 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">Mongolian title</span>
+                    <Textarea
+                      value={activityPlanDraft.titleMn}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, titleMn: event.target.value }))
+                      }
+                      className="min-h-20 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Section</span>
+                    <NativeSelect
+                      value={activityPlanDraft.section}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, section: event.target.value }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      <NativeSelectOption value="A">Section A</NativeSelectOption>
+                      <NativeSelectOption value="B">Section B</NativeSelectOption>
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Goal</span>
+                    <NativeSelect
+                      value={activityPlanDraft.goal}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, goal: event.target.value }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      <NativeSelectOption value="">Choose goal</NativeSelectOption>
+                      {activityPlanDraft.goal && !goals.includes(activityPlanDraft.goal) && (
+                        <NativeSelectOption value={activityPlanDraft.goal}>{activityPlanDraft.goal}</NativeSelectOption>
+                      )}
+                      {goals.map((value) => (
+                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Priority</span>
+                    <NativeSelect
+                      value={activityPlanDraft.priority}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, priority: event.target.value }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      <NativeSelectOption value="High">High</NativeSelectOption>
+                      <NativeSelectOption value="Medium">Medium</NativeSelectOption>
+                      <NativeSelectOption value="Low">Low</NativeSelectOption>
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Action plan reference</span>
+                    <NativeSelect
+                      value={activityPlanDraft.actionPlan}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, actionPlan: event.target.value }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      <NativeSelectOption value="">Choose reference</NativeSelectOption>
+                      {activityPlanDraft.actionPlan && !actionPlanReferences.includes(activityPlanDraft.actionPlan) && (
+                        <NativeSelectOption value={activityPlanDraft.actionPlan}>{activityPlanDraft.actionPlan}</NativeSelectOption>
+                      )}
+                      {actionPlanReferences.map((value) => (
+                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
                 </div>
-              </fieldset>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Type of procurement</span>
-                <NativeSelect
-                  value={subactivityPlanDraft.procurementType}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({
-                      ...current,
-                      procurementType: event.target.value as ProcurementType,
-                    }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  {procurementTypes.map((value) => (
-                    <NativeSelectOption key={value} value={value}>
-                      {value}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Start date</span>
-                <Input
-                  type="date"
-                  value={subactivityPlanDraft.startDate}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
-                  }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Due date</span>
-                <Input
-                  type="date"
-                  value={subactivityPlanDraft.endDate}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
-                  }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Initial status</span>
-                <NativeSelect
-                  value={subactivityPlanDraft.status}
-                  onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({
-                      ...current,
-                      status: event.target.value as StatusKey,
-                    }))
-                  }
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  {Object.entries(statusMeta).map(([value, meta]) => (
-                    <NativeSelectOption key={value} value={value}>
-                      {meta.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-              <div />
-            </div>
+              )}
+
+              {planFormStep === 1 && (
+                <div className="grid gap-4 py-2 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <h3 className="font-black">Schedule and responsibility</h3>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Add delivery dates, the MECC lead, and organizations providing support.
+                    </p>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Start date</span>
+                    <Input
+                      type="date"
+                      value={activityPlanDraft.startDate}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
+                      }
+                      className="h-11 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Due date</span>
+                    <Input
+                      type="date"
+                      value={activityPlanDraft.endDate}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
+                      }
+                      className="h-11 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">MECC lead</span>
+                    <Input
+                      value={activityPlanDraft.lead}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({
+                          ...current,
+                          lead: event.target.value,
+                        }))
+                      }
+                      placeholder="Write name(s)"
+                      className="h-11 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">Support/Partners</span>
+                    <Textarea
+                      value={activityPlanDraft.support}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({
+                          ...current,
+                          support: event.target.value,
+                        }))
+                      }
+                      className="min-h-28 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {planFormStep === 2 && (
+                <div className="grid gap-4 py-2">
+                  <div>
+                    <h3 className="font-black">Results framework</h3>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Define the starting point and the result expected by the end of {selectedYear}.
+                    </p>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Baseline</span>
+                    <Textarea
+                      value={activityPlanDraft.baseline}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({
+                          ...current,
+                          baseline: event.target.value,
+                        }))
+                      }
+                      className="min-h-32 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">{selectedYear} target</span>
+                    <Textarea
+                      value={activityPlanDraft.target}
+                      onChange={(event) =>
+                        setActivityPlanDraft((current) => ({
+                          ...current,
+                          target: event.target.value,
+                        }))
+                      }
+                      className="min-h-32 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {planFormStep === 0 && (
+                <div className="grid gap-4 py-2 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <h3 className="font-black">Sub-activity details</h3>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Only fields relevant to this delivery step are shown.
+                    </p>
+                  </div>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">Sub-activity title</span>
+                    <Textarea
+                      value={subactivityPlanDraft.title}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({ ...current, title: event.target.value }))
+                      }
+                      className="min-h-24 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Type of procurement</span>
+                    <NativeSelect
+                      value={subactivityPlanDraft.procurementType}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({
+                          ...current,
+                          procurementType: event.target.value as ProcurementType,
+                        }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      {procurementTypes.map((value) => (
+                        <NativeSelectOption key={value} value={value}>
+                          {value}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Initial status</span>
+                    <NativeSelect
+                      value={subactivityPlanDraft.status}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({
+                          ...current,
+                          status: event.target.value as StatusKey,
+                        }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      {Object.entries(statusMeta).map(([value, meta]) => (
+                        <NativeSelectOption key={value} value={value}>
+                          {meta.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Start date</span>
+                    <Input
+                      type="date"
+                      value={subactivityPlanDraft.startDate}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({ ...current, startDate: event.target.value }))
+                      }
+                      className="h-11 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-bold">Due date</span>
+                    <Input
+                      type="date"
+                      value={subactivityPlanDraft.endDate}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({ ...current, endDate: event.target.value }))
+                      }
+                      className="h-11 border-[#cbd6cc] bg-white"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {planFormStep === 1 && (
+                <div className="py-2">
+                  <div>
+                    <h3 className="font-black">Responsibility assignment</h3>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      Choose one accountable owner and up to two supporting owners.
+                    </p>
+                  </div>
+                  <fieldset className="mt-4">
+                    <legend className="sr-only">Responsibility assignment</legend>
+                    <div className="space-y-3">
+                      {[0, 1, 2].map((ownerIndex) => {
+                        const selectedOwners = ownerNames(
+                          subactivityPlanDraft.owner,
+                          teamMembers,
+                        );
+                        return (
+                          <label key={ownerIndex} className="block">
+                            <span className="mb-1.5 block text-sm font-bold">
+                              {ownerIndex === 0
+                                ? "Accountable owner"
+                                : "Supporting owner " + ownerIndex}
+                            </span>
+                            <NativeSelect
+                              value={selectedOwners[ownerIndex] ?? ""}
+                              onChange={(event) =>
+                                setSubactivityPlanDraft((current) => ({
+                                  ...current,
+                                  owner: setOwnerSlot(
+                                    current.owner,
+                                    ownerIndex,
+                                    event.target.value,
+                                    teamMembers,
+                                  ),
+                                }))
+                              }
+                              className={[
+                                "h-11 w-full bg-white",
+                                ownerIndex === 0 && !selectedOwners.length
+                                  ? "border-rose-300"
+                                  : "border-[#cbd6cc]",
+                              ].join(" ")}
+                              aria-label={
+                                ownerIndex === 0
+                                  ? "Sub-activity accountable owner"
+                                  : "Sub-activity supporting owner " + ownerIndex
+                              }
+                            >
+                              <NativeSelectOption value="">
+                                {ownerIndex === 0
+                                  ? "Accountable owner required"
+                                  : "Supporting owner " + ownerIndex + " (optional)"}
+                              </NativeSelectOption>
+                              {teamMembers.map((item) => (
+                                <NativeSelectOption
+                                  key={item.id}
+                                  value={item.name}
+                                  disabled={selectedOwners.some(
+                                    (owner, index) =>
+                                      index !== ownerIndex && owner === item.name,
+                                  )}
+                                >
+                                  {item.name} · {item.role}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                </div>
+              )}
+            </>
           )}
 
           <DialogFooter className="gap-2 sm:justify-between">
@@ -7938,19 +8490,56 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2">
+              {planFormStep > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setPlanFormStep((current) => current - 1)}
+                >
+                  Back
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => changeFormDialog(false, setPlanDialogOpen)}
               >
                 Cancel
               </Button>
-              <Button
-                onClick={savePlanRecord}
-                disabled={planSaving}
-                className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-              >
-                {planSaving ? "Saving…" : "Save workplan item"}
-              </Button>
+              {planFormStep < (planRecordType === "activity" ? 2 : 1) ? (
+                <Button
+                  onClick={() => {
+                    if (
+                      planFormStep === 0 &&
+                      planRecordType === "activity" &&
+                      (!activityPlanDraft.code.trim() ||
+                        !activityPlanDraft.title.trim())
+                    ) {
+                      toast.error("Enter the activity code and title before continuing.");
+                      return;
+                    }
+                    if (
+                      planFormStep === 0 &&
+                      planRecordType === "subactivity" &&
+                      !subactivityPlanDraft.title.trim()
+                    ) {
+                      toast.error("Enter the sub-activity title before continuing.");
+                      return;
+                    }
+                    setPlanFormStep((current) => current + 1);
+                  }}
+                  className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                >
+                  Continue
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={savePlanRecord}
+                  disabled={planSaving}
+                  className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                >
+                  {planSaving ? "Saving…" : "Save workplan item"}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>
