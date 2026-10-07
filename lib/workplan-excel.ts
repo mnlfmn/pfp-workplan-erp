@@ -10,21 +10,28 @@ type ExportStatus =
   | "not_reported";
 
 export type WorkplanExportItem = {
-  id: string;
-  parentId?: string;
   kind: "activity" | "subactivity";
   code: string;
+  parentCode: string;
   title: string;
+  titleMn: string;
+  section: string;
   priority: string;
   goal: string;
   workstream: string;
-  progressNote: string;
-  owner: string;
+  actionPlan: string;
+  meccLead: string;
+  accountableOwner: string;
+  supportingOwners: string;
+  supportPartners: string;
   procurementType: string;
+  baseline: string;
+  target: string;
   startDate: string;
   endDate: string;
   status: ExportStatus;
   progress: number;
+  quarterlyUpdates: Record<"Q1" | "Q2" | "Q3" | "Q4", string>;
 };
 
 type WorkplanExportOptions = {
@@ -33,13 +40,13 @@ type WorkplanExportOptions = {
 };
 
 const statusLabels: Record<ExportStatus, string> = {
-  completed: "Дууссан",
-  in_progress: "Хийгдэж байгаа",
-  delayed: "Хойшилсон",
-  delayed_externally: "Гадаад шалтгаанаар хойшилсон",
-  on_hold: "Түр зогссон",
-  not_started: "Эхлээгүй",
-  not_reported: "Мэдээлээгүй",
+  completed: "Completed",
+  in_progress: "In progress",
+  delayed: "Delayed",
+  delayed_externally: "Delayed externally",
+  on_hold: "On hold",
+  not_started: "Not started",
+  not_reported: "Not reported",
 };
 
 const statusStyles: Record<ExportStatus, number> = {
@@ -96,74 +103,99 @@ function blankCell(address: string, style: number) {
 function estimateRowHeight(item: WorkplanExportItem) {
   const textLength = Math.max(
     item.title.length,
-    item.progressNote.length,
-    item.owner.length,
+    item.titleMn.length,
+    item.supportPartners.length,
     item.procurementType.length,
+    item.baseline.length,
+    item.target.length,
+    ...Object.values(item.quarterlyUpdates).map((value) => value.length),
   );
   const base = item.kind === "activity" ? 46 : 36;
-  return Math.min(126, Math.max(base, base + Math.ceil(textLength / 150) * 13));
+  return Math.min(140, Math.max(base, base + Math.ceil(textLength / 110) * 13));
 }
 
 function makeDataRow(item: WorkplanExportItem, rowNumber: number, subIndex: number) {
   const isMain = item.kind === "activity";
   const isAlternate = !isMain && subIndex % 2 === 1;
   const textStyle = isMain ? 3 : isAlternate ? 5 : 4;
-  const hiddenStyle = isMain ? 18 : isAlternate ? 19 : 17;
   const dateStyle = isMain ? 6 : isAlternate ? 8 : 7;
   const percentStyle = isMain ? 9 : isAlternate ? 11 : 10;
   const cells: string[] = [];
 
-  const hiddenValues = [
-    item.id,
-    isMain ? "Main Activity" : "Sub-activity",
-    item.parentId ?? "",
-    item.priority,
+  const leadingValues = [
+    isMain ? "Main activity" : "Sub-activity",
+    item.code,
+    item.parentCode,
+    item.title,
+    item.titleMn,
+    item.section,
     item.goal,
+    item.priority,
     item.workstream,
+    item.actionPlan,
   ];
-  hiddenValues.forEach((value, index) => {
-    cells.push(textCell(`${columnName(index + 1)}${rowNumber}`, value, hiddenStyle));
+  leadingValues.forEach((value, index) => {
+    cells.push(textCell(`${columnName(index + 1)}${rowNumber}`, value, textStyle));
   });
-
-  cells.push(textCell(`G${rowNumber}`, item.code, textStyle));
-  cells.push(textCell(`H${rowNumber}`, item.title, textStyle));
-  cells.push(textCell(`I${rowNumber}`, item.progressNote, textStyle));
-  cells.push(textCell(`J${rowNumber}`, item.owner, textStyle));
-  cells.push(textCell(`K${rowNumber}`, item.procurementType, textStyle));
 
   const start = excelDate(item.startDate);
   const end = excelDate(item.endDate);
-  cells.push(start === null ? blankCell(`L${rowNumber}`, dateStyle) : numberCell(`L${rowNumber}`, start, dateStyle));
-  cells.push(end === null ? blankCell(`M${rowNumber}`, dateStyle) : numberCell(`M${rowNumber}`, end, dateStyle));
-  cells.push(textCell(`N${rowNumber}`, statusLabels[item.status], statusStyles[item.status]));
-  cells.push(numberCell(`O${rowNumber}`, Math.max(0, Math.min(100, item.progress)) / 100, percentStyle));
+  cells.push(start === null ? blankCell(`K${rowNumber}`, dateStyle) : numberCell(`K${rowNumber}`, start, dateStyle));
+  cells.push(end === null ? blankCell(`L${rowNumber}`, dateStyle) : numberCell(`L${rowNumber}`, end, dateStyle));
+
+  [
+    item.meccLead,
+    item.accountableOwner,
+    item.supportingOwners,
+    item.supportPartners,
+    item.procurementType,
+    item.baseline,
+    item.target,
+  ].forEach((value, index) => {
+    cells.push(textCell(`${columnName(index + 13)}${rowNumber}`, value, textStyle));
+  });
+  cells.push(textCell(`T${rowNumber}`, statusLabels[item.status], statusStyles[item.status]));
+  cells.push(numberCell(`U${rowNumber}`, Math.max(0, Math.min(100, item.progress)) / 100, percentStyle));
+  (["Q1", "Q2", "Q3", "Q4"] as const).forEach((quarter, index) => {
+    cells.push(textCell(`${columnName(index + 22)}${rowNumber}`, item.quarterlyUpdates[quarter], textStyle));
+  });
 
   return `<row r="${rowNumber}" ht="${estimateRowHeight(item)}" customHeight="1"${isMain ? "" : ' outlineLevel="1"'}>${cells.join("")}</row>`;
 }
 
 function worksheetXml({ year, items }: WorkplanExportOptions) {
-  const title = `Өнө Мөнхийн Монгол БХБСХ-ийн ${year} оны ажлын төлөвлөгөөний гүйцэтгэл`;
+  const title = `PFP ${year} Workplan Progress and Quarterly Updates`;
   const headers = [
-    "UID",
-    "Level",
-    "Parent_UID",
-    "Ач холбогдол",
-    "Зорилго",
-    "Ажлын чиглэл",
-    "No.",
-    "Хэрэгжүүлэх арга хэмжээ",
-    "Гүйцэтгэлийн шинэчлэл, тэмдэглэл",
-    "Хариуцаж буй ажилтан",
-    "Худалдан авах ажиллагааны төрөл",
-    "Эхлэх хугацаа",
-    "Дуусах хугацаа",
-    "Статус",
-    "Гүйцэтгэл %",
+    "Record type",
+    "Activity code",
+    "Parent activity code",
+    "Activity title",
+    "Mongolian title",
+    "Section",
+    "Goal",
+    "Priority",
+    "Workstream",
+    "Action plan reference",
+    "Start date",
+    "Due date",
+    "MECC lead",
+    "Accountable owner",
+    "Supporting owners",
+    "Support/Partners",
+    "Type of procurement",
+    "Baseline",
+    `${year} target`,
+    "Status",
+    "Progress %",
+    "Q1 update",
+    "Q2 update",
+    "Q3 update",
+    "Q4 update",
   ];
 
-  const titleCells = Array.from({ length: 15 }, (_, index) => {
+  const titleCells = Array.from({ length: 25 }, (_, index) => {
     const address = `${columnName(index + 1)}1`;
-    return index === 6 ? textCell(address, title, 1) : blankCell(address, 1);
+    return index === 0 ? textCell(address, title, 1) : blankCell(address, 1);
   }).join("");
   const headerCells = headers
     .map((header, index) => textCell(`${columnName(index + 1)}3`, header, 2))
@@ -180,24 +212,27 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetPr><outlinePr summaryBelow="1" summaryRight="1"/></sheetPr>
-  <dimension ref="A1:O${lastRow}"/>
-  <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="3" topLeftCell="G4" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="G4" sqref="G4"/></sheetView></sheetViews>
+  <dimension ref="A1:Y${lastRow}"/>
+  <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A4" sqref="A4"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="18" outlineLevelRow="1"/>
   <cols>
-    <col min="1" max="1" width="16" hidden="1" customWidth="1"/>
-    <col min="2" max="2" width="18" hidden="1" customWidth="1"/>
-    <col min="3" max="3" width="18" hidden="1" customWidth="1"/>
-    <col min="4" max="4" width="14" hidden="1" customWidth="1"/>
-    <col min="5" max="5" width="14" hidden="1" customWidth="1"/>
-    <col min="6" max="6" width="24" hidden="1" customWidth="1"/>
-    <col min="7" max="7" width="14" customWidth="1"/>
-    <col min="8" max="8" width="52" customWidth="1"/>
-    <col min="9" max="9" width="66" customWidth="1"/>
-    <col min="10" max="10" width="24" customWidth="1"/>
-    <col min="11" max="11" width="24" customWidth="1"/>
-    <col min="12" max="13" width="14" customWidth="1"/>
-    <col min="14" max="14" width="18" customWidth="1"/>
-    <col min="15" max="15" width="13" customWidth="1"/>
+    <col min="1" max="1" width="15" customWidth="1"/>
+    <col min="2" max="2" width="16" customWidth="1"/>
+    <col min="3" max="3" width="18" customWidth="1"/>
+    <col min="4" max="5" width="46" customWidth="1"/>
+    <col min="6" max="6" width="10" customWidth="1"/>
+    <col min="7" max="8" width="12" customWidth="1"/>
+    <col min="9" max="9" width="24" customWidth="1"/>
+    <col min="10" max="10" width="18" customWidth="1"/>
+    <col min="11" max="12" width="14" customWidth="1"/>
+    <col min="13" max="14" width="22" customWidth="1"/>
+    <col min="15" max="15" width="26" customWidth="1"/>
+    <col min="16" max="16" width="32" customWidth="1"/>
+    <col min="17" max="17" width="22" customWidth="1"/>
+    <col min="18" max="19" width="38" customWidth="1"/>
+    <col min="20" max="20" width="19" customWidth="1"/>
+    <col min="21" max="21" width="12" customWidth="1"/>
+    <col min="22" max="25" width="48" customWidth="1"/>
   </cols>
   <sheetData>
     <row r="1" ht="28" customHeight="1">${titleCells}</row>
@@ -205,8 +240,8 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
     <row r="3" ht="62" customHeight="1">${headerCells}</row>
     ${dataRows.join("\n    ")}
   </sheetData>
-  <autoFilter ref="G3:O${lastRow}"/>
-  <mergeCells count="1"><mergeCell ref="G1:O1"/></mergeCells>
+  <autoFilter ref="A3:Y${lastRow}"/>
+  <mergeCells count="1"><mergeCell ref="A1:Y1"/></mergeCells>
   <pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0" paperSize="9"/>
 </worksheet>`;
