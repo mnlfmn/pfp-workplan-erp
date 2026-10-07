@@ -78,7 +78,12 @@ function dateCell(address: string, value: string) {
   return serial === null ? textCell(address, "", 1) : numberCell(address, serial, 3);
 }
 
-function sheetXml(headers: string[], rows: Array<Array<{ type: "text" | "number" | "date"; value: string | number }>>, widths: number[]) {
+type SheetCell = {
+  type: "text" | "number" | "currency" | "percentage" | "date";
+  value: string | number;
+};
+
+function sheetXml(headers: string[], rows: SheetCell[][], widths: number[]) {
   const lastRow = Math.max(1, rows.length + 1);
   const lastColumn = column(headers.length);
   const headerCells = headers
@@ -87,7 +92,9 @@ function sheetXml(headers: string[], rows: Array<Array<{ type: "text" | "number"
   const dataRows = rows.map((row, rowIndex) => {
     const cells = row.map((cell, cellIndex) => {
       const address = `${column(cellIndex + 1)}${rowIndex + 2}`;
-      if (cell.type === "number") return numberCell(address, Number(cell.value), 2);
+      if (cell.type === "currency") return numberCell(address, Number(cell.value), 2);
+      if (cell.type === "number") return numberCell(address, Number(cell.value), 5);
+      if (cell.type === "percentage") return numberCell(address, Number(cell.value), 6);
       if (cell.type === "date") return dateCell(address, String(cell.value));
       return textCell(address, cell.value, 1);
     });
@@ -111,17 +118,19 @@ function sheetXml(headers: string[], rows: Array<Array<{ type: "text" | "number"
 
 const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0 [$₮-mn-MN]"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts>
+  <numFmts count="4"><numFmt numFmtId="164" formatCode="#,##0 [$₮-mn-MN]"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/><numFmt numFmtId="166" formatCode="#,##0.00"/><numFmt numFmtId="167" formatCode="0%"/></numFmts>
   <fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts>
   <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F7F2"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0C3B2D"/></patternFill></fill></fills>
   <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7DED5"/></left><right style="thin"><color rgb="FFD7DED5"/></right><top style="thin"><color rgb="FFD7DED5"/></top><bottom style="thin"><color rgb="FFD7DED5"/></bottom><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="5">
+  <cellXfs count="7">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="0" fillId="2" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
     <xf numFmtId="164" fontId="0" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
     <xf numFmtId="165" fontId="0" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="166" fontId="0" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="167" fontId="0" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -129,11 +138,11 @@ const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 function workbookFiles(options: Options) {
   const contractHeaders = ["Contract number", "Status", "Budget line", "Workplan code", "Activity / sub-activity", "Level", "Terms of Reference", "Service provider", "Provider type", "Start date", "End date", "Currency", "Signed foreign amount", "Exchange rate MNT", "Contract amount MNT", "Paid expenditure MNT", "Outstanding commitment MNT", "Payments", "Transferred from year", "Last updated", "Updated by"];
   const contractRows = options.contracts.map((item) => [
-    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.status }, { type: "text" as const, value: item.budgetLine }, { type: "text" as const, value: item.activityCode }, { type: "text" as const, value: item.activityTitle }, { type: "text" as const, value: item.activityLevel }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "text" as const, value: item.providerType }, { type: "date" as const, value: item.startDate }, { type: "date" as const, value: item.endDate }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: item.foreignAmountMinor / 100 }, { type: "number" as const, value: item.exchangeRateMnt }, { type: "number" as const, value: item.amountMnt }, { type: "number" as const, value: item.paidMnt }, { type: "number" as const, value: item.commitmentMnt }, { type: "number" as const, value: item.payments.length }, { type: "number" as const, value: item.transferredFromYear }, { type: "date" as const, value: item.updatedAt }, { type: "text" as const, value: item.updatedBy },
+    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.status }, { type: "text" as const, value: item.budgetLine }, { type: "text" as const, value: item.activityCode }, { type: "text" as const, value: item.activityTitle }, { type: "text" as const, value: item.activityLevel }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "text" as const, value: item.providerType }, { type: "date" as const, value: item.startDate }, { type: "date" as const, value: item.endDate }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: item.foreignAmountMinor / 100 }, { type: "number" as const, value: item.exchangeRateMnt }, { type: "currency" as const, value: item.amountMnt }, { type: "currency" as const, value: item.paidMnt }, { type: "currency" as const, value: item.commitmentMnt }, { type: "number" as const, value: item.payments.length }, { type: "number" as const, value: item.transferredFromYear }, { type: "date" as const, value: item.updatedAt }, { type: "text" as const, value: item.updatedBy },
   ]);
-  const paymentHeaders = ["Contract number", "Payment no.", "Payment label", "Due date", "Exact transfer date", "Deliverable", "Share %", "Currency", "Foreign amount", "Amount MNT", "Payment status"];
+  const paymentHeaders = ["Contract number", "Terms of Reference", "Service provider", "Payment no.", "Payment label", "Due date", "Exact transfer date", "Deliverable", "Share %", "Currency", "Foreign amount", "Amount MNT", "Payment status"];
   const paymentRows = options.contracts.flatMap((item) => item.payments.map((payment) => [
-    { type: "text" as const, value: item.contractNumber }, { type: "number" as const, value: payment.sequence }, { type: "text" as const, value: payment.label }, { type: "date" as const, value: payment.dueDate }, { type: "date" as const, value: payment.transferDate }, { type: "text" as const, value: payment.deliverable }, { type: "number" as const, value: payment.percentage }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: payment.foreignAmountMinor / 100 }, { type: "number" as const, value: payment.amountMnt }, { type: "text" as const, value: payment.paid ? "Paid" : "Unpaid" },
+    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "number" as const, value: payment.sequence }, { type: "text" as const, value: payment.label }, { type: "date" as const, value: payment.dueDate }, { type: "date" as const, value: payment.transferDate }, { type: "text" as const, value: payment.deliverable }, { type: "percentage" as const, value: payment.percentage / 100 }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: payment.foreignAmountMinor / 100 }, { type: "currency" as const, value: payment.amountMnt }, { type: "text" as const, value: payment.paid ? "Paid" : "Unpaid" },
   ]));
   const now = new Date().toISOString();
   return {
@@ -144,7 +153,7 @@ function workbookFiles(options: Options) {
     "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
     "xl/styles.xml": strToU8(styles),
     "xl/worksheets/sheet1.xml": strToU8(sheetXml(contractHeaders, contractRows, [18, 14, 22, 16, 44, 15, 48, 28, 22, 13, 13, 11, 17, 17, 20, 20, 23, 11, 18, 15, 26])),
-    "xl/worksheets/sheet2.xml": strToU8(sheetXml(paymentHeaders, paymentRows, [18, 12, 20, 13, 18, 48, 11, 11, 16, 20, 14])),
+    "xl/worksheets/sheet2.xml": strToU8(sheetXml(paymentHeaders, paymentRows, [18, 48, 28, 12, 20, 13, 18, 48, 11, 11, 16, 20, 14])),
   };
 }
 

@@ -20,7 +20,7 @@ export type WorkplanExportItem = {
   workstream: string;
   progressNote: string;
   owner: string;
-  executor: string;
+  procurementType: string;
   startDate: string;
   endDate: string;
   status: ExportStatus;
@@ -98,7 +98,7 @@ function estimateRowHeight(item: WorkplanExportItem) {
     item.title.length,
     item.progressNote.length,
     item.owner.length,
-    item.executor.length,
+    item.procurementType.length,
   );
   const base = item.kind === "activity" ? 46 : 36;
   return Math.min(126, Math.max(base, base + Math.ceil(textLength / 150) * 13));
@@ -129,7 +129,7 @@ function makeDataRow(item: WorkplanExportItem, rowNumber: number, subIndex: numb
   cells.push(textCell(`H${rowNumber}`, item.title, textStyle));
   cells.push(textCell(`I${rowNumber}`, item.progressNote, textStyle));
   cells.push(textCell(`J${rowNumber}`, item.owner, textStyle));
-  cells.push(textCell(`K${rowNumber}`, item.executor, textStyle));
+  cells.push(textCell(`K${rowNumber}`, item.procurementType, textStyle));
 
   const start = excelDate(item.startDate);
   const end = excelDate(item.endDate);
@@ -154,7 +154,7 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
     "Хэрэгжүүлэх арга хэмжээ",
     "Гүйцэтгэлийн шинэчлэл, тэмдэглэл",
     "Хариуцаж буй ажилтан",
-    "Гүйцэтгэгч",
+    "Худалдан авах ажиллагааны төрөл",
     "Эхлэх хугацаа",
     "Дуусах хугацаа",
     "Статус",

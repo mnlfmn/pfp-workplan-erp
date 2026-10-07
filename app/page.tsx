@@ -91,8 +91,17 @@ import {
 } from "@/lib/ui-language";
 import workplan from "@/lib/workplan-data.json";
 
-type Activity = (typeof workplan.activities)[number];
-type Subactivity = Activity["subactivities"][number];
+type BaseActivity = (typeof workplan.activities)[number];
+type ProcurementType =
+  | "Goods and service"
+  | "Intellectual service"
+  | "Not applicable";
+type Subactivity = BaseActivity["subactivities"][number] & {
+  procurementType?: ProcurementType;
+};
+type Activity = Omit<BaseActivity, "subactivities"> & {
+  subactivities: Subactivity[];
+};
 type BudgetLine = (typeof workplan.budgetLines)[number] & {
   linkedActivityKeys?: string[];
 };
@@ -228,11 +237,8 @@ type ActivityPlanDraft = {
   startDate: string;
   endDate: string;
   lead: string;
-  technicalLead: string;
   support: string;
-  partners: string;
   actionPlan: string;
-  description: string;
   baseline: string;
   target: string;
 };
@@ -240,7 +246,7 @@ type ActivityPlanDraft = {
 type SubactivityPlanDraft = {
   title: string;
   owner: string;
-  executor: string;
+  procurementType: ProcurementType;
   startDate: string;
   endDate: string;
   status: StatusKey;
@@ -454,11 +460,8 @@ const emptyActivityDraft: ActivityPlanDraft = {
   startDate: "",
   endDate: "",
   lead: "",
-  technicalLead: "",
   support: "",
-  partners: "",
   actionPlan: "",
-  description: "",
   baseline: "",
   target: "",
 };
@@ -466,7 +469,7 @@ const emptyActivityDraft: ActivityPlanDraft = {
 const emptySubactivityDraft: SubactivityPlanDraft = {
   title: "",
   owner: "",
-  executor: "",
+  procurementType: "Not applicable",
   startDate: "",
   endDate: "",
   status: "not_started",
@@ -492,6 +495,12 @@ const providerTypes = [
   "NGO / CSO",
   "Government entity",
   "Other",
+];
+
+const procurementTypes: ProcurementType[] = [
+  "Goods and service",
+  "Intellectual service",
+  "Not applicable",
 ];
 
 const contractStatusMeta: Record<
@@ -707,7 +716,7 @@ function targetForActivity(
     kind: "activity",
     baseStatus: deriveActivityStatus(activity, updates),
     baseProgress: deriveActivityProgress(activity, updates),
-    baseOwner: activity.technicalLead || activity.lead,
+    baseOwner: activity.technicalLead || "",
     baseNote: "",
   };
 }
@@ -767,7 +776,25 @@ function activityOwner(
 ) {
   return updates[activity.id]
     ? updates[activity.id].owner
-    : activity.technicalLead || activity.lead || "";
+    : activity.technicalLead || "";
+}
+
+function supportPartnersForActivity(activity: Activity) {
+  return Array.from(
+    new Set(
+      [activity.support, activity.partners]
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).join("\n");
+}
+
+function procurementTypeForSubactivity(
+  subactivity: Subactivity,
+): ProcurementType {
+  return procurementTypes.includes(subactivity.procurementType as ProcurementType)
+    ? (subactivity.procurementType as ProcurementType)
+    : "Not applicable";
 }
 
 function subactivityOwner(
@@ -2778,11 +2805,8 @@ export default function Home() {
       startDate: activity.startDate,
       endDate: activity.endDate,
       lead: activity.lead,
-      technicalLead: activity.technicalLead,
-      support: activity.support,
-      partners: activity.partners,
+      support: supportPartnersForActivity(activity),
       actionPlan: String(activity.actionPlan ?? ""),
-      description: activity.description,
       baseline: activity.baseline,
       target: activity.target,
     });
@@ -2810,7 +2834,7 @@ export default function Home() {
     setSubactivityPlanDraft({
       title: subactivity.title,
       owner: subactivity.owner,
-      executor: subactivity.executor,
+      procurementType: procurementTypeForSubactivity(subactivity),
       startDate: subactivity.startDate,
       endDate: subactivity.endDate,
       status: subactivity.status as StatusKey,
@@ -2862,6 +2886,9 @@ export default function Home() {
           sourceRow: currentActivity?.sourceRow ?? 0,
           status: currentActivity?.status ?? "not_started",
           progressSummary: currentActivity?.progressSummary ?? "",
+          technicalLead: currentActivity?.technicalLead ?? "",
+          partners: "",
+          description: currentActivity?.description ?? "",
           ministrySupport: currentActivity?.ministrySupport ?? "",
           progressStartDate: activityPlanDraft.startDate,
           progressEndDate: activityPlanDraft.endDate,
@@ -2886,6 +2913,7 @@ export default function Home() {
       : {
           ...(currentSubactivity ?? {}),
           ...subactivityPlanDraft,
+          executor: currentSubactivity?.executor ?? "",
           id: key,
           activityId: editingPlanParentKey,
           rawStatus: currentSubactivity?.rawStatus ?? "Not started",
@@ -4543,7 +4571,7 @@ export default function Home() {
             selectedYear,
           ),
           owner: activityOwner(activity, updates),
-          executor: "",
+          procurementType: "",
           startDate: activity.startDate,
           endDate: activity.endDate,
           status: deriveActivityStatus(activity, updates),
@@ -4564,7 +4592,7 @@ export default function Home() {
             selectedYear,
           ),
           owner: subactivityOwner(subactivity, updates),
-          executor: subactivity.executor ?? "",
+          procurementType: procurementTypeForSubactivity(subactivity),
           startDate: subactivity.startDate ?? "",
           endDate: subactivity.endDate ?? "",
           status: recordStatus(
@@ -4677,7 +4705,7 @@ export default function Home() {
           workstream: activity.workstream,
           progressNote: latestNote(activity.id, activity.progressSummary ?? ""),
           owner: activityOwner(activity, updates),
-          executor: "",
+          procurementType: "",
           startDate: activity.startDate,
           endDate: activity.endDate,
           status: deriveActivityStatus(activity, updates),
@@ -4697,7 +4725,7 @@ export default function Home() {
             subactivity.progressSummary ?? "",
           ),
           owner: subactivityOwner(subactivity, updates),
-          executor: subactivity.executor ?? "",
+          procurementType: procurementTypeForSubactivity(subactivity),
           startDate: subactivity.startDate ?? "",
           endDate: subactivity.endDate ?? "",
           status: recordStatus(
@@ -7803,54 +7831,34 @@ export default function Home() {
                   className="h-11 border-[#cbd6cc] bg-white"
                 />
               </label>
-              {([[
-                "Lead",
-                "lead",
-              ], ["Technical lead", "technicalLead"]] as const).map(([label, field]) => (
-                <label key={field} className="block">
-                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
-                  <NativeSelect
-                    value={activityPlanDraft[field]}
-                    onChange={(event) =>
-                      setActivityPlanDraft((current) => ({
-                        ...current,
-                        [field]: event.target.value,
-                      }))
-                    }
-                    className="h-11 w-full border-[#cbd6cc] bg-white"
-                  >
-                    <NativeSelectOption value="">Unassigned</NativeSelectOption>
-                    {activityPlanDraft[field] && !teamMembers.some((member) => member.name === activityPlanDraft[field]) && (
-                      <NativeSelectOption value={activityPlanDraft[field]}>{activityPlanDraft[field]}</NativeSelectOption>
-                    )}
-                    {teamMembers.map((member) => (
-                      <NativeSelectOption key={member.id} value={member.name}>
-                        {member.group} · {member.name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </label>
-              ))}
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">MECC lead</span>
+                <Input
+                  value={activityPlanDraft.lead}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({
+                      ...current,
+                      lead: event.target.value,
+                    }))
+                  }
+                  placeholder="Write name(s)"
+                  className="h-11 border-[#cbd6cc] bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">Support/Partners</span>
+                <Textarea
+                  value={activityPlanDraft.support}
+                  onChange={(event) =>
+                    setActivityPlanDraft((current) => ({
+                      ...current,
+                      support: event.target.value,
+                    }))
+                  }
+                  className="min-h-20 border-[#cbd6cc] bg-white"
+                />
+              </label>
               {[
-                ["Support", "support"],
-                ["Partners", "partners"],
-              ].map(([label, field]) => (
-                <label key={field} className="block">
-                  <span className="mb-1.5 block text-sm font-bold">{label}</span>
-                  <Textarea
-                    value={activityPlanDraft[field as keyof ActivityPlanDraft]}
-                    onChange={(event) =>
-                      setActivityPlanDraft((current) => ({
-                        ...current,
-                        [field]: event.target.value,
-                      }))
-                    }
-                    className="min-h-20 border-[#cbd6cc] bg-white"
-                  />
-                </label>
-              ))}
-              {[
-                ["Description", "description"],
                 ["Baseline", "baseline"],
                 [`${selectedYear} target`, "target"],
               ].map(([label, field]) => (
@@ -7940,14 +7948,23 @@ export default function Home() {
                 </div>
               </fieldset>
               <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">Executor</span>
-                <Input
-                  value={subactivityPlanDraft.executor}
+                <span className="mb-1.5 block text-sm font-bold">Type of procurement</span>
+                <NativeSelect
+                  value={subactivityPlanDraft.procurementType}
                   onChange={(event) =>
-                    setSubactivityPlanDraft((current) => ({ ...current, executor: event.target.value }))
+                    setSubactivityPlanDraft((current) => ({
+                      ...current,
+                      procurementType: event.target.value as ProcurementType,
+                    }))
                   }
-                  className="h-11 border-[#cbd6cc] bg-white"
-                />
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  {procurementTypes.map((value) => (
+                    <NativeSelectOption key={value} value={value}>
+                      {value}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-bold">Start date</span>
@@ -9815,23 +9832,13 @@ export default function Home() {
                         <dd className="mt-1 font-bold">{selected.priority || "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-[#718178]">Lead</dt>
+                        <dt className="text-[#718178]">MECC lead</dt>
                         <dd className="mt-1 font-bold">{selected.lead || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Technical lead</dt>
-                        <dd className="mt-1 font-bold">{selected.technicalLead || "—"}</dd>
                       </div>
                       <div>
                         <dt className="text-[#718178]">{selectedYear} target</dt>
                         <dd className="mt-1 whitespace-pre-line font-medium leading-6">
                           {selected.target || "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Description</dt>
-                        <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {selected.description || "—"}
                         </dd>
                       </div>
                       <div>
@@ -9841,15 +9848,9 @@ export default function Home() {
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-[#718178]">Support</dt>
+                        <dt className="text-[#718178]">Support/Partners</dt>
                         <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {selected.support || "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Partners</dt>
-                        <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {selected.partners || "—"}
+                          {supportPartnersForActivity(selected) || "—"}
                         </dd>
                       </div>
                     </dl>
@@ -9931,30 +9932,37 @@ export default function Home() {
                           </div>
 
                           <div className="mt-3 grid gap-2.5 border-t border-[#e4e9e2] pt-3 sm:grid-cols-[1fr_auto] sm:items-center">
-                            <p
-                              className={
-                                currentOwner
-                                  ? "flex min-w-0 items-center gap-2 text-sm font-semibold text-[#315845]"
-                                  : "flex min-w-0 items-center gap-2 text-sm font-semibold text-rose-700"
-                              }
-                            >
-                              <span
+                            <div className="min-w-0">
+                              <p
                                 className={
                                   currentOwner
-                                    ? "h-2 w-2 shrink-0 rounded-full bg-emerald-600"
-                                    : "h-2 w-2 shrink-0 rounded-full bg-rose-600"
+                                    ? "flex min-w-0 items-center gap-2 text-sm font-semibold text-[#315845]"
+                                    : "flex min-w-0 items-center gap-2 text-sm font-semibold text-rose-700"
                                 }
-                              />
-                              {currentOwner || "Owner required"}
-                            </p>
-                            {currentResponsibility.supporting.length > 0 && (
-                              <p className="text-xs text-[#718178] sm:text-right">
-                                Supporting: {currentResponsibility.supporting.join(", ")}
+                              >
+                                <span
+                                  className={
+                                    currentOwner
+                                      ? "h-2 w-2 shrink-0 rounded-full bg-emerald-600"
+                                      : "h-2 w-2 shrink-0 rounded-full bg-rose-600"
+                                  }
+                                />
+                                {currentOwner || "Owner required"}
                               </p>
-                            )}
-                            <p className="text-sm font-bold text-[#315845]">
-                              Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
-                            </p>
+                              <p className="mt-1 text-xs text-[#718178]">
+                                Type of procurement: {procurementTypeForSubactivity(sub)}
+                              </p>
+                            </div>
+                            <div className="sm:text-right">
+                              {currentResponsibility.supporting.length > 0 && (
+                                <p className="text-xs text-[#718178]">
+                                  Supporting: {currentResponsibility.supporting.join(", ")}
+                                </p>
+                              )}
+                              <p className="mt-1 text-sm font-bold text-[#315845]">
+                                Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
+                              </p>
+                            </div>
                           </div>
 
                           <div className="mt-3 flex flex-wrap justify-end gap-2">
