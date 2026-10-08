@@ -88,6 +88,29 @@ export const workplanYears = sqliteTable("workplan_years", {
   updatedBy: text("updated_by").notNull().default(""),
 });
 
+export const systemMetadata = sqliteTable(
+  "system_metadata",
+  {
+    id: text("id").primaryKey(),
+    category: text("category").notNull(),
+    value: text("value").notNull(),
+    label: text("label").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_system_metadata_category_value").on(
+      table.category,
+      table.value,
+    ),
+    index("idx_system_metadata_category_order").on(
+      table.category,
+      table.sortOrder,
+    ),
+  ],
+);
+
 export const workplanRecords = sqliteTable(
   "workplan_records",
   {

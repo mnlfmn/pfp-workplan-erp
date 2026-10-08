@@ -11,6 +11,7 @@ import {
   financeEntries,
   paymentDocuments,
   quarterlyUpdates,
+  systemMetadata,
   teamMembers,
   workplanRecords,
   workplanYears,
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
     await db.delete(financeEntries);
     await db.delete(quarterlyUpdates);
     await db.delete(activityUpdates);
+    await db.delete(systemMetadata);
     await db.delete(teamMembers);
     const tables = backup.payload.tables;
     for (let index = 0; index < tables.teamMembers.length; index += 20) {
@@ -122,6 +124,10 @@ export async function POST(request: Request) {
     }
     for (let index = 0; index < tables.auditLogs.length; index += 20) {
       await db.insert(auditLogs).values(tables.auditLogs.slice(index, index + 20));
+    }
+    const metadataRows = tables.systemMetadata ?? [];
+    for (let index = 0; index < metadataRows.length; index += 20) {
+      await db.insert(systemMetadata).values(metadataRows.slice(index, index + 20));
     }
     return Response.json({
       restored: true,

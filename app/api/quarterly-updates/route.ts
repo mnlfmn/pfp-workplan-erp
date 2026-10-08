@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { quarterlyUpdates } from "@/db/schema";
+import { quarterlyUpdates, systemMetadata } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
 
 const quarters = new Set(["Q1", "Q2", "Q3", "Q4"]);
@@ -14,6 +14,21 @@ const statuses = new Set([
   "not_started",
   "not_reported",
 ]);
+
+async function isAllowedStatus(status: string) {
+  if (statuses.has(status)) return true;
+  const rows = await getDb()
+    .select({ value: systemMetadata.value })
+    .from(systemMetadata)
+    .where(
+      and(
+        eq(systemMetadata.category, "status"),
+        eq(systemMetadata.value, status),
+      ),
+    )
+    .limit(1);
+  return Boolean(rows[0]);
+}
 
 function storageMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -81,7 +96,7 @@ export async function POST(request: Request) {
     if (!note) {
       return Response.json({ error: "Enter a quarterly progress note." }, { status: 400 });
     }
-    if (!statuses.has(status) || !Number.isInteger(progress) || progress < 0 || progress > 100) {
+    if (!(await isAllowedStatus(status)) || !Number.isInteger(progress) || progress < 0 || progress > 100) {
       return Response.json({ error: "Enter a valid status and progress." }, { status: 400 });
     }
     const [entry] = await getDb()

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import { getDb } from "@/db";
@@ -7,6 +7,9 @@ import {
   budgetAllocations,
   contractPayments,
   contracts,
+  financeEntries,
+  paymentDocuments,
+  quarterlyUpdates,
   workplanRecords,
   workplanYears,
 } from "@/db/schema";
@@ -322,10 +325,11 @@ export async function POST(request: Request) {
       };
 
       const source = await materializeYear(fromYear);
-      const [savedUpdates, sourceContracts, savedPayments] = await Promise.all([
+      const [savedUpdates, sourceContracts, savedPayments, sourceFinanceEntries] = await Promise.all([
         db.select().from(activityUpdates),
         db.select().from(contracts).where(eq(contracts.planYear, fromYear)),
         db.select().from(contractPayments),
+        db.select().from(financeEntries),
       ]);
       const updateStatus = new Map(
         savedUpdates.map((item) => [item.activityKey, item.status]),
@@ -439,6 +443,59 @@ export async function POST(request: Request) {
         const copied = copyForYear(budget, toYear, "budget");
         copied.id = key;
         copied.transferredFromYear = fromYear;
+        const approvedMnt = Math.max(
+          0,
+          Math.round(Number(budget.budgetMntMillion ?? 0) * 1_000_000),
+        );
+        const manualCommitmentMnt = sourceFinanceEntries
+          .filter(
+            (entry) =>
+              entry.budgetKey === budget.id && entry.entryType === "commitment",
+          )
+          .reduce((total, entry) => total + entry.amountMnt, 0);
+        const manualExpenditureMnt = sourceFinanceEntries
+          .filter(
+            (entry) =>
+              entry.budgetKey === budget.id && entry.entryType === "expenditure",
+          )
+          .reduce((total, entry) => total + entry.amountMnt, 0);
+        const contractCommitmentMnt = sourceContracts
+          .filter(
+            (contract) =>
+              contract.budgetKey === budget.id && contract.status !== "closed",
+          )
+          .reduce((total, contract) => {
+            const paid = savedPayments
+              .filter(
+                (payment) =>
+                  payment.contractId === contract.id && Boolean(payment.paid),
+              )
+              .reduce((subtotal, payment) => subtotal + payment.amountMnt, 0);
+            return total + Math.max(contract.amountMnt - paid, 0);
+          }, 0);
+        const contractExpenditureMnt = sourceContracts
+          .filter((contract) => contract.budgetKey === budget.id)
+          .reduce(
+            (total, contract) =>
+              total +
+              savedPayments
+                .filter(
+                  (payment) =>
+                    payment.contractId === contract.id && Boolean(payment.paid),
+                )
+                .reduce((subtotal, payment) => subtotal + payment.amountMnt, 0),
+            0,
+          );
+        const remainingMnt = Math.max(
+          0,
+          approvedMnt -
+            manualCommitmentMnt -
+            manualExpenditureMnt -
+            contractCommitmentMnt -
+            contractExpenditureMnt,
+        );
+        copied.budgetMntMillion = remainingMnt / 1_000_000;
+        copied.transferredRemainingMnt = remainingMnt;
         if (Array.isArray(budget.linkedActivityKeys)) {
           copied.linkedActivityKeys = budget.linkedActivityKeys
             .filter((activityKey): activityKey is string =>
@@ -679,20 +736,18 @@ export async function DELETE(request: Request) {
       }
 
       const db = getDb();
-      const [savedYear, records, allocations, savedContracts] = await Promise.all([
+      const [savedYear, records, savedContracts] = await Promise.all([
         db.select().from(workplanYears).where(eq(workplanYears.year, year)).limit(1),
-        db.select({ id: workplanRecords.id })
+        db.select({
+          id: workplanRecords.id,
+          recordKey: workplanRecords.recordKey,
+          recordType: workplanRecords.recordType,
+        })
           .from(workplanRecords)
-          .where(eq(workplanRecords.planYear, year))
-          .limit(1),
-        db.select({ id: budgetAllocations.id })
-          .from(budgetAllocations)
-          .where(eq(budgetAllocations.planYear, year))
-          .limit(1),
+          .where(eq(workplanRecords.planYear, year)),
         db.select({ id: contracts.id })
           .from(contracts)
-          .where(eq(contracts.planYear, year))
-          .limit(1),
+          .where(eq(contracts.planYear, year)),
       ]);
       if (!savedYear.length) {
         return Response.json({ error: "That workplan year does not exist." }, { status: 404 });
@@ -703,13 +758,33 @@ export async function DELETE(request: Request) {
           { status: 409 },
         );
       }
-      if (records.length || allocations.length || savedContracts.length) {
-        return Response.json(
-          { error: "This workplan contains activities, allocations, or contracts and cannot be removed." },
-          { status: 409 },
+      const activityKeys = records
+        .filter((record) => ["activity", "subactivity"].includes(record.recordType))
+        .map((record) => record.recordKey);
+      const budgetKeys = records
+        .filter((record) => record.recordType === "budget")
+        .map((record) => record.recordKey);
+      const contractIds = savedContracts.map((contract) => contract.id);
+      const chunks = <T,>(values: T[], size = 50) =>
+        Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
+          values.slice(index * size, index * size + size),
         );
-      }
 
+      for (const ids of chunks(contractIds)) {
+        await db.delete(paymentDocuments).where(inArray(paymentDocuments.contractId, ids));
+        await db.delete(contractPayments).where(inArray(contractPayments.contractId, ids));
+      }
+      await db.delete(contracts).where(eq(contracts.planYear, year));
+      await db.delete(quarterlyUpdates).where(eq(quarterlyUpdates.planYear, year));
+      await db.delete(budgetAllocations).where(eq(budgetAllocations.planYear, year));
+      for (const keys of chunks(activityKeys)) {
+        await db.delete(activityUpdates).where(inArray(activityUpdates.activityKey, keys));
+        await db.delete(financeEntries).where(inArray(financeEntries.activityKey, keys));
+      }
+      for (const keys of chunks(budgetKeys)) {
+        await db.delete(financeEntries).where(inArray(financeEntries.budgetKey, keys));
+      }
+      await db.delete(workplanRecords).where(eq(workplanRecords.planYear, year));
       await db.delete(workplanYears).where(eq(workplanYears.year, year));
       return Response.json({ deletedYear: year, years: await yearList() });
     }

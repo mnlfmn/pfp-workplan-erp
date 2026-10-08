@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { activityUpdates, workplanRecords } from "@/db/schema";
+import { activityUpdates, systemMetadata, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
 import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import workplan from "@/lib/workplan-data.json";
@@ -15,6 +15,21 @@ const allowedStatuses = new Set([
   "not_started",
   "not_reported",
 ]);
+
+async function isAllowedStatus(status: string) {
+  if (allowedStatuses.has(status)) return true;
+  const rows = await getDb()
+    .select({ value: systemMetadata.value })
+    .from(systemMetadata)
+    .where(
+      and(
+        eq(systemMetadata.category, "status"),
+        eq(systemMetadata.value, status),
+      ),
+    )
+    .limit(1);
+  return Boolean(rows[0]);
+}
 
 const validActivityKeys = new Set(
   workplan.activities.flatMap((activity) => [
@@ -88,7 +103,7 @@ export async function PUT(request: Request) {
     ) {
       return Response.json({ error: "A valid activity key is required." }, { status: 400 });
     }
-    if (!allowedStatuses.has(status)) {
+    if (!(await isAllowedStatus(status))) {
       return Response.json({ error: "Choose a valid status." }, { status: 400 });
     }
     if (!Number.isInteger(progress) || progress < 0 || progress > 100) {

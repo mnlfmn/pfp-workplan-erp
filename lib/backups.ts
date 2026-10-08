@@ -11,6 +11,7 @@ import {
   financeEntries,
   paymentDocuments,
   quarterlyUpdates,
+  systemMetadata,
   teamMembers,
   workplanRecords,
   workplanYears,
@@ -33,12 +34,13 @@ export type BackupPayload = {
     contractPayments: Array<typeof contractPayments.$inferSelect>;
     paymentDocuments: Array<typeof paymentDocuments.$inferSelect>;
     auditLogs: Array<typeof auditLogs.$inferSelect>;
+    systemMetadata?: Array<typeof systemMetadata.$inferSelect>;
   };
 };
 
 export function backupTableCounts(payload: BackupPayload) {
   return Object.fromEntries(
-    Object.entries(payload.tables).map(([name, rows]) => [name, rows.length]),
+    Object.entries(payload.tables).map(([name, rows]) => [name, rows?.length ?? 0]),
   );
 }
 
@@ -98,6 +100,7 @@ export async function createBackupSnapshot(
     paymentRows,
     documentRows,
     auditRows,
+    metadataRows,
   ] = await Promise.all([
     db.select().from(activityUpdates),
     db.select().from(quarterlyUpdates),
@@ -110,6 +113,7 @@ export async function createBackupSnapshot(
     db.select().from(contractPayments),
     db.select().from(paymentDocuments),
     db.select().from(auditLogs),
+    db.select().from(systemMetadata),
   ]);
   const id = crypto.randomUUID();
   const payload: BackupPayload = {
@@ -128,10 +132,11 @@ export async function createBackupSnapshot(
       contractPayments: paymentRows,
       paymentDocuments: documentRows,
       auditLogs: auditRows,
+      systemMetadata: metadataRows,
     },
   };
   const recordCount = Object.values(payload.tables).reduce(
-    (total, rows) => total + rows.length,
+    (total, rows) => total + (rows?.length ?? 0),
     0,
   );
   const objectKey = `backups/${createdAt.slice(0, 10)}/${id}.json`;

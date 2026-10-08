@@ -8,7 +8,6 @@ import {
   Bell,
   ChevronRight,
   CircleCheck,
-  Clock3,
   CopyPlus,
   Download,
   FileSpreadsheet,
@@ -25,6 +24,7 @@ import {
   ReceiptText,
   RotateCcw,
   Search,
+  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Target,
@@ -88,30 +88,28 @@ import {
   translateUiText,
   type UiLanguage,
 } from "@/lib/ui-language";
+import {
+  defaultMetadata,
+  metadataCategories,
+  metadataCategoryLabels,
+  type MetadataCategory,
+  type MetadataOption,
+} from "@/lib/system-metadata";
 import workplan from "@/lib/workplan-data.json";
 
 type BaseActivity = (typeof workplan.activities)[number];
-type ProcurementType =
-  | "Goods and service"
-  | "Intellectual service"
-  | "Not applicable";
+type ProcurementType = string;
 type Subactivity = BaseActivity["subactivities"][number] & {
   procurementType?: ProcurementType;
 };
 type Activity = Omit<BaseActivity, "subactivities"> & {
   subactivities: Subactivity[];
+  responsibilityOwner?: string;
 };
 type BudgetLine = (typeof workplan.budgetLines)[number] & {
   linkedActivityKeys?: string[];
 };
-type StatusKey =
-  | "completed"
-  | "in_progress"
-  | "delayed"
-  | "delayed_externally"
-  | "on_hold"
-  | "not_started"
-  | "not_reported";
+type StatusKey = string;
 
 type UpdateRecord = {
   activityKey: string;
@@ -237,6 +235,7 @@ type ActivityPlanDraft = {
   endDate: string;
   lead: string;
   support: string;
+  owner: string;
   actionPlan: string;
   baseline: string;
   target: string;
@@ -393,7 +392,7 @@ type AuditTarget = {
 };
 
 const statusMeta: Record<
-  StatusKey,
+  string,
   { label: string; tone: string; dot: string; weight: number }
 > = {
   completed: {
@@ -440,7 +439,7 @@ const statusMeta: Record<
   },
 };
 
-const statusChartColors: Record<StatusKey, string> = {
+const statusChartColors: Record<string, string> = {
   completed: "#16825d",
   in_progress: "#2878c8",
   delayed: "#c44757",
@@ -465,6 +464,7 @@ const emptyActivityDraft: ActivityPlanDraft = {
   endDate: "",
   lead: "",
   support: "",
+  owner: "",
   actionPlan: "",
   baseline: "",
   target: "",
@@ -499,12 +499,6 @@ const providerTypes = [
   "NGO / CSO",
   "Government entity",
   "Other",
-];
-
-const procurementTypes: ProcurementType[] = [
-  "Goods and service",
-  "Intellectual service",
-  "Not applicable",
 ];
 
 const contractStatusMeta: Record<
@@ -686,15 +680,6 @@ function dollarsToMinor(value: string) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
 }
 
-function escapeHtml(value: unknown) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function formatNumberInput(value: string | number) {
   const digits = String(value).replace(/[^\d]/g, "");
   return digits ? new Intl.NumberFormat("en-US").format(Number(digits)) : "";
@@ -718,16 +703,33 @@ function formatUpdatedAt(value: string, language: UiLanguage = "en") {
   }).format(new Date(value));
 }
 
-function StatusPill({ status }: { status: StatusKey }) {
-  const meta = statusMeta[status];
+function StatusPill({ status, label }: { status: StatusKey; label?: string }) {
+  const meta = statusMetaFor(status);
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-      {meta.label}
+      {label ?? meta.label}
     </span>
   );
+}
+
+function statusMetaFor(status: StatusKey) {
+  return (
+    statusMeta[status] ?? {
+      label: status
+        .replaceAll("_", " ")
+        .replace(/^./, (letter) => letter.toUpperCase()),
+      tone: "bg-slate-50 text-slate-700 border-slate-200",
+      dot: "bg-slate-500",
+      weight: 0,
+    }
+  );
+}
+
+function statusChartColor(status: StatusKey) {
+  return statusChartColors[status] ?? "#829089";
 }
 
 function targetForActivity(
@@ -740,7 +742,7 @@ function targetForActivity(
     kind: "activity",
     baseStatus: deriveActivityStatus(activity, updates),
     baseProgress: deriveActivityProgress(activity, updates),
-    baseOwner: activity.technicalLead || "",
+    baseOwner: activityOwner(activity, updates),
     baseNote: "",
   };
 }
@@ -751,7 +753,7 @@ function targetForSubactivity(subactivity: Subactivity): EditableTarget {
     label: subactivity.title,
     kind: "subactivity",
     baseStatus: subactivity.status as StatusKey,
-    baseProgress: statusMeta[subactivity.status as StatusKey].weight,
+    baseProgress: statusMetaFor(subactivity.status as StatusKey).weight,
     baseOwner: subactivity.owner,
     baseNote: "",
   };
@@ -783,7 +785,9 @@ function deriveActivityStatus(
   const statuses = activity.subactivities.map((item) =>
     recordStatus(item.id, item.status as StatusKey, updates),
   );
-  if (statuses.every((item) => item === "completed")) return "completed";
+  if (statuses.length && statuses.every((item) => item === statuses[0])) {
+    return statuses[0];
+  }
   if (updates[activity.id]) return updates[activity.id].status;
   if (statuses.includes("delayed")) return "delayed";
   if (statuses.some((item) => item === "in_progress" || item === "completed")) {
@@ -798,9 +802,12 @@ function activityOwner(
   activity: Activity,
   updates: Record<string, UpdateRecord>,
 ) {
-  return updates[activity.id]
-    ? updates[activity.id].owner
-    : activity.technicalLead || "";
+  return (
+    activity.responsibilityOwner ||
+    updates[activity.id]?.owner ||
+    activity.technicalLead ||
+    ""
+  );
 }
 
 function supportPartnersForActivity(activity: Activity) {
@@ -816,18 +823,14 @@ function supportPartnersForActivity(activity: Activity) {
 function procurementTypeForSubactivity(
   subactivity: Subactivity,
 ): ProcurementType {
-  return procurementTypes.includes(subactivity.procurementType as ProcurementType)
-    ? (subactivity.procurementType as ProcurementType)
-    : "Not applicable";
+  return String(subactivity.procurementType ?? "").trim() || "Not applicable";
 }
 
 function subactivityOwner(
   subactivity: Subactivity,
   updates: Record<string, UpdateRecord>,
 ) {
-  return updates[subactivity.id]
-    ? updates[subactivity.id].owner
-    : subactivity.owner || "";
+  return subactivity.owner || updates[subactivity.id]?.owner || "";
 }
 
 function canonicalOwnerName(value: string, members: TeamMember[]) {
@@ -969,7 +972,7 @@ function deriveActivityProgress(
         total +
         recordProgress(
           item.id,
-          statusMeta[item.status as StatusKey].weight,
+          statusMetaFor(item.status as StatusKey).weight,
           updates,
         ),
       0,
@@ -1219,6 +1222,24 @@ export default function Home() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
     defaultTeamMembers,
   );
+  const [metadata, setMetadata] = useState<
+    Record<MetadataCategory, MetadataOption[]>
+  >(defaultMetadata);
+  const [metadataDrafts, setMetadataDrafts] = useState<
+    Record<MetadataCategory, MetadataOption[]>
+  >(defaultMetadata);
+  const [metadataState, setMetadataState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [metadataSavingCategory, setMetadataSavingCategory] =
+    useState<MetadataCategory | null>(null);
+  const [selectedMetadataCategory, setSelectedMetadataCategory] =
+    useState<MetadataCategory>("workstream");
+  const [adminControlSection, setAdminControlSection] = useState<
+    "users" | "metadata"
+  >("users");
+  const [teamDirectoryQuery, setTeamDirectoryQuery] = useState("");
+  const [teamDirectoryMember, setTeamDirectoryMember] = useState("all");
   const [currentSession, setCurrentSession] = useState<AppSession | null>(null);
   const [teamState, setTeamState] = useState<
     "loading" | "ready" | "unavailable"
@@ -1764,6 +1785,35 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
+    fetch("/api/metadata")
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          metadata?: Record<MetadataCategory, MetadataOption[]>;
+        };
+        if (!response.ok || !result.metadata) {
+          throw new Error("Metadata unavailable");
+        }
+        return result.metadata;
+      })
+      .then((items) => {
+        if (!active) return;
+        setMetadata(items);
+        setMetadataDrafts(items);
+        setMetadataState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setMetadata(defaultMetadata);
+        setMetadataDrafts(defaultMetadata);
+        setMetadataState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     fetch(`/api/quarterly-updates?year=${selectedYear}`)
       .then(async (response) => {
         const result = (await response.json()) as {
@@ -1917,10 +1967,6 @@ export default function Home() {
 
   async function saveDraft() {
     if (!activeTarget) return;
-    if (!ownerNames(draft.owner, teamMembers).length) {
-      toast.error("Choose an accountable owner before saving.");
-      return;
-    }
     const autoCalculatedMainProgress =
       activeTarget.kind === "activity" && Boolean(selected?.subactivities.length);
     const progressToSave =
@@ -1933,7 +1979,6 @@ export default function Home() {
         activityKey: activeTarget.key,
         status: draft.status,
         progress: progressToSave,
-        owner: draft.owner,
         note: draft.note,
         supportNeeded: updates[activeTarget.key]?.supportNeeded ?? "",
       });
@@ -1971,7 +2016,7 @@ export default function Home() {
       }
       setFormDirty(false);
       toast.success("Workplan update saved", {
-        description: `${statusMeta[update.status].label} · ${update.progress}%`,
+        description: `${metadataLabel("status", update.status)} · ${update.progress}%`,
       });
     } catch (error) {
       setSyncState("unavailable");
@@ -2698,6 +2743,103 @@ export default function Home() {
     }
   }
 
+  function addMetadataOption(category: MetadataCategory) {
+    const value = `custom_${crypto.randomUUID().slice(0, 8)}`;
+    setMetadataDrafts((current) => ({
+      ...current,
+      [category]: [
+        ...current[category],
+        {
+          id: `${category}:${value}`,
+          category,
+          value,
+          label: "New option",
+          sortOrder: current[category].length,
+        },
+      ],
+    }));
+  }
+
+  function updateMetadataOption(
+    category: MetadataCategory,
+    value: string,
+    label: string,
+  ) {
+    setMetadataDrafts((current) => ({
+      ...current,
+      [category]: current[category].map((item) =>
+        item.value === value ? { ...item, label } : item,
+      ),
+    }));
+  }
+
+  function removeMetadataOption(category: MetadataCategory, value: string) {
+    setMetadataDrafts((current) => {
+      if (current[category].length <= 1) return current;
+      return {
+        ...current,
+        [category]: current[category]
+          .filter((item) => item.value !== value)
+          .map((item, index) => ({ ...item, sortOrder: index })),
+      };
+    });
+  }
+
+  function moveMetadataOption(
+    category: MetadataCategory,
+    value: string,
+    direction: -1 | 1,
+  ) {
+    setMetadataDrafts((current) => {
+      const items = [...current[category]];
+      const index = items.findIndex((item) => item.value === value);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= items.length) return current;
+      [items[index], items[nextIndex]] = [items[nextIndex], items[index]];
+      return {
+        ...current,
+        [category]: items.map((item, sortOrder) => ({ ...item, sortOrder })),
+      };
+    });
+  }
+
+  async function saveMetadataCategory(category: MetadataCategory) {
+    if (!currentSession?.isAdmin) return;
+    const options = metadataDrafts[category].map((item) => ({
+      value: item.value,
+      label: item.label.trim(),
+    }));
+    if (options.some((item) => !item.label)) {
+      toast.error("Every option needs a visible name.");
+      return;
+    }
+    setMetadataSavingCategory(category);
+    try {
+      const response = await fetch("/api/metadata", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ category, options }),
+      });
+      const result = (await response.json()) as {
+        metadata?: Record<MetadataCategory, MetadataOption[]>;
+        error?: string;
+      };
+      if (!response.ok || !result.metadata) {
+        throw new Error(result.error || "Metadata could not be saved.");
+      }
+      setMetadata(result.metadata);
+      setMetadataDrafts(result.metadata);
+      setMetadataState("ready");
+      toast.success(`${metadataCategoryLabels[category]} updated`, {
+        description: "The option names are now used throughout the system.",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Metadata could not be saved.");
+    } finally {
+      setMetadataSavingCategory(null);
+    }
+  }
+
   function applyPlanResult(result: {
     activities?: Activity[];
     budgetLines?: BudgetLine[];
@@ -2784,7 +2926,7 @@ export default function Home() {
     }
   }
 
-  async function removeEmptyWorkplanYear() {
+  async function removeWorkplanYear() {
     if (!currentSession?.isAdmin || selectedYear <= 2026) return;
     setYearSaving(true);
     try {
@@ -2802,7 +2944,7 @@ export default function Home() {
         error?: string;
       };
       if (!response.ok || result.deletedYear !== selectedYear || !result.years) {
-        throw new Error(result.error || "The empty workplan could not be removed.");
+        throw new Error(result.error || "The workplan year could not be removed.");
       }
       const deletedYear = selectedYear;
       setWorkplanYears(result.years);
@@ -2812,13 +2954,13 @@ export default function Home() {
       setContractState("loading");
       setSelectedYear(2026);
       toast.success(`${deletedYear} workplan removed`, {
-        description: "The empty draft was removed. The 2026 workplan was not changed.",
+        description: "Its activities, budgets, finance entries, contracts, and updates were removed. The 2026 workplan was not changed.",
       });
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "The empty workplan could not be removed.",
+          : "The workplan year could not be removed.",
       );
     } finally {
       setYearSaving(false);
@@ -2832,6 +2974,12 @@ export default function Home() {
     setEditingPlanParentKey("");
     setActivityPlanDraft({
       ...emptyActivityDraft,
+      section: metadata.section[0]?.value ?? "A",
+      goal:
+        metadata.goal.find((item) => item.value !== "All goals")?.value ??
+        metadata.goal[0]?.value ??
+        "",
+      workstream: metadata.workstream[0]?.value ?? "",
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-12-31`,
     });
@@ -2856,6 +3004,7 @@ export default function Home() {
       endDate: activity.endDate,
       lead: activity.lead,
       support: supportPartnersForActivity(activity),
+      owner: activityOwner(activity, updates),
       actionPlan: String(activity.actionPlan ?? ""),
       baseline: activity.baseline,
       target: activity.target,
@@ -2871,6 +3020,8 @@ export default function Home() {
     setEditingPlanParentKey(activity.id);
     setSubactivityPlanDraft({
       ...emptySubactivityDraft,
+      procurementType: metadata.procurement_type[0]?.value ?? "Not applicable",
+      status: metadata.initial_status[0]?.value ?? "not_started",
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-12-31`,
     });
@@ -2885,7 +3036,7 @@ export default function Home() {
     setEditingPlanParentKey(activity.id);
     setSubactivityPlanDraft({
       title: subactivity.title,
-      owner: subactivity.owner,
+      owner: subactivityOwner(subactivity, updates),
       procurementType: procurementTypeForSubactivity(subactivity),
       startDate: subactivity.startDate,
       endDate: subactivity.endDate,
@@ -2925,9 +3076,11 @@ export default function Home() {
           .find((item) => item.id === editingPlanKey)
       : null;
     const record = isActivity
-      ? {
+      ? (() => {
+          const { owner, ...planningFields } = activityPlanDraft;
+          return {
           ...(currentActivity ?? {}),
-          ...activityPlanDraft,
+          ...planningFields,
           id: key,
           uid: currentActivity?.uid ?? key,
           level: currentActivity?.level ?? "Main Activity",
@@ -2939,6 +3092,7 @@ export default function Home() {
           status: currentActivity?.status ?? "not_started",
           progressSummary: currentActivity?.progressSummary ?? "",
           technicalLead: currentActivity?.technicalLead ?? "",
+          responsibilityOwner: canonicalOwnerName(owner, teamMembers),
           partners: "",
           description: currentActivity?.description ?? "",
           ministrySupport: currentActivity?.ministrySupport ?? "",
@@ -2961,7 +3115,8 @@ export default function Home() {
             title: "",
           },
           subactivities: undefined,
-        }
+        };
+        })()
       : {
           ...(currentSubactivity ?? {}),
           ...subactivityPlanDraft,
@@ -3532,7 +3687,7 @@ export default function Home() {
                 query: { type: "string" },
                 status: {
                   type: "string",
-                  enum: Object.keys(statusMeta),
+                  enum: metadata.status.map((item) => item.value),
                 },
               },
               additionalProperties: false,
@@ -3587,14 +3742,13 @@ export default function Home() {
                 activityKey: { type: "string" },
                 status: {
                   type: "string",
-                  enum: Object.keys(statusMeta),
+                  enum: metadata.status.map((item) => item.value),
                 },
                 progress: {
                   type: "integer",
                   minimum: 0,
                   maximum: 100,
                 },
-                owner: { type: "string" },
                 note: { type: "string" },
               },
               required: ["activityKey", "status", "progress"],
@@ -3615,7 +3769,7 @@ export default function Home() {
                 );
               if (
                 !validKey ||
-                !(status in statusMeta) ||
+                !metadata.status.some((item) => item.value === status) ||
                 !Number.isInteger(progress) ||
                 progress < 0 ||
                 progress > 100
@@ -3626,7 +3780,6 @@ export default function Home() {
                 activityKey,
                 status,
                 progress,
-                owner: String(input.owner ?? ""),
                 note: String(input.note ?? ""),
                 supportNeeded: updates[activityKey]?.supportNeeded ?? "",
               });
@@ -3718,22 +3871,61 @@ export default function Home() {
     allBudgetLines,
     persistFinanceEntry,
     persistUpdate,
+    metadata.status,
     selectedYear,
     updates,
   ]);
 
+  const metadataLabel = useCallback(
+    (category: MetadataCategory, value: string) =>
+      metadata[category].find((item) => item.value === value)?.label || value,
+    [metadata],
+  );
+
   const workstreams = useMemo(
     () =>
       Array.from(
-        new Set(allActivities.map((item) => item.workstream).filter(Boolean)),
-      ).sort(),
-    [allActivities],
+        new Set([
+          ...metadata.workstream.map((item) => item.value),
+          ...allActivities.map((item) => item.workstream).filter(Boolean),
+        ]),
+      ),
+    [allActivities, metadata.workstream],
   );
 
   const goals = useMemo(
     () =>
-      Array.from(new Set(allActivities.map((item) => item.goal).filter(Boolean))).sort(),
-    [allActivities],
+      Array.from(
+        new Set([
+          ...metadata.goal.map((item) => item.value),
+          ...allActivities.map((item) => item.goal).filter(Boolean),
+        ]),
+      ),
+    [allActivities, metadata.goal],
+  );
+
+  const sectionOptions = metadata.section;
+  const statusOptions = metadata.status;
+  const initialStatusOptions = metadata.initial_status;
+  const procurementTypeOptions = metadata.procurement_type;
+  const statusKeys = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...metadata.status.map((item) => item.value),
+          ...allActivities.map((activity) => deriveActivityStatus(activity, updates)),
+          ...allActivities.flatMap((activity) =>
+            activity.subactivities.map((subactivity) =>
+              recordStatus(
+                subactivity.id,
+                subactivity.status as StatusKey,
+                updates,
+              ),
+            ),
+          ),
+        ]),
+      ),
+    [allActivities, metadata.status, updates],
   );
 
   const actionPlanReferences = useMemo(
@@ -4016,25 +4208,6 @@ export default function Home() {
     return allocations.filter((allocation) => keys.has(allocation.budgetKey));
   }, [allocations, filteredBudgetLines]);
 
-  const stats = useMemo(() => {
-    const allSubs = filtered.flatMap((item) => item.subactivities);
-    const completed = allSubs.filter(
-      (item) =>
-        recordStatus(item.id, item.status as StatusKey, updates) === "completed",
-    ).length;
-    const attention = allSubs.filter((item) => {
-      const current = recordStatus(item.id, item.status as StatusKey, updates);
-      return current === "delayed" || current === "delayed_externally" || current === "on_hold";
-    }).length;
-    const overall = Math.round(
-      filtered.reduce(
-        (total, item) => total + deriveActivityProgress(item, updates),
-        0,
-      ) / Math.max(filtered.length, 1),
-    );
-    return { completed, attention, overall };
-  }, [filtered, updates]);
-
   const dashboardActivities = useMemo(
     () =>
       allActivities.filter(
@@ -4187,19 +4360,6 @@ export default function Home() {
         contract.endDate >= today &&
         contract.endDate <= cutoff,
     );
-    const contractsMissingDeliverables = contracts.filter((contract) =>
-      contract.payments.some((payment) => !payment.deliverable.trim()),
-    );
-    const quarter = quarterForDate(today);
-    const missingQuarterly = workplanItems.filter(
-      (item) =>
-        !quarterlyHistory.some(
-          (entry) =>
-            entry.activityKey === item.key &&
-            entry.planYear === selectedYear &&
-            entry.quarter === quarter,
-        ),
-    );
     return [
       {
         id: "overdue",
@@ -4235,66 +4395,8 @@ export default function Home() {
         view: "workplan",
         tone: "rose",
       },
-      {
-        id: "quarterly",
-        label: `${quarter} updates not submitted`,
-        count: missingQuarterly.length,
-        detail: missingQuarterly[0]?.label || "All quarterly updates submitted",
-        view: "workplan",
-        tone: "amber",
-      },
-      {
-        id: "deliverables",
-        label: "Contracts without deliverables",
-        count: contractsMissingDeliverables.length,
-        detail:
-          contractsMissingDeliverables[0]?.contractNumber ||
-          "All contracts include deliverables",
-        view: "contracts",
-        tone: "rose",
-      },
     ];
-  }, [
-    allActivities,
-    contracts,
-    quarterlyHistory,
-    selectedYear,
-    teamMembers,
-    updates,
-  ]);
-
-  const financeReconciliation = useMemo(() => {
-    const budgetKeys = new Set(allBudgetLines.map((line) => line.id));
-    const activityKeys = new Set(
-      allActivities.flatMap((activity) => [
-        activity.id,
-        ...activity.subactivities.map((subactivity) => subactivity.id),
-      ]),
-    );
-    const unmatchedFinance = financeEntries.filter(
-      (entry) =>
-        !budgetKeys.has(entry.budgetKey) || !activityKeys.has(entry.activityKey),
-    );
-    const unmatchedAllocations = allocations.filter(
-      (allocation) =>
-        !budgetKeys.has(allocation.budgetKey) ||
-        !activityKeys.has(allocation.activityKey),
-    );
-    const unmatchedContracts = contracts.filter(
-      (contract) =>
-        !budgetKeys.has(contract.budgetKey) ||
-        !activityKeys.has(contract.activityKey),
-    );
-    return {
-      unmatchedFinance,
-      unmatchedAllocations,
-      unmatchedContracts,
-      total:
-        unmatchedFinance.length +
-        unmatchedAllocations.length +
-        unmatchedContracts.length,
-    };
-  }, [allActivities, allBudgetLines, allocations, contracts, financeEntries]);
+  }, [allActivities, contracts, teamMembers, updates]);
 
   const expenditureForecast = useMemo(() => {
     const quarters: Record<QuarterKey, number> = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
@@ -4327,26 +4429,22 @@ export default function Home() {
     const missingDates = items.filter(
       (item) => !item.startDate || !item.endDate,
     ).length;
-    const missingQuarter = automaticAlerts.find((item) => item.id === "quarterly")?.count ?? 0;
-    const missingDeliverables = automaticAlerts.find((item) => item.id === "deliverables")?.count ?? 0;
     return {
       total: items.length,
       missingOwner,
       missingDates,
-      missingQuarter,
-      missingDeliverables,
       completePercent: items.length
         ? Math.max(
             0,
             Math.round(
-              ((items.length - Math.max(missingOwner, missingDates, missingQuarter)) /
+              ((items.length - Math.max(missingOwner, missingDates)) /
                 items.length) *
                 100,
             ),
           )
         : 100,
     };
-  }, [allActivities, automaticAlerts, teamMembers, updates]);
+  }, [allActivities, teamMembers, updates]);
 
   const transferPreview = useMemo(() => {
     const openContractKeys = new Set(
@@ -4390,23 +4488,28 @@ export default function Home() {
       contracts: contracts.filter((contract) =>
         ["draft", "active"].includes(contract.status),
       ),
+      remainingBudgetMnt: Math.max(
+        0,
+        summarizeFinance(allBudgetLines, financeEntries, contracts).remainingMnt,
+      ),
     };
-  }, [allActivities, contracts, copyCurrentYear, updates]);
+  }, [allActivities, allBudgetLines, contracts, copyCurrentYear, financeEntries, updates]);
 
   const overallStatusSummary = useMemo(() => {
     const counts = Object.fromEntries(
-      Object.keys(statusMeta).map((key) => [key, 0]),
+      statusKeys.map((key) => [key, 0]),
     ) as Record<StatusKey, number>;
     for (const activity of dashboardActivities) {
-      counts[deriveActivityStatus(activity, updates)] += 1;
+      const key = deriveActivityStatus(activity, updates);
+      counts[key] = (counts[key] ?? 0) + 1;
     }
     const total = dashboardActivities.length;
     let cursor = 0;
-    const segments = (Object.keys(statusMeta) as StatusKey[]).flatMap((key) => {
+    const segments = statusKeys.flatMap((key) => {
       const start = cursor;
       cursor += total ? (counts[key] / total) * 100 : 0;
       return counts[key]
-        ? [`${statusChartColors[key]} ${start}% ${cursor}%`]
+        ? [`${statusChartColor(key)} ${start}% ${cursor}%`]
         : [];
     });
     return {
@@ -4416,7 +4519,7 @@ export default function Home() {
         ? `conic-gradient(${segments.join(", ")})`
         : "conic-gradient(#e1e6e2 0 100%)",
     };
-  }, [dashboardActivities, updates]);
+  }, [dashboardActivities, statusKeys, updates]);
 
   const goalRows = useMemo(() => {
     const orderedGoals = [...goals].sort((a, b) => {
@@ -4474,11 +4577,7 @@ export default function Home() {
   const teamSummaries = useMemo(
     () =>
       teamMembers.map((teamMember) => {
-        const scopedActivities = allActivities.filter(
-          (item) =>
-            (section === "all" || item.section === section) &&
-            (goal === "all" || item.goal === goal),
-        );
+        const scopedActivities = allActivities;
         const mainAssignments = scopedActivities.filter((activity) => {
           const roles = responsibilityParts(activityOwner(activity, updates), teamMembers);
           return roles.accountable === teamMember.name || roles.supporting.includes(teamMember.name);
@@ -4499,8 +4598,6 @@ export default function Home() {
         const budgetKeys = budgetKeysForActivities(activities, allBudgetLines);
         const lines = allBudgetLines.filter(
           (line) =>
-            (section === "all" || line.section === section) &&
-            (goal === "all" || line.goal === goal) &&
             budgetKeys.has(line.id),
         );
         const finance = summarizeFinance(lines, financeEntries, contracts);
@@ -4513,13 +4610,13 @@ export default function Home() {
             status: recordStatus(subactivity.id, subactivity.status as StatusKey, updates),
             progress: recordProgress(
               subactivity.id,
-              statusMeta[subactivity.status as StatusKey].weight,
+              statusMetaFor(subactivity.status as StatusKey).weight,
               updates,
             ),
           })),
         ];
         const statusCounts = Object.fromEntries(
-          (Object.keys(statusMeta) as StatusKey[]).map((key) => [
+          statusKeys.map((key) => [
             key,
             assignedRecords.filter((record) => record.status === key).length,
           ]),
@@ -4557,8 +4654,7 @@ export default function Home() {
       allBudgetLines,
       contracts,
       financeEntries,
-      goal,
-      section,
+      statusKeys,
       teamMembers,
       updates,
     ],
@@ -4573,11 +4669,27 @@ export default function Home() {
   );
 
   const visibleTeamSummaries = useMemo(
-    () =>
-      currentSession?.isAdmin
+    () => {
+      const own = currentSession?.isAdmin
         ? teamSummaries
-        : teamSummaries.filter((item) => item.id === currentSession?.memberId),
-    [currentSession, teamSummaries],
+        : teamSummaries.filter((item) => item.id === currentSession?.memberId);
+      const normalized = teamDirectoryQuery.trim().toLocaleLowerCase();
+      return own.filter(
+        (item) =>
+          (teamDirectoryMember === "all" || item.id === teamDirectoryMember) &&
+          [item.name, item.role, item.group, item.email]
+            .join(" ")
+            .toLocaleLowerCase()
+            .includes(normalized),
+      );
+    },
+    [
+      currentSession?.isAdmin,
+      currentSession?.memberId,
+      teamDirectoryMember,
+      teamDirectoryQuery,
+      teamSummaries,
+    ],
   );
 
   const buildWorkplanExportItems = useCallback(
@@ -4589,10 +4701,10 @@ export default function Home() {
           teamMembers,
         );
         const sharedPlanningFields = {
-          section: activity.section,
+          section: metadataLabel("section", activity.section),
           priority: activity.priority,
-          goal: activity.goal,
-          workstream: activity.workstream,
+          goal: metadataLabel("goal", activity.goal),
+          workstream: metadataLabel("workstream", activity.workstream),
           actionPlan: String(activity.actionPlan ?? ""),
           meccLead: activity.lead ?? "",
           supportPartners: supportPartnersForActivity(activity),
@@ -4600,6 +4712,7 @@ export default function Home() {
 
         return [
           {
+            activityKey: activity.id,
             kind: "activity" as const,
             code: activityCode,
             parentCode: "",
@@ -4613,7 +4726,7 @@ export default function Home() {
             target: activity.target ?? "",
             startDate: activity.startDate,
             endDate: activity.endDate,
-            status: deriveActivityStatus(activity, updates),
+            status: metadataLabel("status", deriveActivityStatus(activity, updates)),
             progress: deriveActivityProgress(activity, updates),
             quarterlyUpdates: quarterlyUpdatesForExport(
               activity.id,
@@ -4629,6 +4742,7 @@ export default function Home() {
               teamMembers,
             );
             return {
+              activityKey: subactivity.id,
               kind: "subactivity" as const,
               code: "",
               parentCode: activityCode,
@@ -4637,19 +4751,25 @@ export default function Home() {
               ...sharedPlanningFields,
               accountableOwner: responsibility.accountable,
               supportingOwners: responsibility.supporting.join(", "),
-              procurementType: procurementTypeForSubactivity(subactivity),
+              procurementType: metadataLabel(
+                "procurement_type",
+                procurementTypeForSubactivity(subactivity),
+              ),
               baseline: "",
               target: "",
               startDate: subactivity.startDate ?? "",
               endDate: subactivity.endDate ?? "",
-              status: recordStatus(
-                subactivity.id,
-                subactivity.status as StatusKey,
-                updates,
+              status: metadataLabel(
+                "status",
+                recordStatus(
+                  subactivity.id,
+                  subactivity.status as StatusKey,
+                  updates,
+                ),
               ),
               progress: recordProgress(
                 subactivity.id,
-                statusMeta[subactivity.status as StatusKey].weight,
+                statusMetaFor(subactivity.status as StatusKey).weight,
                 updates,
               ),
               quarterlyUpdates: quarterlyUpdatesForExport(
@@ -4663,7 +4783,7 @@ export default function Home() {
           }),
         ];
       }),
-    [allActivities, quarterlyHistory, selectedYear, teamMembers, updates],
+    [allActivities, metadataLabel, quarterlyHistory, selectedYear, teamMembers, updates],
   );
 
   const exportWorkplan = useCallback(async () => {
@@ -4751,15 +4871,33 @@ export default function Home() {
     }
   }, [allBudgetLines, contractTargets, filteredContracts, selectedYear]);
 
-  const exportQuarterlyReport = useCallback(async () => {
+  const exportQuarterlyReport = useCallback(async (quarter: QuarterKey) => {
     if (!allActivities.length) return;
-    const quarter = quarterForDate(todayForInput());
     setWorkplanExporting(true);
     try {
       const { downloadWorkplanExcel } = await import("@/lib/workplan-excel");
       downloadWorkplanExcel({
         year: selectedYear,
-        items: buildWorkplanExportItems(),
+        items: buildWorkplanExportItems().map((item) => {
+          const savedQuarter = quarterlyHistory.find(
+            (entry) =>
+              entry.activityKey === item.activityKey &&
+              entry.planYear === selectedYear &&
+              entry.quarter === quarter,
+          );
+          return savedQuarter
+            ? {
+                ...item,
+                status: metadataLabel("status", savedQuarter.status),
+                progress: savedQuarter.progress,
+                quarterlyUpdates: {
+                  ...item.quarterlyUpdates,
+                  [quarter]: savedQuarter.note,
+                },
+              }
+            : item;
+        }),
+        quarter,
       });
       toast.success(`${quarter} Excel report is ready`);
     } catch (error) {
@@ -4769,19 +4907,7 @@ export default function Home() {
     } finally {
       setWorkplanExporting(false);
     }
-  }, [allActivities, buildWorkplanExportItems, selectedYear]);
-
-  function printManagementSummary() {
-    const report = window.open("", "_blank", "noopener,noreferrer");
-    if (!report) {
-      toast.error("Allow pop-ups to create the PDF management summary.");
-      return;
-    }
-    const alerts = automaticAlerts.filter((item) => item.count > 0);
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${selectedYear} PFP management summary</title><style>body{font-family:Arial,sans-serif;color:#173228;margin:36px}h1{font-size:24px;margin:0 0 6px}h2{font-size:16px;margin-top:28px;border-bottom:1px solid #ccd7cf;padding-bottom:7px}.muted{color:#65766d}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{border:1px solid #d5dfd7;border-radius:10px;padding:14px}.value{font-size:19px;font-weight:700;margin-top:6px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid #e1e7e2;padding:8px;text-align:left}th{text-transform:uppercase;color:#65766d;font-size:10px}@media print{button{display:none}@page{size:A4 landscape;margin:14mm}}</style></head><body><button onclick="window.print()">Print or save as PDF</button><h1>PFP ${selectedYear} management summary</h1><p class="muted">Generated ${escapeHtml(formatUpdatedAt(new Date().toISOString(), language))}</p><div class="grid"><div class="card">Budget<div class="value">${escapeHtml(formatMnt(dashboardFinance.budgetMnt))}</div></div><div class="card">Commitments<div class="value">${escapeHtml(formatMnt(dashboardFinance.commitmentMnt))}</div></div><div class="card">Expenditure<div class="value">${escapeHtml(formatMnt(dashboardFinance.expenditureMnt))}</div></div><div class="card">Remaining<div class="value">${escapeHtml(formatMnt(dashboardFinance.remainingMnt))}</div></div></div><h2>Delivery</h2><div class="grid"><div class="card">Activity progress<div class="value">${deliveryIndicators.activityProgress}%</div></div><div class="card">Completed<div class="value">${deliveryIndicators.completed}</div></div><div class="card">Contracts<div class="value">${dashboardContractStats.total}</div></div><div class="card">Data completeness<div class="value">${dataCompleteness.completePercent}%</div></div></div><h2>Alerts</h2><table><thead><tr><th>Alert</th><th>Count</th><th>Example</th></tr></thead><tbody>${alerts.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${item.count}</td><td>${escapeHtml(item.detail)}</td></tr>`).join("") || '<tr><td colspan="3">No active alerts</td></tr>'}</tbody></table><h2>Progress and finance by goal</h2><table><thead><tr><th>Goal</th><th>Progress</th><th>Budget</th><th>Commitment</th><th>Expenditure</th><th>Remaining</th></tr></thead><tbody>${goalRows.map((row) => `<tr><td>${escapeHtml(row.goal)}</td><td>${row.progress}%</td><td>${escapeHtml(formatMnt(row.budgetMnt))}</td><td>${escapeHtml(formatMnt(row.commitmentMnt))}</td><td>${escapeHtml(formatMnt(row.expenditureMnt))}</td><td>${escapeHtml(formatMnt(row.remainingMnt))}</td></tr>`).join("")}</tbody></table><script>window.addEventListener('load',()=>window.print())</script></body></html>`;
-    report.document.write(html);
-    report.document.close();
-  }
+  }, [allActivities, buildWorkplanExportItems, metadataLabel, quarterlyHistory, selectedYear]);
 
   async function loadComparison(year: number) {
     setCompareYear(year);
@@ -4841,7 +4967,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className={`grid gap-3 ${compact ? "" : "md:grid-cols-2"}`}>
+        <div className="grid gap-3">
           <label className="block">
             <span className="mb-1.5 block text-sm font-bold">Status</span>
             <NativeSelect
@@ -4854,73 +4980,13 @@ export default function Home() {
               }
               className="h-11 w-full border-[#cbd6cc] bg-white"
             >
-              {Object.entries(statusMeta).map(([value, meta]) => (
-                <NativeSelectOption key={value} value={value}>
-                  {meta.label}
+              {statusOptions.map((item) => (
+                <NativeSelectOption key={item.value} value={item.value}>
+                  {item.label}
                 </NativeSelectOption>
               ))}
             </NativeSelect>
           </label>
-          <fieldset className="block">
-            <legend className="mb-1.5 block text-sm font-bold">
-              Responsibility assignment
-            </legend>
-            <div className="space-y-2">
-              {[0, 1, 2].map((ownerIndex) => {
-                const selectedOwners = ownerNames(draft.owner, teamMembers);
-                return (
-                  <NativeSelect
-                    key={ownerIndex}
-                    value={selectedOwners[ownerIndex] ?? ""}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        owner: setOwnerSlot(
-                          current.owner,
-                          ownerIndex,
-                          event.target.value,
-                          teamMembers,
-                        ),
-                      }))
-                    }
-                    className={`h-10 w-full bg-white ${
-                      ownerIndex === 0 && !selectedOwners.length
-                        ? "border-rose-300"
-                        : "border-[#cbd6cc]"
-                    }`}
-                    aria-label={
-                      ownerIndex === 0
-                        ? "Accountable owner"
-                        : `Supporting owner ${ownerIndex}`
-                    }
-                  >
-                    <NativeSelectOption value="">
-                      {ownerIndex === 0
-                        ? "Accountable owner required"
-                        : `Supporting owner ${ownerIndex} (optional)`}
-                    </NativeSelectOption>
-                    {teamMembers.map((item) => (
-                      <NativeSelectOption
-                        key={item.id}
-                        value={item.name}
-                        disabled={selectedOwners.some(
-                          (owner, index) => index !== ownerIndex && owner === item.name,
-                        )}
-                      >
-                        {item.name} · {item.role}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                );
-              })}
-            </div>
-            {!canonicalOwnerName(draft.owner, teamMembers) && (
-              <span className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-rose-700">
-                <span className="h-2 w-2 rounded-full bg-rose-600" />
-                Accountable owner is required
-              </span>
-            )}
-          </fieldset>
         </div>
 
         <div className="mt-4">
@@ -5041,7 +5107,7 @@ export default function Home() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                         <span className="font-black text-[#315845]">
-                          {item.quarter} · {item.progress}% · {statusMeta[item.status].label}
+                          {item.quarter} · {item.progress}% · {metadataLabel("status", item.status)}
                         </span>
                         <span className="text-[#718178]">
                           {formatUpdatedAt(item.submittedAt, language)} · {item.submittedBy}
@@ -5153,7 +5219,7 @@ export default function Home() {
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <ShieldCheck className="h-4 w-4" />
-                User Access
+                Admin Control
               </TabsTrigger>
             </TabsList>
           </div>
@@ -5191,68 +5257,6 @@ export default function Home() {
       </header>
 
       <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
-        <section className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <NativeSelect
-              value={String(selectedYear)}
-              onChange={(event) => {
-                setPlanState("loading");
-                setAllocationState("loading");
-                setContractState("loading");
-                setSelectedYear(Number(event.target.value));
-              }}
-              className="h-10 min-w-[155px] border-[#ced8cf] bg-white font-bold"
-              aria-label="Select workplan year"
-            >
-              {workplanYears.map((item) => (
-                <NativeSelectOption key={item.year} value={String(item.year)}>
-                  {item.year} workplan
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="h-10 border-[#bfcbbf] bg-white"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Planning
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuItem onClick={openYearDialog}>
-                  <CopyPlus className="h-4 w-4" />
-                  Create next year&apos;s workplan
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setActiveView("workplan")}>
-                  <PencilLine className="h-4 w-4" />
-                  Edit current workplan
-                </DropdownMenuItem>
-                {currentSession?.isAdmin && selectedYear > 2026 && (
-                  <DropdownMenuItem
-                    onClick={() => setYearDeleteOpen(true)}
-                    className="text-rose-700 focus:bg-rose-50 focus:text-rose-800"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Remove empty workplan
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <div className="flex items-center gap-2 px-1 text-sm text-[#5d7467]">
-              <span
-                className={`h-2 w-2 rounded-full ${planState === "ready" ? "bg-emerald-600" : "bg-amber-500"}`}
-              />
-              {planState === "loading"
-                ? "Loading workplan"
-                : planState === "ready"
-                  ? `${allActivities.length} activities`
-                  : "Source view"}
-            </div>
-          </div>
-        </section>
-
          <TabsContent value="dashboard" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
@@ -5268,9 +5272,10 @@ export default function Home() {
                   className="h-10 min-w-[155px] border-[#ced8cf] bg-[#f8faf7]"
                   aria-label="Filter dashboard by workplan section"
                 >
-                  <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
-                  <NativeSelectOption value="A">Section A</NativeSelectOption>
-                  <NativeSelectOption value="B">Section B</NativeSelectOption>
+                  <NativeSelectOption value="all">All sections</NativeSelectOption>
+                  {sectionOptions.map((item) => (
+                    <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
+                  ))}
                 </NativeSelect>
                 <NativeSelect
                   value={goal}
@@ -5281,7 +5286,7 @@ export default function Home() {
                   <NativeSelectOption value="all">Every goal</NativeSelectOption>
                   {goals.map((value) => (
                     <NativeSelectOption key={value} value={value}>
-                      {value === "All goals" ? "Cross-goal" : value}
+                      {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -5500,30 +5505,30 @@ export default function Home() {
               ))}
             </section>
 
-            <section className="grid gap-5 rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_12px_32px_rgba(20,36,27,0.05)] lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center">
+            <section className="grid gap-3 rounded-2xl border border-[#d7ded5] bg-white p-3 shadow-[0_8px_24px_rgba(20,36,27,0.04)] lg:grid-cols-[185px_minmax(0,1fr)] lg:items-center">
               <div>
-                <h2 className="text-xl font-black">Overall activity status</h2>
-                <p className="mt-1 text-sm leading-6 text-[#718178]">
-                  Status distribution for the selected Section A, Section B, goal, and owner filters.
+                <h2 className="text-lg font-black">Overall activity status</h2>
+                <p className="mt-1 text-xs leading-5 text-[#718178]">
+                  Status distribution for the selected section, goal, and owner filters.
                 </p>
-                <div className="mt-5 flex justify-center">
+                <div className="mt-3 flex justify-center">
                   <div
-                    className="relative grid h-48 w-48 place-items-center rounded-full"
+                    className="relative grid h-28 w-28 place-items-center rounded-full"
                     style={{ background: overallStatusSummary.background }}
                     role="img"
                     aria-label={`Status chart for ${overallStatusSummary.total} activities`}
                   >
-                    <div className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-inner">
+                    <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-center shadow-inner">
                       <div>
-                        <p className="text-3xl font-black">{overallStatusSummary.total}</p>
-                        <p className="text-xs font-semibold text-[#718178]">activities</p>
+                        <p className="text-xl font-black">{overallStatusSummary.total}</p>
+                        <p className="text-[10px] font-semibold text-[#718178]">activities</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                  {(Object.keys(statusMeta) as StatusKey[]).map((key) => {
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {statusKeys.map((key) => {
                   const count = overallStatusSummary.counts[key];
                   const percent = overallStatusSummary.total
                     ? Math.round((count / overallStatusSummary.total) * 100)
@@ -5536,24 +5541,24 @@ export default function Home() {
                         setStatus(key);
                         setActiveView("workplan");
                       }}
-                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-4 text-left transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
+                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-2.5 text-left transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <span
                             className="h-3 w-3 rounded-full"
-                            style={{ backgroundColor: statusChartColors[key] }}
+                            style={{ backgroundColor: statusChartColor(key) }}
                           />
-                          <span className="text-sm font-bold">{statusMeta[key].label}</span>
+                          <span className="text-sm font-bold">{metadataLabel("status", key)}</span>
                         </div>
                         <span className="text-lg font-black">{count}</span>
                       </div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e3e8e4]">
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e3e8e4]">
                         <div
                           className="h-full rounded-full"
                           style={{
                             width: `${percent}%`,
-                            backgroundColor: statusChartColors[key],
+                            backgroundColor: statusChartColor(key),
                           }}
                         />
                       </div>
@@ -5564,32 +5569,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid gap-5 lg:grid-cols-2">
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black">Finance reconciliation</h2>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Finds entries that no longer match a current budget or workplan item.
-                    </p>
-                  </div>
-                  <span className={`rounded-full px-3 py-1 text-sm font-black ${financeReconciliation.total ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
-                    {financeReconciliation.total} unmatched
-                  </span>
-                </div>
-                <dl className="mt-4 grid grid-cols-3 gap-2">
-                  {[
-                    ["Finance entries", financeReconciliation.unmatchedFinance.length],
-                    ["Allocations", financeReconciliation.unmatchedAllocations.length],
-                    ["Contracts", financeReconciliation.unmatchedContracts.length],
-                  ].map(([label, value]) => (
-                    <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3 text-center">
-                      <dt className="text-xs text-[#718178]">{label}</dt>
-                      <dd className="mt-1 text-xl font-black">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </article>
+            <section>
               <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
                 <h2 className="text-lg font-black">Forecast expenditure</h2>
                 <p className="mt-1 text-sm text-[#718178]">
@@ -5638,7 +5618,7 @@ export default function Home() {
                       <TableRow key={row.goal}>
                         <TableCell className="pl-5">
                           <p className="font-black">
-                            {row.goal === "All goals" ? "Cross-goal" : row.goal}
+                            {row.goal === "All goals" ? "Cross-goal" : metadataLabel("goal", row.goal)}
                           </p>
                           <p className="mt-1 text-xs text-[#718178]">
                             {row.completed} of {row.activities} activities completed
@@ -5682,63 +5662,6 @@ export default function Home() {
 
           <TabsContent value="workplan" className="space-y-6">
 
-        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              label: "Overall progress",
-              value: `${stats.overall}%`,
-              detail: "Based on reported status and saved updates",
-              icon: Target,
-              accent: "bg-[#0c3b2d] text-white",
-            },
-            {
-              label: "Main activities",
-              value: filtered.length,
-              detail: `of ${allActivities.length} activities in scope`,
-              icon: Clock3,
-              accent: "bg-white",
-            },
-            {
-              label: "Sub-activities completed",
-              value: stats.completed,
-              detail: `of ${filtered.reduce((total, item) => total + item.subactivities.length, 0)} in scope`,
-              icon: CircleCheck,
-              accent: "bg-white",
-            },
-            {
-              label: "Need attention",
-              value: stats.attention,
-              detail: "Sub-activities delayed or on hold",
-              icon: AlertTriangle,
-              accent: "bg-[#fff7e7]",
-            },
-          ].map((metric) => (
-            <article
-              key={metric.label}
-              className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
-            >
-              <div className="mb-5 flex items-center justify-between">
-                <p
-                  className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
-                >
-                  {metric.label}
-                </p>
-                <metric.icon
-                  className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
-                />
-              </div>
-              <p className="text-3xl font-black tracking-[-0.03em]">
-                {metric.value}
-              </p>
-              <p
-                className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
-              >
-                {metric.detail}
-              </p>
-            </article>
-          ))}
-        </section>
-
         <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
           <div className="sticky top-0 z-30 border-b border-[#dbe3d9] bg-white/95 p-4 backdrop-blur lg:p-5">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -5767,20 +5690,6 @@ export default function Home() {
                   ))}
                 </div>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setExpandedWorkplanIds(
-                      expandedWorkplanIds.size
-                        ? new Set()
-                        : new Set(filtered.map((item) => item.id)),
-                    )
-                  }
-                  className="h-9 border-[#cbd6cc] px-3 text-xs"
-                >
-                  {expandedWorkplanIds.size ? "Collapse all" : "Expand all"}
-                </Button>
-                <Button
                   onClick={openAddActivity}
                   className="h-9 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
                 >
@@ -5807,9 +5716,10 @@ export default function Home() {
                 className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by workplan section"
               >
-                <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
-                <NativeSelectOption value="A">Section A</NativeSelectOption>
-                <NativeSelectOption value="B">Section B</NativeSelectOption>
+                <NativeSelectOption value="all">All sections</NativeSelectOption>
+                {sectionOptions.map((item) => (
+                  <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
+                ))}
               </NativeSelect>
               <NativeSelect
                 value={goal}
@@ -5820,7 +5730,7 @@ export default function Home() {
                 <NativeSelectOption value="all">Every goal</NativeSelectOption>
                 {goals.map((value) => (
                   <NativeSelectOption key={value} value={value}>
-                    {value === "All goals" ? "Cross-goal" : value}
+                    {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
@@ -5831,9 +5741,9 @@ export default function Home() {
                 aria-label="Filter by status"
               >
                 <NativeSelectOption value="all">All statuses</NativeSelectOption>
-                {Object.entries(statusMeta).map(([value, meta]) => (
-                  <NativeSelectOption key={value} value={value}>
-                    {meta.label}
+                {statusOptions.map((item) => (
+                  <NativeSelectOption key={item.value} value={item.value}>
+                    {item.label}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
@@ -5846,7 +5756,7 @@ export default function Home() {
                 <NativeSelectOption value="all">All workstreams</NativeSelectOption>
                 {workstreams.map((value) => (
                   <NativeSelectOption key={value} value={value}>
-                    {value}
+                    {metadataLabel("workstream", value)}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
@@ -5987,7 +5897,7 @@ export default function Home() {
                                   : item.title}
                               </p>
                               <p className="mt-0.5 truncate text-[11px] font-semibold text-[#718178]">
-                                Main activity · {item.subactivities.length} sub-activities · due {formatDate(item.endDate, language)}
+                                Main activity · {item.subactivities.length} sub-activities
                               </p>
                             </div>
                             <div className="min-w-0">
@@ -6005,7 +5915,7 @@ export default function Home() {
                                 </p>
                               )}
                             </div>
-                            <StatusPill status={currentStatus} />
+                            <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
                             <div>
                               <div className="mb-1 flex items-center justify-between text-[11px] font-black text-[#315845]">
                                 <span>{currentProgress}%</span>
@@ -6030,7 +5940,7 @@ export default function Home() {
                                 );
                                 const subProgress = recordProgress(
                                   subactivity.id,
-                                  statusMeta[subactivity.status as StatusKey].weight,
+                                  statusMetaFor(subactivity.status as StatusKey).weight,
                                   updates,
                                 );
                                 const subResponsibility = responsibilityParts(
@@ -6086,7 +5996,7 @@ export default function Home() {
                                         {subactivity.title}
                                       </p>
                                       <p className="mt-0.5 text-[11px] text-[#819087]">
-                                        {procurementTypeForSubactivity(subactivity)} · due {formatDate(subactivity.endDate, language)}
+                                        {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
                                       </p>
                                     </div>
                                     <div className="min-w-0">
@@ -6106,7 +6016,7 @@ export default function Home() {
                                         </p>
                                       )}
                                     </div>
-                                    <StatusPill status={subStatus} />
+                                    <StatusPill status={subStatus} label={metadataLabel("status", subStatus)} />
                                     <div>
                                       <div className="mb-1 text-[11px] font-black text-[#53685c]">
                                         {subProgress}%
@@ -6176,16 +6086,6 @@ export default function Home() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={exportQuarterlyReport}
-                  disabled={workplanExporting || planState === "loading"}
-                  className="h-9 border-[#9fb1a5] bg-white text-xs font-bold text-[#174734] hover:bg-[#eef5ed]"
-                >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  Quarterly Excel
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
                   onClick={exportWorkplan}
                   disabled={workplanExporting || planState === "loading"}
                   className="h-9 border-[#9fb1a5] bg-white text-xs font-bold text-[#174734] hover:bg-[#eef5ed]"
@@ -6202,7 +6102,6 @@ export default function Home() {
                   (() => {
                     const activity = workplanPreviewActivity;
                     const subactivity = workplanPreviewSubactivity;
-                    const targetKey = subactivity?.id ?? activity.id;
                     const previewStatus = subactivity
                       ? recordStatus(
                           subactivity.id,
@@ -6213,7 +6112,7 @@ export default function Home() {
                     const previewProgress = subactivity
                       ? recordProgress(
                           subactivity.id,
-                          statusMeta[subactivity.status as StatusKey].weight,
+                          statusMetaFor(subactivity.status as StatusKey).weight,
                           updates,
                         )
                       : deriveActivityProgress(activity, updates);
@@ -6235,7 +6134,7 @@ export default function Home() {
                     return (
                       <div className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-sm">
                         <div className="bg-[#0c3b2d] p-4 text-white">
-                          <div className="flex items-start justify-between gap-3">
+                          <div>
                             <div>
                               <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-100/70">
                                 {subactivity ? "Sub-activity" : "Main activity"}
@@ -6244,13 +6143,6 @@ export default function Home() {
                                 {activity.code || activity.uid}
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setWorkplanPreview(null)}
-                              className="rounded-md border border-white/20 px-2 py-1 text-[10px] font-bold text-white/75 hover:bg-white/10 hover:text-white"
-                            >
-                              Clear
-                            </button>
                           </div>
                           <h3 className="mt-3 text-base font-black leading-6">
                             {subactivity
@@ -6260,7 +6152,7 @@ export default function Home() {
                                 : activity.title}
                           </h3>
                           <div className="mt-4 flex items-center justify-between gap-3">
-                            <StatusPill status={previewStatus} />
+                            <StatusPill status={previewStatus} label={metadataLabel("status", previewStatus)} />
                             <span className="text-xl font-black text-[#dbf081]">
                               {previewProgress}%
                             </span>
@@ -6304,11 +6196,22 @@ export default function Home() {
                                 {previewResponsibility.accountable || "Owner required"}
                               </dd>
                               {previewResponsibility.supporting.length > 0 && (
-                                <dd className="mt-1 text-[#718178]">
-                                  Supporting: {previewResponsibility.supporting.join(", ")}
-                                </dd>
+                                <div className="mt-2 rounded-lg bg-[#f1f6ee] p-2.5">
+                                  <dt className="font-bold text-[#819087]">Supporting owner</dt>
+                                  <dd className="mt-1 font-bold text-[#294438]">
+                                    {previewResponsibility.supporting.join(", ")}
+                                  </dd>
+                                </div>
                               )}
                             </div>
+                            {!subactivity && (
+                              <div className="col-span-2">
+                                <dt className="font-bold text-[#819087]">Sub-activities</dt>
+                                <dd className="mt-1 text-lg font-black text-[#245f47]">
+                                  {activity.subactivities.length}
+                                </dd>
+                              </div>
+                            )}
                             <div className="col-span-2">
                               <dt className="font-bold text-[#819087]">Allocated budget</dt>
                               <dd className="mt-1 text-lg font-black text-[#245f47]">
@@ -6319,66 +6222,19 @@ export default function Home() {
                               <div className="col-span-2">
                                 <dt className="font-bold text-[#819087]">Type of procurement</dt>
                                 <dd className="mt-1 font-bold text-[#294438]">
-                                  {procurementTypeForSubactivity(subactivity)}
+                                  {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
                                 </dd>
                               </div>
                             )}
                           </dl>
 
-                          <div className="grid gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setSelectedId(activity.id);
-                                openUpdateEditor(
-                                  subactivity
-                                    ? targetForSubactivity(subactivity)
-                                    : targetForActivity(activity, updates),
-                                );
-                              }}
-                              className="h-9 bg-[#0c3b2d] text-xs text-white hover:bg-[#174d3a]"
-                            >
-                              <PencilLine className="h-3.5 w-3.5" />
-                              Update status and progress
-                            </Button>
-                            <div className="grid grid-cols-2 gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  subactivity
-                                    ? openEditSubactivity(activity, subactivity)
-                                    : openEditActivity(activity)
-                                }
-                                className="h-9 border-[#b8c7bb] text-xs"
-                              >
-                                Edit details
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openActivity(activity)}
-                                className="h-9 border-[#b8c7bb] text-xs"
-                              >
-                                Full view
-                              </Button>
-                            </div>
-                            {!subactivity && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openAddSubactivity(activity)}
-                                className="h-9 border-[#b8c7bb] text-xs"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                Add sub-activity
-                              </Button>
-                            )}
-                          </div>
-
-                          <p className="border-t border-[#e2e8df] pt-3 text-[11px] leading-5 text-[#718178]">
-                            Selected record: {targetKey}
-                          </p>
+                          <Button
+                            size="sm"
+                            onClick={() => openActivity(activity)}
+                            className="h-9 w-full bg-[#0c3b2d] text-xs text-white hover:bg-[#174d3a]"
+                          >
+                            Full view
+                          </Button>
                         </div>
                       </div>
                     );
@@ -6410,66 +6266,6 @@ export default function Home() {
                 </>
               )}
             </nav>
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: `${selectedYear} budget`,
-                  value: formatMnt(financeStats.budgetMnt),
-                  detail: "Approved budget",
-                  icon: WalletCards,
-                  accent: "bg-[#0c3b2d] text-white",
-                },
-                {
-                  label: "Commitments",
-                  value: formatMnt(financeStats.commitmentMnt),
-                  detail: `${formatMnt(financeStats.uncommittedMnt)} available`,
-                  icon: HandCoins,
-                  accent: "bg-white",
-                },
-                {
-                  label: "Expenditure",
-                  value: formatMnt(financeStats.expenditureMnt),
-                  detail: `${financeStats.spentPercent}% of filtered budget`,
-                  icon: ReceiptText,
-                  accent: "bg-white",
-                },
-                {
-                  label: "Budget remaining",
-                  value: formatMnt(financeStats.remainingMnt),
-                  detail: "Budget less commitments and expenditure",
-                  icon: Banknote,
-                  accent:
-                    financeStats.remainingMnt < 0
-                      ? "bg-[#fff0f1] text-[#8f1d2c]"
-                      : "bg-[#edf6e8]",
-                },
-              ].map((metric) => (
-                <article
-                  key={metric.label}
-                  className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <p
-                      className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
-                    >
-                      {metric.label}
-                    </p>
-                    <metric.icon
-                      className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
-                    />
-                  </div>
-                  <p className="text-3xl font-black tracking-[-0.03em]">
-                    {metric.value}
-                  </p>
-                  <p
-                    className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
-                  >
-                    {metric.detail}
-                  </p>
-                </article>
-              ))}
-            </section>
-
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
               <div className="border-b border-[#e2e7e0] p-4 lg:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -6509,9 +6305,10 @@ export default function Home() {
                     className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
                     aria-label="Filter finance by workplan section"
                   >
-                    <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
-                    <NativeSelectOption value="A">Section A</NativeSelectOption>
-                    <NativeSelectOption value="B">Section B</NativeSelectOption>
+                    <NativeSelectOption value="all">All sections</NativeSelectOption>
+                    {sectionOptions.map((item) => (
+                      <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
+                    ))}
                   </NativeSelect>
                   <NativeSelect
                     value={goal}
@@ -6522,7 +6319,7 @@ export default function Home() {
                     <NativeSelectOption value="all">Every goal</NativeSelectOption>
                     {goals.map((value) => (
                       <NativeSelectOption key={value} value={value}>
-                        {value === "All goals" ? "Cross-goal" : value}
+                        {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -6581,7 +6378,7 @@ export default function Home() {
                                   {line.title}
                                 </button>
                                 <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
-                                  Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
+                                  {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
                                 </p>
                               </div>
                             </div>
@@ -6646,7 +6443,7 @@ export default function Home() {
                             {line.title}
                           </button>
                           <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
-                            Section {line.section} · {line.goal || "No goal"} · {line.workstream || line.level}
+                            {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
                           </p>
                         </div>
                         <Button
@@ -7334,31 +7131,33 @@ export default function Home() {
                     : "Your workplan responsibilities, activity status, delivery progress, and financial position."}
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:justify-end">
-                <NativeSelect
-                  value={section}
-                  onChange={(event) => setSection(event.target.value)}
-                  className="h-10 min-w-[155px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter team report by workplan section"
-                >
-                  <NativeSelectOption value="all">Sections A and B</NativeSelectOption>
-                  <NativeSelectOption value="A">Section A</NativeSelectOption>
-                  <NativeSelectOption value="B">Section B</NativeSelectOption>
-                </NativeSelect>
-                <NativeSelect
-                  value={goal}
-                  onChange={(event) => setGoal(event.target.value)}
-                  className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter team report by goal"
-                >
-                  <NativeSelectOption value="all">Every goal</NativeSelectOption>
-                  {goals.map((value) => (
-                    <NativeSelectOption key={value} value={value}>
-                      {value === "All goals" ? "Cross-goal" : value}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
+              {currentSession?.isAdmin && (
+                <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_220px] lg:justify-end">
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
+                    <Input
+                      value={teamDirectoryQuery}
+                      onChange={(event) => setTeamDirectoryQuery(event.target.value)}
+                      className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
+                      placeholder="Search staff name"
+                      aria-label="Search team performance by staff name"
+                    />
+                  </label>
+                  <NativeSelect
+                    value={teamDirectoryMember}
+                    onChange={(event) => setTeamDirectoryMember(event.target.value)}
+                    className="h-10 border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Select team member performance"
+                  >
+                    <NativeSelectOption value="all">All staff members</NativeSelectOption>
+                    {teamMembers.map((item) => (
+                      <NativeSelectOption key={item.id} value={item.id}>
+                        {item.name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </div>
+              )}
             </section>
 
             {teamState === "unavailable" && (
@@ -7438,11 +7237,11 @@ export default function Home() {
                           </div>
                           <Progress value={item.progress} className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
                           <div className="mt-3 flex flex-wrap gap-1.5">
-                            {(Object.keys(statusMeta) as StatusKey[]).map((key) =>
+                            {statusKeys.map((key) =>
                               item.statusCounts[key] ? (
-                                <span key={key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${statusMeta[key].tone}`}>
-                                  <span className={`h-1.5 w-1.5 rounded-full ${statusMeta[key].dot}`} />
-                                  {statusMeta[key].label} {item.statusCounts[key]}
+                                <span key={key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${statusMetaFor(key).tone}`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${statusMetaFor(key).dot}`} />
+                                  {metadataLabel("status", key)} {item.statusCounts[key]}
                                 </span>
                               ) : null,
                             )}
@@ -7465,7 +7264,7 @@ export default function Home() {
               </>
             ) : (
               <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-white px-6 py-12 text-center text-sm text-[#718178]">
-                Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email to User Access.
+                Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email in Admin Control.
               </div>
             )}
           </TabsContent>
@@ -7475,16 +7274,21 @@ export default function Home() {
               <div>
                 <h2 className="text-xl font-black">Reports and year comparison</h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  Management outputs, data quality, and year-to-year planning evidence.
+                  Download each quarter&apos;s saved progress and notes, review data quality, and compare years.
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2 sm:mt-0">
-                <Button variant="outline" onClick={exportQuarterlyReport} disabled={workplanExporting}>
-                  <FileSpreadsheet className="h-4 w-4" /> Quarterly Excel
-                </Button>
-                <Button onClick={printManagementSummary} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
-                  <FileText className="h-4 w-4" /> PDF summary
-                </Button>
+                {quarterKeys.map((quarter) => (
+                  <Button
+                    key={quarter}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void exportQuarterlyReport(quarter)}
+                    disabled={workplanExporting}
+                  >
+                    <FileSpreadsheet className="h-4 w-4" /> {quarter} Excel
+                  </Button>
+                ))}
               </div>
             </section>
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
@@ -7543,8 +7347,6 @@ export default function Home() {
                   {[
                     ["Missing owners", dataCompleteness.missingOwner],
                     ["Missing dates", dataCompleteness.missingDates],
-                    ["Quarterly updates due", dataCompleteness.missingQuarter],
-                    ["Contracts missing deliverables", dataCompleteness.missingDeliverables],
                   ].map(([label, value]) => (
                     <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3">
                       <dt className="text-xs text-[#718178]">{label}</dt>
@@ -7591,9 +7393,9 @@ export default function Home() {
           <TabsContent value="access" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">User access and registration</h2>
+                <h2 className="text-xl font-black">Admin control</h2>
                 <p className="mt-1 text-sm text-[#718178]">
-                  Manage member information, sign-in emails, invitations, and administrator permissions.
+                  Manage users, workplan years, and the shared dropdown options used across the ERP system.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -7610,7 +7412,7 @@ export default function Home() {
                 >
                   Sign out
                 </a>
-                {currentSession?.isAdmin && (
+                {currentSession?.isAdmin && adminControlSection === "users" && (
                   <Button
                     onClick={openAddTeamMember}
                     className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
@@ -7622,13 +7424,203 @@ export default function Home() {
               </div>
             </section>
 
-            {teamState === "unavailable" && (
+            {currentSession?.isAdmin && (
+              <div className="inline-flex rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setAdminControlSection("users")}
+                  className={`flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                    adminControlSection === "users"
+                      ? "bg-[#0c3b2d] text-white"
+                      : "text-[#53685c] hover:bg-[#f0f5ee]"
+                  }`}
+                >
+                  <Users className="h-4 w-4" /> User directory
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminControlSection("metadata")}
+                  className={`flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                    adminControlSection === "metadata"
+                      ? "bg-[#0c3b2d] text-white"
+                      : "text-[#53685c] hover:bg-[#f0f5ee]"
+                  }`}
+                >
+                  <Settings2 className="h-4 w-4" /> Meta data control
+                </button>
+              </div>
+            )}
+
+            {adminControlSection === "users" && teamState === "unavailable" && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 User registration information is temporarily unavailable.
               </div>
             )}
 
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
+            {currentSession?.isAdmin && adminControlSection === "metadata" && (
+              <div className="space-y-5">
+                <section className="rounded-2xl border border-[#cfdacf] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Workplan administration</p>
+                      <h3 className="mt-1 text-lg font-black">Year and planning controls</h3>
+                      <p className="mt-1 text-sm text-[#718178]">
+                        Select the active planning year here. Year controls are restricted to administrators.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <NativeSelect
+                        value={String(selectedYear)}
+                        onChange={(event) => setSelectedYear(Number(event.target.value))}
+                        className="h-10 min-w-40 border-[#cbd6cc] bg-white font-bold"
+                        aria-label="Select workplan year"
+                      >
+                        {workplanYears.map((item) => (
+                          <NativeSelectOption key={item.year} value={String(item.year)}>
+                            {item.year} workplan · {item.status}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
+                            <Settings2 className="h-4 w-4" /> Planning
+                            <ChevronRight className="h-4 w-4 rotate-90" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-60">
+                          <DropdownMenuItem onClick={openYearDialog}>
+                            <CopyPlus className="h-4 w-4" /> Create next year draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={openAddActivity}>
+                            <Plus className="h-4 w-4" /> Add activity to {selectedYear}
+                          </DropdownMenuItem>
+                          {selectedYear > 2026 && (
+                            <DropdownMenuItem
+                              onClick={() => setYearDeleteOpen(true)}
+                              className="text-rose-700 focus:text-rose-700"
+                            >
+                              <Trash2 className="h-4 w-4" /> Delete entire {selectedYear} year
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                  <div className="border-b border-[#e2e7e0] p-5">
+                    <h3 className="text-lg font-black">System dropdown options</h3>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, and Reports.
+                    </p>
+                  </div>
+                  <div className="grid min-h-[420px] md:grid-cols-[230px_minmax(0,1fr)]">
+                    <nav className="border-b border-[#e2e7e0] bg-[#f5f8f3] p-3 md:border-b-0 md:border-r" aria-label="Metadata categories">
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-1">
+                        {metadataCategories.map((category) => (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => setSelectedMetadataCategory(category)}
+                            className={`rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${
+                              selectedMetadataCategory === category
+                                ? "bg-[#0c3b2d] text-white shadow-sm"
+                                : "text-[#456052] hover:bg-white"
+                            }`}
+                          >
+                            {metadataCategoryLabels[category]}
+                          </button>
+                        ))}
+                      </div>
+                    </nav>
+                    <div className="p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-black">{metadataCategoryLabels[selectedMetadataCategory]}</h4>
+                          <p className="mt-1 text-xs leading-5 text-[#718178]">
+                            The internal key remains stable so existing records keep working when you rename an option.
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-[#e8f0e4] px-2.5 py-1 text-xs font-bold text-[#315845]">
+                          {metadataDrafts[selectedMetadataCategory].length} options
+                        </span>
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        {metadataDrafts[selectedMetadataCategory].map((item, index) => (
+                          <div key={item.value} className="grid gap-2 rounded-xl border border-[#dce4da] bg-[#fafcf9] p-3 sm:grid-cols-[minmax(0,1fr)_170px_auto] sm:items-center">
+                            <Input
+                              value={item.label}
+                              onChange={(event) =>
+                                updateMetadataOption(
+                                  selectedMetadataCategory,
+                                  item.value,
+                                  event.target.value,
+                                )
+                              }
+                              className="h-9 border-[#cbd6cc] bg-white font-semibold"
+                              aria-label={`Visible name for ${item.value}`}
+                            />
+                            <code className="truncate rounded-lg bg-[#edf2eb] px-2.5 py-2 text-xs text-[#53685c]">{item.value}</code>
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={index === 0}
+                                onClick={() => moveMetadataOption(selectedMetadataCategory, item.value, -1)}
+                                aria-label="Move option up"
+                              >
+                                <ChevronRight className="h-4 w-4 -rotate-90" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={index === metadataDrafts[selectedMetadataCategory].length - 1}
+                                onClick={() => moveMetadataOption(selectedMetadataCategory, item.value, 1)}
+                                aria-label="Move option down"
+                              >
+                                <ChevronRight className="h-4 w-4 rotate-90" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 text-rose-700"
+                                disabled={metadataDrafts[selectedMetadataCategory].length <= 1}
+                                onClick={() => removeMetadataOption(selectedMetadataCategory, item.value)}
+                                aria-label="Remove option"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-[#e2e7e0] pt-4">
+                        <Button type="button" variant="outline" onClick={() => addMetadataOption(selectedMetadataCategory)}>
+                          <Plus className="h-4 w-4" /> Add option
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => void saveMetadataCategory(selectedMetadataCategory)}
+                          disabled={metadataSavingCategory === selectedMetadataCategory || metadataState === "loading"}
+                          className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                        >
+                          {metadataSavingCategory === selectedMetadataCategory ? "Saving…" : "Save category"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            <section className={`${adminControlSection === "users" ? "" : "hidden"} overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]`}>
               <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-lg font-black">
@@ -7769,7 +7761,7 @@ export default function Home() {
                 A user must sign in with the exact email saved here. Invitations open as a prepared email for the administrator to review and send.
               </div>
             </section>
-            {currentSession?.isAdmin && (
+            {currentSession?.isAdmin && adminControlSection === "users" && (
               <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
                 <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -7984,9 +7976,9 @@ export default function Home() {
               <section className="rounded-xl border border-[#b9cabb] bg-[#eef4eb] p-4">
                 <h3 className="font-black">Transfer preview</h3>
                 <p className="mt-1 text-sm text-[#5d7467]">
-                  The following records will be highlighted as transferred in the {newYear} draft.
+                  The following records will be highlighted as transferred in the {newYear} draft. Only the remaining budget after commitments and expenditure is carried forward.
                 </p>
-                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
                   <div className="rounded-lg bg-white p-3">
                     <dt className="text-xs text-[#718178]">Activities</dt>
                     <dd className="mt-1 text-xl font-black">{transferPreview.activities.length}</dd>
@@ -7998,6 +7990,10 @@ export default function Home() {
                   <div className="rounded-lg bg-white p-3">
                     <dt className="text-xs text-[#718178]">Contracts</dt>
                     <dd className="mt-1 text-xl font-black">{transferPreview.contracts.length}</dd>
+                  </div>
+                  <div className="rounded-lg bg-white p-3">
+                    <dt className="text-xs text-[#718178]">Remaining budget</dt>
+                    <dd className="mt-1 text-sm font-black tabular-nums">{formatMnt(transferPreview.remainingBudgetMnt)}</dd>
                   </div>
                 </dl>
                 <div className="mt-3 max-h-28 overflow-y-auto text-xs text-[#405a4d]">
@@ -8037,19 +8033,19 @@ export default function Home() {
       <AlertDialog open={yearDeleteOpen} onOpenChange={setYearDeleteOpen}>
         <AlertDialogContent className="bg-white text-[#14241b]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove the {selectedYear} workplan?</AlertDialogTitle>
+            <AlertDialogTitle>Delete the entire {selectedYear} workplan?</AlertDialogTitle>
             <AlertDialogDescription>
-              Only an empty draft can be removed. The system will refuse this action if the workplan contains activities, budget allocations, or contracts. The 2026 workplan will not be changed.
+              This permanently removes the selected draft year, including its activities, budgets, allocations, finance entries, contracts, payment records, and quarterly updates. The 2026 workplan will not be changed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={yearSaving}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={removeEmptyWorkplanYear}
+              onClick={removeWorkplanYear}
               disabled={yearSaving}
               className="bg-rose-700 text-white hover:bg-rose-800"
             >
-              {yearSaving ? "Removing…" : `Remove ${selectedYear} workplan`}
+              {yearSaving ? "Deleting…" : `Delete ${selectedYear} workplan`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -8130,7 +8126,7 @@ export default function Home() {
                         <NativeSelectOption value={activityPlanDraft.workstream}>{activityPlanDraft.workstream}</NativeSelectOption>
                       )}
                       {workstreams.map((value) => (
-                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                        <NativeSelectOption key={value} value={value}>{metadataLabel("workstream", value)}</NativeSelectOption>
                       ))}
                     </NativeSelect>
                   </label>
@@ -8163,8 +8159,9 @@ export default function Home() {
                       }
                       className="h-11 w-full border-[#cbd6cc] bg-white"
                     >
-                      <NativeSelectOption value="A">Section A</NativeSelectOption>
-                      <NativeSelectOption value="B">Section B</NativeSelectOption>
+                      {sectionOptions.map((item) => (
+                        <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
+                      ))}
                     </NativeSelect>
                   </label>
                   <label className="block">
@@ -8181,7 +8178,7 @@ export default function Home() {
                         <NativeSelectOption value={activityPlanDraft.goal}>{activityPlanDraft.goal}</NativeSelectOption>
                       )}
                       {goals.map((value) => (
-                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
+                        <NativeSelectOption key={value} value={value}>{metadataLabel("goal", value)}</NativeSelectOption>
                       ))}
                     </NativeSelect>
                   </label>
@@ -8264,6 +8261,64 @@ export default function Home() {
                       className="h-11 border-[#cbd6cc] bg-white"
                     />
                   </label>
+                  <fieldset className="sm:col-span-2">
+                    <legend className="mb-1.5 text-sm font-black">
+                      Responsibility assignment
+                    </legend>
+                    <p className="mb-3 text-xs text-[#718178]">
+                      Choose one accountable owner and up to two supporting owners.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {[0, 1, 2].map((ownerIndex) => {
+                        const selectedOwners = ownerNames(
+                          activityPlanDraft.owner,
+                          teamMembers,
+                        );
+                        return (
+                          <label key={ownerIndex} className="block">
+                            <span className="mb-1.5 block text-xs font-bold text-[#53685c]">
+                              {ownerIndex === 0
+                                ? "Accountable owner"
+                                : `Supporting owner ${ownerIndex}`}
+                            </span>
+                            <NativeSelect
+                              value={selectedOwners[ownerIndex] ?? ""}
+                              onChange={(event) =>
+                                setActivityPlanDraft((current) => ({
+                                  ...current,
+                                  owner: setOwnerSlot(
+                                    current.owner,
+                                    ownerIndex,
+                                    event.target.value,
+                                    teamMembers,
+                                  ),
+                                }))
+                              }
+                              className="h-11 w-full border-[#cbd6cc] bg-white"
+                            >
+                              <NativeSelectOption value="">
+                                {ownerIndex === 0
+                                  ? "Accountable owner"
+                                  : "Optional"}
+                              </NativeSelectOption>
+                              {teamMembers.map((item) => (
+                                <NativeSelectOption
+                                  key={item.id}
+                                  value={item.name}
+                                  disabled={selectedOwners.some(
+                                    (owner, index) =>
+                                      index !== ownerIndex && owner === item.name,
+                                  )}
+                                >
+                                  {item.name} · {item.role}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
                   <label className="block sm:col-span-2">
                     <span className="mb-1.5 block text-sm font-bold">Support/Partners</span>
                     <Textarea
@@ -8349,9 +8404,9 @@ export default function Home() {
                       }
                       className="h-11 w-full border-[#cbd6cc] bg-white"
                     >
-                      {procurementTypes.map((value) => (
-                        <NativeSelectOption key={value} value={value}>
-                          {value}
+                      {procurementTypeOptions.map((item) => (
+                        <NativeSelectOption key={item.value} value={item.value}>
+                          {item.label}
                         </NativeSelectOption>
                       ))}
                     </NativeSelect>
@@ -8368,9 +8423,9 @@ export default function Home() {
                       }
                       className="h-11 w-full border-[#cbd6cc] bg-white"
                     >
-                      {Object.entries(statusMeta).map(([value, meta]) => (
-                        <NativeSelectOption key={value} value={value}>
-                          {meta.label}
+                      {initialStatusOptions.map((item) => (
+                        <NativeSelectOption key={item.value} value={item.value}>
+                          {item.label}
                         </NativeSelectOption>
                       ))}
                     </NativeSelect>
@@ -8620,29 +8675,46 @@ export default function Home() {
                 }
                 className="h-11 w-full border-[#cbd6cc] bg-white"
               >
-                <NativeSelectOption value="A">Section A</NativeSelectOption>
-                <NativeSelectOption value="B">Section B</NativeSelectOption>
+                {sectionOptions.map((item) => (
+                  <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
+                ))}
               </NativeSelect>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Goal</span>
-              <Input
+              <NativeSelect
                 value={budgetLineDraft.goal}
                 onChange={(event) =>
                   setBudgetLineDraft((current) => ({ ...current, goal: event.target.value }))
                 }
-                className="h-11 border-[#cbd6cc] bg-white"
-              />
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                <NativeSelectOption value="">Choose goal</NativeSelectOption>
+                {budgetLineDraft.goal && !goals.includes(budgetLineDraft.goal) && (
+                  <NativeSelectOption value={budgetLineDraft.goal}>{budgetLineDraft.goal}</NativeSelectOption>
+                )}
+                {goals.map((value) => (
+                  <NativeSelectOption key={value} value={value}>{metadataLabel("goal", value)}</NativeSelectOption>
+                ))}
+              </NativeSelect>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Workstream</span>
-              <Input
+              <NativeSelect
                 value={budgetLineDraft.workstream}
                 onChange={(event) =>
                   setBudgetLineDraft((current) => ({ ...current, workstream: event.target.value }))
                 }
-                className="h-11 border-[#cbd6cc] bg-white"
-              />
+                className="h-11 w-full border-[#cbd6cc] bg-white"
+              >
+                <NativeSelectOption value="">Choose workstream</NativeSelectOption>
+                {budgetLineDraft.workstream && !workstreams.includes(budgetLineDraft.workstream) && (
+                  <NativeSelectOption value={budgetLineDraft.workstream}>{budgetLineDraft.workstream}</NativeSelectOption>
+                )}
+                {workstreams.map((value) => (
+                  <NativeSelectOption key={value} value={value}>{metadataLabel("workstream", value)}</NativeSelectOption>
+                ))}
+              </NativeSelect>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Budget level</span>
@@ -10216,7 +10288,7 @@ export default function Home() {
                       : selected.title}
                   </DialogTitle>
                   <DialogDescription className="text-[#718178]">
-                    {selected.workstream || "Programme management"}
+                    {metadataLabel("workstream", selected.workstream) || "Programme management"}
                   </DialogDescription>
                 </div>
               </DialogHeader>
@@ -10233,7 +10305,7 @@ export default function Home() {
                           {selected.code || selected.uid}
                         </p>
                       </div>
-                      <StatusPill status={deriveActivityStatus(selected, updates)} />
+                      <StatusPill status={deriveActivityStatus(selected, updates)} label={metadataLabel("status", deriveActivityStatus(selected, updates))} />
                     </div>
 
                     <div className="mt-5">
@@ -10387,7 +10459,7 @@ export default function Home() {
                       );
                       const currentProgress = recordProgress(
                         sub.id,
-                        statusMeta[sub.status as StatusKey].weight,
+                        statusMetaFor(sub.status as StatusKey).weight,
                         updates,
                       );
                       const currentResponsibility = responsibilityParts(
@@ -10420,7 +10492,7 @@ export default function Home() {
                                 </p>
                               </div>
                             </div>
-                            <StatusPill status={currentStatus} />
+                            <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
                           </div>
 
                           <div className="mt-3 flex items-center gap-2.5">

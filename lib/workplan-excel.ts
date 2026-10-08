@@ -1,15 +1,9 @@
 import { strToU8, zipSync } from "fflate";
 
-type ExportStatus =
-  | "completed"
-  | "in_progress"
-  | "delayed"
-  | "delayed_externally"
-  | "on_hold"
-  | "not_started"
-  | "not_reported";
+type ExportStatus = string;
 
 export type WorkplanExportItem = {
+  activityKey: string;
   kind: "activity" | "subactivity";
   code: string;
   parentCode: string;
@@ -37,9 +31,10 @@ export type WorkplanExportItem = {
 type WorkplanExportOptions = {
   year: number;
   items: WorkplanExportItem[];
+  quarter?: "Q1" | "Q2" | "Q3" | "Q4";
 };
 
-const statusLabels: Record<ExportStatus, string> = {
+const statusLabels: Record<string, string> = {
   completed: "Completed",
   in_progress: "In progress",
   delayed: "Delayed",
@@ -49,7 +44,7 @@ const statusLabels: Record<ExportStatus, string> = {
   not_reported: "Not reported",
 };
 
-const statusStyles: Record<ExportStatus, number> = {
+const statusStyles: Record<string, number> = {
   completed: 12,
   in_progress: 13,
   delayed: 14,
@@ -114,7 +109,16 @@ function estimateRowHeight(item: WorkplanExportItem) {
   return Math.min(140, Math.max(base, base + Math.ceil(textLength / 110) * 13));
 }
 
-function makeDataRow(item: WorkplanExportItem, rowNumber: number, subIndex: number) {
+function statusLabel(value: string) {
+  return statusLabels[value] ?? value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function makeDataRow(
+  item: WorkplanExportItem,
+  rowNumber: number,
+  subIndex: number,
+  quarters: Array<"Q1" | "Q2" | "Q3" | "Q4">,
+) {
   const isMain = item.kind === "activity";
   const isAlternate = !isMain && subIndex % 2 === 1;
   const textStyle = isMain ? 3 : isAlternate ? 5 : 4;
@@ -154,17 +158,21 @@ function makeDataRow(item: WorkplanExportItem, rowNumber: number, subIndex: numb
   ].forEach((value, index) => {
     cells.push(textCell(`${columnName(index + 13)}${rowNumber}`, value, textStyle));
   });
-  cells.push(textCell(`T${rowNumber}`, statusLabels[item.status], statusStyles[item.status]));
+  cells.push(textCell(`T${rowNumber}`, statusLabel(item.status), statusStyles[item.status] ?? 16));
   cells.push(numberCell(`U${rowNumber}`, Math.max(0, Math.min(100, item.progress)) / 100, percentStyle));
-  (["Q1", "Q2", "Q3", "Q4"] as const).forEach((quarter, index) => {
+  quarters.forEach((quarter, index) => {
     cells.push(textCell(`${columnName(index + 22)}${rowNumber}`, item.quarterlyUpdates[quarter], textStyle));
   });
 
   return `<row r="${rowNumber}" ht="${estimateRowHeight(item)}" customHeight="1"${isMain ? "" : ' outlineLevel="1"'}>${cells.join("")}</row>`;
 }
 
-function worksheetXml({ year, items }: WorkplanExportOptions) {
-  const title = `PFP ${year} Workplan Progress and Quarterly Updates`;
+function worksheetXml(options: WorkplanExportOptions) {
+  const { year, items, quarter } = options;
+  const quarters = quarter ? [quarter] : (["Q1", "Q2", "Q3", "Q4"] as const);
+  const title = quarter
+    ? `PFP ${year} ${quarter} Progress Update and Notes`
+    : `PFP ${year} Workplan Progress and Quarterly Updates`;
   const headers = [
     "Record type",
     "Activity code",
@@ -187,13 +195,13 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
     `${year} target`,
     "Status",
     "Progress %",
-    "Q1 update",
-    "Q2 update",
-    "Q3 update",
-    "Q4 update",
+    ...quarters.map((value) => `${value} update and notes`),
   ];
 
-  const titleCells = Array.from({ length: 25 }, (_, index) => {
+  const columnCount = 21 + quarters.length;
+  const lastColumn = columnName(columnCount);
+
+  const titleCells = Array.from({ length: columnCount }, (_, index) => {
     const address = `${columnName(index + 1)}1`;
     return index === 0 ? textCell(address, title, 1) : blankCell(address, 1);
   }).join("");
@@ -205,14 +213,14 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
   const dataRows = items.map((item, index) => {
     if (item.kind === "activity") subIndex = 0;
     else subIndex += 1;
-    return makeDataRow(item, index + 4, subIndex);
+    return makeDataRow(item, index + 4, subIndex, [...quarters]);
   });
   const lastRow = Math.max(3, items.length + 3);
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetPr><outlinePr summaryBelow="1" summaryRight="1"/></sheetPr>
-  <dimension ref="A1:Y${lastRow}"/>
+  <dimension ref="A1:${lastColumn}${lastRow}"/>
   <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A4" sqref="A4"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="18" outlineLevelRow="1"/>
   <cols>
@@ -232,7 +240,7 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
     <col min="18" max="19" width="38" customWidth="1"/>
     <col min="20" max="20" width="19" customWidth="1"/>
     <col min="21" max="21" width="12" customWidth="1"/>
-    <col min="22" max="25" width="48" customWidth="1"/>
+    <col min="22" max="${columnCount}" width="48" customWidth="1"/>
   </cols>
   <sheetData>
     <row r="1" ht="28" customHeight="1">${titleCells}</row>
@@ -240,8 +248,8 @@ function worksheetXml({ year, items }: WorkplanExportOptions) {
     <row r="3" ht="62" customHeight="1">${headerCells}</row>
     ${dataRows.join("\n    ")}
   </sheetData>
-  <autoFilter ref="A3:Y${lastRow}"/>
-  <mergeCells count="1"><mergeCell ref="A1:Y1"/></mergeCells>
+  <autoFilter ref="A3:${lastColumn}${lastRow}"/>
+  <mergeCells count="1"><mergeCell ref="A1:${lastColumn}1"/></mergeCells>
   <pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0" paperSize="9"/>
 </worksheet>`;
@@ -347,7 +355,9 @@ export function downloadWorkplanExcel(options: WorkplanExportOptions) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
-  const fileName = `PFP_Workplan_Progress_${options.year}_${generatedDate}.xlsx`;
+  const fileName = options.quarter
+    ? `PFP_${options.year}_${options.quarter}_Progress_Update_${generatedDate}.xlsx`
+    : `PFP_Workplan_Progress_${options.year}_${generatedDate}.xlsx`;
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
