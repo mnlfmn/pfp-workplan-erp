@@ -1,22 +1,20 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { contractPayments, contracts, paymentDocuments, workplanRecords } from "@/db/schema";
+import {
+  contractPayments,
+  contracts,
+  paymentDocuments,
+  systemMetadata,
+  workplanRecords,
+} from "@/db/schema";
 import { requireAdminSession, requireAppSession } from "@/lib/app-auth";
 import { snapshot, writeAuditLog } from "@/lib/audit-log";
 import { getBucket } from "@/lib/storage";
+import { defaultMetadata } from "@/lib/system-metadata";
 import workplan from "@/lib/workplan-data.json";
 
 const validStatuses = new Set(["draft", "active", "completed", "closed"]);
-const validProviderTypes = new Set([
-  "Individual consultant",
-  "Consulting firm",
-  "Supplier",
-  "Contractor",
-  "NGO / CSO",
-  "Government entity",
-  "Other",
-]);
 
 type PaymentPayload = {
   id?: string;
@@ -162,7 +160,19 @@ function validateDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function validateContract(payload: ContractPayload) {
+async function validProviderType(value: string) {
+  if (!value) return false;
+  const saved = await getDb()
+    .select({ value: systemMetadata.value })
+    .from(systemMetadata)
+    .where(eq(systemMetadata.category, "service_provider_type"));
+  const allowed = saved.length
+    ? saved.map((item) => item.value)
+    : defaultMetadata.service_provider_type.map((item) => item.value);
+  return allowed.includes(value);
+}
+
+async function validateContract(payload: ContractPayload) {
   const planYear = Number(payload.planYear);
   const amountMnt = Number(payload.amountMnt);
   const currency = payload.currency === "USD" ? "USD" : "MNT";
@@ -183,7 +193,7 @@ function validateContract(payload: ContractPayload) {
   }
   if (!payload.torName?.trim()) return "Enter the Terms of Reference name.";
   if (!payload.serviceProviderName?.trim()) return "Enter the service provider name.";
-  if (!validProviderTypes.has(payload.serviceProviderType?.trim() ?? "")) {
+  if (!(await validProviderType(payload.serviceProviderType?.trim() ?? ""))) {
     return "Choose a valid service provider type.";
   }
   if (!validateDate(startDate) || !validateDate(endDate) || endDate < startDate) {
@@ -293,7 +303,7 @@ export async function POST(request: Request) {
     const session = await requireAppSession(request);
     if (session instanceof Response) return session;
     const payload = (await request.json()) as ContractPayload;
-    const validationError = validateContract(payload);
+    const validationError = await validateContract(payload);
     if (validationError) {
       return Response.json({ error: validationError }, { status: 400 });
     }
@@ -375,7 +385,7 @@ export async function PUT(request: Request) {
     if (session instanceof Response) return session;
     const payload = (await request.json()) as ContractPayload;
     const id = payload.id?.trim() ?? "";
-    const validationError = validateContract(payload);
+    const validationError = await validateContract(payload);
     if (!id) return Response.json({ error: "Choose a valid contract." }, { status: 400 });
     if (validationError) {
       return Response.json({ error: validationError }, { status: 400 });

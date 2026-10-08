@@ -491,7 +491,7 @@ const emptyBudgetLineDraft: BudgetLineDraft = {
   linkedActivityKeys: [],
 };
 
-const providerTypes = [
+const defaultProviderTypes = [
   "Individual consultant",
   "Consulting firm",
   "Supplier",
@@ -534,7 +534,7 @@ function emptyContractDraft(year: number): ContractDraft {
     activityKey: "",
     torName: "",
     serviceProviderName: "",
-    serviceProviderType: providerTypes[0],
+    serviceProviderType: defaultProviderTypes[0],
     startDate: `${year}-01-01`,
     endDate: `${year}-12-31`,
     amountMnt: "",
@@ -834,14 +834,14 @@ function subactivityOwner(
 }
 
 function canonicalOwnerName(value: string, members: TeamMember[]) {
-  return ownerNames(value, members).join(", ");
+  return ownerNames(value, members).join(" | ");
 }
 
 function ownerNames(value: string, members: TeamMember[]) {
   const normalized = value.trim().toLocaleLowerCase();
   if (!normalized) return [];
   const segments = value
-    .split(/\s*\|\s*|[\r\n]+/)
+    .split(/\s*\|\s*|\s*,\s*|[\r\n]+/)
     .map((item) => item.trim().toLocaleLowerCase())
     .filter(Boolean);
   const ordered = segments.flatMap((segment) => {
@@ -2178,7 +2178,11 @@ export default function Home() {
 
   function openAddContract() {
     setEditingContractId(null);
-    setContractDraft(emptyContractDraft(selectedYear));
+    setContractDraft({
+      ...emptyContractDraft(selectedYear),
+      serviceProviderType:
+        metadata.service_provider_type[0]?.value ?? defaultProviderTypes[0],
+    });
     setFormDirty(true);
     setContractDialogOpen(true);
   }
@@ -3908,6 +3912,7 @@ export default function Home() {
   const statusOptions = metadata.status;
   const initialStatusOptions = metadata.initial_status;
   const procurementTypeOptions = metadata.procurement_type;
+  const serviceProviderTypeOptions = metadata.service_provider_type;
   const statusKeys = useMemo(
     () =>
       Array.from(
@@ -4409,42 +4414,120 @@ export default function Home() {
   }, [contracts]);
 
   const dataCompleteness = useMemo(() => {
+    const currentQuarter = quarterForDate(todayForInput());
     const items = allActivities.flatMap((activity) => [
       {
+        key: activity.id,
         owner: activityOwner(activity, updates),
         startDate: activity.startDate,
         endDate: activity.endDate,
-        title: activity.title,
+        note: updates[activity.id]?.note ?? activity.progressSummary ?? "",
       },
       ...activity.subactivities.map((subactivity) => ({
+        key: subactivity.id,
         owner: subactivityOwner(subactivity, updates),
         startDate: subactivity.startDate,
         endDate: subactivity.endDate,
-        title: subactivity.title,
+        note:
+          updates[subactivity.id]?.note ?? subactivity.progressSummary ?? "",
       })),
     ]);
+    const subactivities = allActivities.flatMap(
+      (activity) => activity.subactivities,
+    );
     const missingOwner = items.filter(
       (item) => !canonicalOwnerName(item.owner, teamMembers),
     ).length;
     const missingDates = items.filter(
       (item) => !item.startDate || !item.endDate,
     ).length;
+    const missingStructure = allActivities.filter(
+      (activity) =>
+        !activity.section || !activity.goal || !activity.workstream,
+    ).length;
+    const missingProcurementType = subactivities.filter(
+      (subactivity) => !String(subactivity.procurementType ?? "").trim(),
+    ).length;
+    const missingQuarterlyUpdate = items.filter((item) => {
+      if (
+        quarterlyHistory.some(
+          (entry) =>
+            entry.activityKey === item.key &&
+            entry.planYear === selectedYear &&
+            entry.quarter === currentQuarter &&
+            entry.note.trim(),
+        )
+      ) {
+        return false;
+      }
+      return !parseQuarterlyNotes(item.note, selectedYear).quarters[
+        currentQuarter
+      ].trim();
+    }).length;
+    const unlinkedBudgetLines = allBudgetLines.filter(
+      (line) =>
+        !allActivities.some((activity) =>
+          activityMatchesBudgetLine(activity, line),
+        ),
+    ).length;
+    const incompleteContracts = contracts.filter(
+      (contract) =>
+        !contract.torName.trim() ||
+        !contract.serviceProviderName.trim() ||
+        !contract.serviceProviderType.trim() ||
+        !contract.startDate ||
+        !contract.endDate ||
+        !contract.payments.length ||
+        contract.payments.some((payment) => !payment.deliverable.trim()),
+    ).length;
+    const incompleteFinanceEntries = financeEntries.filter(
+      (entry) =>
+        !entry.activityKey ||
+        !entry.entryDate ||
+        !entry.description.trim() ||
+        !entry.vendor.trim(),
+    ).length;
+    const applicableChecks =
+      items.length * 3 +
+      allActivities.length +
+      subactivities.length +
+      allBudgetLines.length +
+      contracts.length +
+      financeEntries.length;
+    const issueCount =
+      missingOwner +
+      missingDates +
+      missingQuarterlyUpdate +
+      missingStructure +
+      missingProcurementType +
+      unlinkedBudgetLines +
+      incompleteContracts +
+      incompleteFinanceEntries;
     return {
       total: items.length,
       missingOwner,
       missingDates,
-      completePercent: items.length
-        ? Math.max(
-            0,
-            Math.round(
-              ((items.length - Math.max(missingOwner, missingDates)) /
-                items.length) *
-                100,
-            ),
-          )
+      missingStructure,
+      missingProcurementType,
+      missingQuarterlyUpdate,
+      currentQuarter,
+      unlinkedBudgetLines,
+      incompleteContracts,
+      incompleteFinanceEntries,
+      completePercent: applicableChecks
+        ? Math.max(0, Math.round(((applicableChecks - issueCount) / applicableChecks) * 100))
         : 100,
     };
-  }, [allActivities, teamMembers, updates]);
+  }, [
+    allActivities,
+    allBudgetLines,
+    contracts,
+    financeEntries,
+    quarterlyHistory,
+    selectedYear,
+    teamMembers,
+    updates,
+  ]);
 
   const transferPreview = useMemo(() => {
     const openContractKeys = new Set(
@@ -5212,7 +5295,7 @@ export default function Home() {
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <BarChart3 className="h-4 w-4" />
-                Reports
+                Monitoring
               </TabsTrigger>
               <TabsTrigger
                 value="access"
@@ -5258,7 +5341,7 @@ export default function Home() {
 
       <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
          <TabsContent value="dashboard" className="space-y-6">
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+            <section className="rounded-2xl border border-[#d7ded5] bg-gradient-to-r from-white to-[#f1f6ee] p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Portfolio dashboard</h2>
                 <p className="mt-1 text-sm text-[#718178]">
@@ -5306,7 +5389,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-[#cbd8cd] bg-[#edf3ec] p-3 shadow-[0_10px_28px_rgba(20,36,27,0.05)] sm:p-4">
+            <section className="rounded-3xl border border-[#cbd8cd] bg-gradient-to-br from-[#eaf2e8] to-[#f5f8f3] p-3 shadow-[0_10px_28px_rgba(20,36,27,0.05)] sm:p-4">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                 {
@@ -5340,7 +5423,7 @@ export default function Home() {
                 ].map((metric) => (
                   <article
                     key={metric.label}
-                    className={`rounded-2xl border border-[#d7ded5] p-5 shadow-[0_6px_22px_rgba(20,36,27,0.04)] ${metric.accent}`}
+                    className={`relative overflow-hidden rounded-2xl border border-white/10 p-5 shadow-[0_8px_22px_rgba(7,42,31,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(7,42,31,0.18)] ${metric.accent}`}
                   >
                     <div className="mb-5 flex items-center justify-between">
                       <p
@@ -5352,7 +5435,7 @@ export default function Home() {
                         className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
                       />
                     </div>
-                    <p className="text-3xl font-black tracking-[-0.03em]">
+                    <p className="text-[1.65rem] font-black tracking-[-0.04em] xl:text-3xl">
                       {metric.value}
                     </p>
                     <p
@@ -5365,7 +5448,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid gap-5 lg:grid-cols-2">
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
               <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -5489,7 +5572,7 @@ export default function Home() {
               ].map((indicator) => (
                 <article
                   key={indicator.label}
-                  className="rounded-2xl border border-[#d7ded5] bg-white p-4"
+                  className="rounded-2xl border border-[#d7ded5] bg-gradient-to-br from-white to-[#f7faf5] p-4 shadow-[0_5px_18px_rgba(20,36,27,0.035)] transition hover:-translate-y-0.5 hover:border-[#b6c7b8] hover:shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-[#5d7467]">
@@ -5505,86 +5588,93 @@ export default function Home() {
               ))}
             </section>
 
-            <section className="grid gap-3 rounded-2xl border border-[#d7ded5] bg-white p-3 shadow-[0_8px_24px_rgba(20,36,27,0.04)] lg:grid-cols-[185px_minmax(0,1fr)] lg:items-center">
-              <div>
-                <h2 className="text-lg font-black">Overall activity status</h2>
-                <p className="mt-1 text-xs leading-5 text-[#718178]">
-                  Status distribution for the selected section, goal, and owner filters.
-                </p>
-                <div className="mt-3 flex justify-center">
-                  <div
-                    className="relative grid h-28 w-28 place-items-center rounded-full"
-                    style={{ background: overallStatusSummary.background }}
-                    role="img"
-                    aria-label={`Status chart for ${overallStatusSummary.total} activities`}
-                  >
-                    <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-center shadow-inner">
-                      <div>
-                        <p className="text-xl font-black">{overallStatusSummary.total}</p>
-                        <p className="text-[10px] font-semibold text-[#718178]">activities</p>
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
+              <article className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-5 py-4">
+                  <h2 className="text-lg font-black">Overall activity status</h2>
+                  <p className="mt-1 text-sm text-[#718178]">
+                    Status distribution for the selected section, goal, and owner filters.
+                  </p>
+                </div>
+                <div className="grid gap-6 p-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
+                  <div className="flex justify-center">
+                    <div
+                      className="relative grid h-44 w-44 place-items-center rounded-full shadow-[0_12px_30px_rgba(20,36,27,0.12)]"
+                      style={{ background: overallStatusSummary.background }}
+                      role="img"
+                      aria-label={`Status chart for ${overallStatusSummary.total} activities`}
+                    >
+                      <div className="grid h-24 w-24 place-items-center rounded-full border border-[#edf1eb] bg-white text-center shadow-inner">
+                        <div>
+                          <p className="text-3xl font-black tracking-[-0.04em]">{overallStatusSummary.total}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#718178]">activities</p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {statusKeys.map((key) => {
-                  const count = overallStatusSummary.counts[key];
-                  const percent = overallStatusSummary.total
-                    ? Math.round((count / overallStatusSummary.total) * 100)
-                    : 0;
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      onClick={() => {
-                        setStatus(key);
-                        setActiveView("workplan");
-                      }}
-                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-2.5 text-left transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="h-3 w-3 rounded-full"
-                            style={{ backgroundColor: statusChartColor(key) }}
-                          />
-                          <span className="text-sm font-bold">{metadataLabel("status", key)}</span>
-                        </div>
-                        <span className="text-lg font-black">{count}</span>
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e3e8e4]">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${percent}%`,
-                            backgroundColor: statusChartColor(key),
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {statusKeys.map((key) => {
+                      const count = overallStatusSummary.counts[key];
+                      const percent = overallStatusSummary.total
+                        ? Math.round((count / overallStatusSummary.total) * 100)
+                        : 0;
+                      return (
+                        <button
+                          type="button"
+                          key={key}
+                          onClick={() => {
+                            setStatus(key);
+                            setActiveView("workplan");
                           }}
-                        />
-                      </div>
-                      <p className="mt-1 text-right text-xs font-semibold text-[#718178]">{percent}%</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+                          className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#8eaa98] hover:bg-[#f1f6ee] hover:shadow-sm"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="h-3 w-3 shrink-0 rounded-full"
+                                style={{ backgroundColor: statusChartColor(key) }}
+                              />
+                              <span className="truncate text-sm font-bold">{metadataLabel("status", key)}</span>
+                            </div>
+                            <span className="text-lg font-black">{count}</span>
+                          </div>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e3e8e4]">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${percent}%`,
+                                backgroundColor: statusChartColor(key),
+                              }}
+                            />
+                          </div>
+                          <p className="mt-1 text-right text-xs font-semibold text-[#718178]">{percent}%</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </article>
 
-            <section>
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
-                <h2 className="text-lg font-black">Forecast expenditure</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Unpaid contract installments grouped by due quarter.
-                </p>
-                <div className="mt-4 space-y-3">
+              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black">Forecast expenditure</h2>
+                    <p className="mt-1 text-sm text-[#718178]">
+                      Unpaid contract installments grouped by due quarter.
+                    </p>
+                  </div>
+                  <TrendingUp className="h-5 w-5 text-[#49705c]" />
+                </div>
+                <div className="mt-6 space-y-5">
                   {expenditureForecast.map((item) => {
                     const maximum = Math.max(...expenditureForecast.map((row) => row.amountMnt), 1);
                     return (
                       <div key={item.quarter}>
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="font-black">{item.quarter}</span>
-                          <span className="font-bold tabular-nums">{formatMnt(item.amountMnt)}</span>
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#edf4e9] font-black text-[#315845]">{item.quarter}</span>
+                          <span className="font-black tabular-nums">{formatMnt(item.amountMnt)}</span>
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-[#e5ebe4]">
+                        <div className="h-2.5 overflow-hidden rounded-full bg-[#e5ebe4]">
                           <div className="h-full rounded-full bg-[#2c795a]" style={{ width: `${(item.amountMnt / maximum) * 100}%` }} />
                         </div>
                       </div>
@@ -7272,7 +7362,7 @@ export default function Home() {
           <TabsContent value="reports" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
               <div>
-                <h2 className="text-xl font-black">Reports and year comparison</h2>
+                <h2 className="text-xl font-black">Monitoring and year comparison</h2>
                 <p className="mt-1 text-sm text-[#718178]">
                   Download each quarter&apos;s saved progress and notes, review data quality, and compare years.
                 </p>
@@ -7347,6 +7437,12 @@ export default function Home() {
                   {[
                     ["Missing owners", dataCompleteness.missingOwner],
                     ["Missing dates", dataCompleteness.missingDates],
+                    ["Missing workplan structure", dataCompleteness.missingStructure],
+                    ["Missing procurement type", dataCompleteness.missingProcurementType],
+                    [`${dataCompleteness.currentQuarter} updates missing`, dataCompleteness.missingQuarterlyUpdate],
+                    ["Budget lines without activities", dataCompleteness.unlinkedBudgetLines],
+                    ["Incomplete contracts", dataCompleteness.incompleteContracts],
+                    ["Incomplete finance entries", dataCompleteness.incompleteFinanceEntries],
                   ].map(([label, value]) => (
                     <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3">
                       <dt className="text-xs text-[#718178]">{label}</dt>
@@ -7513,7 +7609,7 @@ export default function Home() {
                   <div className="border-b border-[#e2e7e0] p-5">
                     <h3 className="text-lg font-black">System dropdown options</h3>
                     <p className="mt-1 text-sm text-[#718178]">
-                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, and Reports.
+                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, Monitoring, and Contracts.
                     </p>
                   </div>
                   <div className="grid min-h-[420px] md:grid-cols-[230px_minmax(0,1fr)]">
@@ -8072,15 +8168,14 @@ export default function Home() {
                 <button
                   type="button"
                   key={label}
-                  onClick={() => index <= planFormStep && setPlanFormStep(index)}
+                  onClick={() => setPlanFormStep(index)}
                   className={[
                     "rounded-xl border px-3 py-2 text-left transition",
                     index === planFormStep
                       ? "border-[#0c3b2d] bg-[#0c3b2d] text-white"
-                      : index < planFormStep
-                        ? "border-[#adc0b1] bg-white text-[#245f47]"
-                        : "border-transparent bg-[#edf2eb] text-[#819087]",
+                      : "border-[#cbd6cc] bg-white text-[#486255] hover:border-[#73927f] hover:bg-[#f2f7ef]",
                   ].join(" ")}
+                  aria-current={index === planFormStep ? "step" : undefined}
                 >
                   <span className="block text-[10px] font-black uppercase tracking-[0.08em] opacity-70">
                     Step {index + 1}
@@ -9771,9 +9866,17 @@ export default function Home() {
                   }
                   className="h-11 w-full border-[#cbd6cc] bg-white"
                 >
-                  {providerTypes.map((type) => (
-                    <NativeSelectOption key={type} value={type}>
-                      {type}
+                  {contractDraft.serviceProviderType &&
+                    !serviceProviderTypeOptions.some(
+                      (item) => item.value === contractDraft.serviceProviderType,
+                    ) && (
+                      <NativeSelectOption value={contractDraft.serviceProviderType}>
+                        {contractDraft.serviceProviderType}
+                      </NativeSelectOption>
+                    )}
+                  {serviceProviderTypeOptions.map((item) => (
+                    <NativeSelectOption key={item.value} value={item.value}>
+                      {item.label}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
