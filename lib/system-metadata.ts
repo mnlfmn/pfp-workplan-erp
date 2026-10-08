@@ -1,6 +1,7 @@
 export const metadataCategories = [
   "procurement_type",
   "service_provider_type",
+  "member_type",
   "status",
   "initial_status",
   "goal",
@@ -56,6 +57,11 @@ export const defaultMetadata: Record<MetadataCategory, MetadataOption[]> = {
     ["Government entity", "Government entity"],
     ["Other", "Other"],
   ]),
+  member_type: options("member_type", [
+    ["PCU", "PCU member"],
+    ["MNLF", "MNLF member"],
+    ["Workplan", "Additional workplan member"],
+  ]),
   status: options("status", statusOptions),
   initial_status: options("initial_status", statusOptions),
   goal: options("goal", [
@@ -84,6 +90,7 @@ export const defaultMetadata: Record<MetadataCategory, MetadataOption[]> = {
 export const metadataCategoryLabels: Record<MetadataCategory, string> = {
   procurement_type: "Type of procurement",
   service_provider_type: "Type of service provider",
+  member_type: "Member types",
   status: "Status",
   initial_status: "Initial status",
   goal: "Goals",

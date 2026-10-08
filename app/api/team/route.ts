@@ -1,7 +1,12 @@
 import { and, eq, ne } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { activityUpdates, teamMembers, workplanRecords } from "@/db/schema";
+import {
+  activityUpdates,
+  systemMetadata,
+  teamMembers,
+  workplanRecords,
+} from "@/db/schema";
 import {
   defaultTeamMembers,
   type TeamMember,
@@ -13,6 +18,7 @@ import {
 } from "@/lib/app-auth";
 import workplan from "@/lib/workplan-data.json";
 import { snapshot, writeAuditLog } from "@/lib/audit-log";
+import { defaultMetadata } from "@/lib/system-metadata";
 
 type TeamMemberRow = typeof teamMembers.$inferSelect;
 
@@ -40,12 +46,7 @@ function rowToMember(row: TeamMemberRow): TeamMember {
     id: row.id,
     name: row.name,
     role: row.role,
-    group:
-      row.group === "MNLF"
-        ? "MNLF"
-        : row.group === "Workplan"
-          ? "Workplan"
-          : "PCU",
+    group: row.group || "PCU",
     aliases: parseAliases(row.aliases),
     email: row.email,
     accessRole: row.accessRole === "admin" ? "admin" : "member",
@@ -87,12 +88,7 @@ function normalizePayload(payload: {
 }) {
   const name = String(payload.name ?? "").trim();
   const role = String(payload.role ?? "").trim();
-  const group =
-    payload.group === "MNLF"
-      ? "MNLF"
-      : payload.group === "Workplan"
-        ? "Workplan"
-        : "PCU";
+  const group = String(payload.group ?? "").trim();
   const aliases = Array.isArray(payload.aliases)
     ? Array.from(
         new Set(
@@ -110,6 +106,9 @@ function normalizePayload(payload: {
   if (role.length > 200) {
     return { error: "Keep the role under 200 characters." } as const;
   }
+  if (!group || group.length > 100) {
+    return { error: "Choose a valid member type." } as const;
+  }
   if (aliases.length > 30 || aliases.some((alias) => alias.length > 100)) {
     return { error: "Keep aliases to 30 short names or fewer." } as const;
   }
@@ -120,6 +119,17 @@ function normalizePayload(payload: {
     return { error: "Enter a valid email address." } as const;
   }
   return { name, role, group, aliases, email, accessRole } as const;
+}
+
+async function validMemberType(value: string) {
+  const saved = await getDb()
+    .select({ value: systemMetadata.value })
+    .from(systemMetadata)
+    .where(eq(systemMetadata.category, "member_type"));
+  const allowed = saved.length
+    ? saved.map((item) => item.value)
+    : defaultMetadata.member_type.map((item) => item.value);
+  return allowed.includes(value);
 }
 
 function memberForSession(member: TeamMember, session: AppSession) {
@@ -214,6 +224,9 @@ export async function POST(request: Request) {
     if ("error" in values) {
       return Response.json({ error: values.error }, { status: 400 });
     }
+    if (!(await validMemberType(values.group))) {
+      return Response.json({ error: "Choose a valid member type." }, { status: 400 });
+    }
     const db = getDb();
     const current = mergeMembers(await db.select().from(teamMembers));
     if (
@@ -277,6 +290,9 @@ export async function PUT(request: Request) {
     const values = normalizePayload(payload);
     if ("error" in values) {
       return Response.json({ error: values.error }, { status: 400 });
+    }
+    if (!(await validMemberType(values.group))) {
+      return Response.json({ error: "Choose a valid member type." }, { status: 400 });
     }
     const db = getDb();
     const existingRows = await db.select().from(teamMembers);

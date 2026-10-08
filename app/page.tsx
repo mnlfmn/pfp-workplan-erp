@@ -187,7 +187,7 @@ type FinanceDraft = {
 type TeamDraft = {
   name: string;
   role: string;
-  group: "PCU" | "MNLF" | "Workplan";
+  group: string;
   aliasesText: string;
   email: string;
   accessRole: "admin" | "member";
@@ -3473,7 +3473,10 @@ export default function Home() {
     setTeamDraft({
       name: "",
       role: "",
-      group: "PCU",
+      group:
+        metadata.member_type.find((item) => item.value === "PCU")?.value ??
+        metadata.member_type[0]?.value ??
+        "PCU",
       aliasesText: "",
       email: "",
       accessRole: "member",
@@ -5382,7 +5385,7 @@ export default function Home() {
                   <NativeSelectOption value="all">All team members</NativeSelectOption>
                   {teamMembers.map((item) => (
                     <NativeSelectOption key={item.id} value={item.id}>
-                      {item.group} · {item.name}
+                      {metadataLabel("member_type", item.group)} · {item.name}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -5859,7 +5862,7 @@ export default function Home() {
                 <NativeSelectOption value="all">All team members</NativeSelectOption>
                 {teamMembers.map((item) => (
                   <NativeSelectOption key={item.id} value={item.id}>
-                    {item.group} · {item.name}
+                    {metadataLabel("member_type", item.group)} · {item.name}
                   </NativeSelectOption>
                 ))}
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
@@ -6422,7 +6425,7 @@ export default function Home() {
                     <NativeSelectOption value="all">All team members</NativeSelectOption>
                     {teamMembers.map((item) => (
                       <NativeSelectOption key={item.id} value={item.id}>
-                        {item.group} · {item.name}
+                        {metadataLabel("member_type", item.group)} · {item.name}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -7287,7 +7290,7 @@ export default function Home() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <h3 className="truncate text-base font-black">{item.name}</h3>
-                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold">{item.group}</span>
+                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold">{metadataLabel("member_type", item.group)}</span>
                             </div>
                             <p className="mt-1 text-xs text-emerald-50/75">{item.role}</p>
                           </div>
@@ -7764,7 +7767,7 @@ export default function Home() {
                                 <span
                                   className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : item.group === "MNLF" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
                                 >
-                                  {item.group}
+                                  {metadataLabel("member_type", item.group)}
                                 </span>
                               </div>
                               <p className="mt-1 text-xs text-[#718178]">{item.role}</p>
@@ -10291,14 +10294,22 @@ export default function Home() {
                 onChange={(event) =>
                   setTeamDraft((current) => ({
                     ...current,
-                    group: event.target.value as TeamDraft["group"],
+                    group: event.target.value,
                   }))
                 }
                 className="h-11 w-full border-[#cbd6cc] bg-white"
               >
-                <NativeSelectOption value="PCU">PCU member</NativeSelectOption>
-                <NativeSelectOption value="MNLF">MNLF member</NativeSelectOption>
-                <NativeSelectOption value="Workplan">Additional workplan member</NativeSelectOption>
+                {teamDraft.group &&
+                  !metadata.member_type.some((item) => item.value === teamDraft.group) && (
+                    <NativeSelectOption value={teamDraft.group}>
+                      {teamDraft.group} (current)
+                    </NativeSelectOption>
+                  )}
+                {metadata.member_type.map((item) => (
+                  <NativeSelectOption key={item.value} value={item.value}>
+                    {item.label}
+                  </NativeSelectOption>
+                ))}
               </NativeSelect>
             </label>
             <label className="block">

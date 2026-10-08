@@ -23,6 +23,7 @@ const mn: Record<string, string> = {
   "Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, and Reports.": "Сонголтын нэр, дарааллыг өөрчлөх, нэмэх эсвэл хасах боломжтой. Хадгалсан өөрчлөлт Ажлын төлөвлөгөө, Санхүү, Хяналтын самбар, Тайлангийн бүх хэсэгт хэрэгжинэ.",
   "Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, Monitoring, and Contracts.": "Сонголтын нэр, дарааллыг өөрчлөх, нэмэх эсвэл хасах боломжтой. Хадгалсан өөрчлөлт Ажлын төлөвлөгөө, Санхүү, Хяналтын самбар, Хяналт-шинжилгээ болон Гэрээний бүх хэсэгт хэрэгжинэ.",
   "Type of service provider": "Үйлчилгээ үзүүлэгчийн төрөл",
+  "Member types": "Гишүүний төрлүүд",
   "The internal key remains stable so existing records keep working when you rename an option.": "Сонголтын нэрийг өөрчилсөн ч дотоод түлхүүр хэвээр байх тул өмнөх бүртгэлүүд зөв ажиллана.",
   "Create next year draft": "Дараа жилийн ноорог үүсгэх",
   "Add option": "Сонголт нэмэх",
