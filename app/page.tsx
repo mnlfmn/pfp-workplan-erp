@@ -19,6 +19,8 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
+  Maximize2,
+  Minimize2,
   PencilLine,
   Plus,
   ReceiptText,
@@ -1177,6 +1179,7 @@ function summarizeFinance(
 
 export default function Home() {
   const [language, setLanguage] = useState<UiLanguage>("en");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const appRootRef = useRef<HTMLElement | null>(null);
   const textSourcesRef = useRef(new WeakMap<Text, string>());
   const attributeSourcesRef = useRef(
@@ -1381,6 +1384,16 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    syncFullscreenState();
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () =>
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  useEffect(() => {
     if (!appRootRef.current) return;
     const root = document.body;
     document.documentElement.lang = language === "mn" ? "mn" : "en";
@@ -1472,6 +1485,20 @@ export default function Home() {
   function changeLanguage(next: UiLanguage) {
     setLanguage(next);
     window.localStorage.setItem("pfp-interface-language", next);
+  }
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      toast.error("Full screen could not be opened.", {
+        description: "Open the ERP system directly in Chrome and try again.",
+      });
+    }
   }
 
   async function openAuditHistory(target: AuditTarget) {
@@ -5245,7 +5272,7 @@ export default function Home() {
         onValueChange={setActiveView}
       >
       <header className="border-b border-[#d7ded5] bg-[#0c3b2d] text-white">
-        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
+        <div className="flex w-full flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
           <div className="flex shrink-0 items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#dbf081] text-sm font-black tracking-tight text-[#153829]">
               PFP
@@ -5309,40 +5336,55 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
           </div>
-          <div
-            data-no-translate
-            className="flex shrink-0 items-center rounded-lg border border-white/25 bg-white/10 p-1"
-            aria-label="Interface language"
-          >
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => changeLanguage("en")}
-              aria-pressed={language === "en"}
-              className={`h-8 rounded-md px-3 text-xs font-black transition ${
-                language === "en"
-                  ? "bg-[#dbf081] text-[#153829] shadow-sm"
-                  : "text-white/75 hover:bg-white/10 hover:text-white"
-              }`}
+              onClick={() => void toggleFullscreen()}
+              aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
+              title={isFullscreen ? "Exit full screen" : "Enter full screen"}
+              className="grid h-10 w-10 place-items-center rounded-lg border border-white/25 bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbf081]"
             >
-              EN
+              {isFullscreen ? (
+                <Minimize2 className="h-4.5 w-4.5" />
+              ) : (
+                <Maximize2 className="h-4.5 w-4.5" />
+              )}
             </button>
-            <button
-              type="button"
-              onClick={() => changeLanguage("mn")}
-              aria-pressed={language === "mn"}
-              className={`h-8 rounded-md px-3 text-xs font-black transition ${
-                language === "mn"
-                  ? "bg-[#dbf081] text-[#153829] shadow-sm"
-                  : "text-white/75 hover:bg-white/10 hover:text-white"
-              }`}
+            <div
+              data-no-translate
+              className="flex items-center rounded-lg border border-white/25 bg-white/10 p-1"
+              aria-label="Interface language"
             >
-              МН
-            </button>
+              <button
+                type="button"
+                onClick={() => changeLanguage("en")}
+                aria-pressed={language === "en"}
+                className={`h-8 rounded-md px-3 text-xs font-black transition ${
+                  language === "en"
+                    ? "bg-[#dbf081] text-[#153829] shadow-sm"
+                    : "text-white/75 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => changeLanguage("mn")}
+                aria-pressed={language === "mn"}
+                className={`h-8 rounded-md px-3 text-xs font-black transition ${
+                  language === "mn"
+                    ? "bg-[#dbf081] text-[#153829] shadow-sm"
+                    : "text-white/75 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                МН
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-7 sm:px-6 lg:px-8">
          <TabsContent value="dashboard" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-gradient-to-r from-white to-[#f1f6ee] p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
