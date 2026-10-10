@@ -1242,6 +1242,9 @@ export default function Home() {
   const [adminControlSection, setAdminControlSection] = useState<
     "users" | "metadata"
   >("users");
+  const [melSection, setMelSection] = useState<"indicators" | "monitoring">(
+    "indicators",
+  );
   const [teamDirectoryQuery, setTeamDirectoryQuery] = useState("");
   const [teamDirectoryMember, setTeamDirectoryMember] = useState("all");
   const [currentSession, setCurrentSession] = useState<AppSession | null>(null);
@@ -7406,12 +7409,49 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
-            <MelModule
-              year={selectedYear}
-              activities={allActivities}
-              teamMembers={teamMembers}
-              session={currentSession}
-            />
+            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Monitoring, evaluation and learning</p>
+                <h2 className="mt-1 text-xl font-black">MEL workspace</h2>
+                <p className="mt-1 text-sm text-[#718178]">
+                  Choose the workspace you want to manage. Only the selected area is shown below.
+                </p>
+              </div>
+              <div className="mt-4 inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-[#f8faf7] p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setMelSection("indicators")}
+                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                    melSection === "indicators"
+                      ? "bg-[#0c3b2d] text-white shadow-sm"
+                      : "text-[#53685c] hover:bg-white"
+                  }`}
+                >
+                  <Target className="h-4 w-4" /> Indicator Management
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMelSection("monitoring")}
+                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                    melSection === "monitoring"
+                      ? "bg-[#0c3b2d] text-white shadow-sm"
+                      : "text-[#53685c] hover:bg-white"
+                  }`}
+                >
+                  <BarChart3 className="h-4 w-4" /> Programme Monitoring
+                </button>
+              </div>
+            </section>
+
+            {melSection === "indicators" ? (
+              <MelModule
+                year={selectedYear}
+                activities={allActivities}
+                teamMembers={teamMembers}
+                session={currentSession}
+              />
+            ) : (
+              <>
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-xl font-black">Workplan monitoring and year comparison</h2>
@@ -7536,6 +7576,8 @@ export default function Home() {
                 </div>
               </article>
             </section>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="access" className="space-y-6">

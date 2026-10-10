@@ -426,6 +426,12 @@ const mn: Record<string, string> = {
   "sub-activities": "дэд ажил",
   "Search contract, ToR, provider or workplan code": "Гэрээ, ToR, үйлчилгээ үзүүлэгч эсвэл ажлын төлөвлөгөөний кодоор хайх",
   "Indicator management": "Үзүүлэлтийн удирдлага",
+  "Indicator Management": "Үзүүлэлтийн удирдлага",
+  "Programme Monitoring": "Хөтөлбөрийн хяналт",
+  "Monitoring, evaluation and learning": "Хяналт-шинжилгээ, үнэлгээ ба суралцахуй",
+  "MEL workspace": "MEL ажлын хэсэг",
+  "Choose the workspace you want to manage. Only the selected area is shown below.":
+    "Удирдах ажлын хэсгээ сонгоно уу. Доор зөвхөн сонгосон хэсэг харагдана.",
   "MEL indicator dashboard": "МҮС-ийн үзүүлэлтийн самбар",
   "Add indicator": "Үзүүлэлт нэмэх",
   "Edit indicator": "Үзүүлэлт засах",
