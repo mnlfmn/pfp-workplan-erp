@@ -2006,40 +2006,45 @@ export default function Home() {
         activityKey: activeTarget.key,
         status: draft.status,
         progress: progressToSave,
-        note: draft.note,
+        note:
+          activeTarget.kind === "activity"
+            ? draft.note
+            : updates[activeTarget.key]?.note ?? "",
         supportNeeded: updates[activeTarget.key]?.supportNeeded ?? "",
       });
-      const quarterlyNote = parseQuarterlyNotes(
-        draft.note,
-        selectedYear,
-      ).quarters[noteQuarter].trim();
-      const latestForQuarter = quarterlyHistory.find(
-        (item) =>
-          item.activityKey === activeTarget.key &&
-          item.planYear === selectedYear &&
-          item.quarter === noteQuarter,
-      );
-      if (quarterlyNote && latestForQuarter?.note !== quarterlyNote) {
-        const historyResponse = await fetch("/api/quarterly-updates", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            activityKey: activeTarget.key,
-            planYear: selectedYear,
-            quarter: noteQuarter,
-            note: quarterlyNote,
-            status: update.status,
-            progress: update.progress,
-          }),
-        });
-        const historyResult = (await historyResponse.json()) as {
-          entry?: QuarterlyUpdate;
-          error?: string;
-        };
-        if (!historyResponse.ok || !historyResult.entry) {
-          throw new Error(historyResult.error || "Quarterly history could not be saved.");
+      if (activeTarget.kind === "activity") {
+        const quarterlyNote = parseQuarterlyNotes(
+          draft.note,
+          selectedYear,
+        ).quarters[noteQuarter].trim();
+        const latestForQuarter = quarterlyHistory.find(
+          (item) =>
+            item.activityKey === activeTarget.key &&
+            item.planYear === selectedYear &&
+            item.quarter === noteQuarter,
+        );
+        if (quarterlyNote && latestForQuarter?.note !== quarterlyNote) {
+          const historyResponse = await fetch("/api/quarterly-updates", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              activityKey: activeTarget.key,
+              planYear: selectedYear,
+              quarter: noteQuarter,
+              note: quarterlyNote,
+              status: update.status,
+              progress: update.progress,
+            }),
+          });
+          const historyResult = (await historyResponse.json()) as {
+            entry?: QuarterlyUpdate;
+            error?: string;
+          };
+          if (!historyResponse.ok || !historyResult.entry) {
+            throw new Error(historyResult.error || "Quarterly history could not be saved.");
+          }
+          setQuarterlyHistory((current) => [historyResult.entry!, ...current]);
         }
-        setQuarterlyHistory((current) => [historyResult.entry!, ...current]);
       }
       setFormDirty(false);
       toast.success("Workplan update saved", {
@@ -4451,15 +4456,12 @@ export default function Home() {
         owner: activityOwner(activity, updates),
         startDate: activity.startDate,
         endDate: activity.endDate,
-        note: updates[activity.id]?.note ?? activity.progressSummary ?? "",
       },
       ...activity.subactivities.map((subactivity) => ({
         key: subactivity.id,
         owner: subactivityOwner(subactivity, updates),
         startDate: subactivity.startDate,
         endDate: subactivity.endDate,
-        note:
-          updates[subactivity.id]?.note ?? subactivity.progressSummary ?? "",
       })),
     ]);
     const subactivities = allActivities.flatMap(
@@ -4478,11 +4480,11 @@ export default function Home() {
     const missingProcurementType = subactivities.filter(
       (subactivity) => !String(subactivity.procurementType ?? "").trim(),
     ).length;
-    const missingQuarterlyUpdate = items.filter((item) => {
+    const missingQuarterlyUpdate = allActivities.filter((activity) => {
       if (
         quarterlyHistory.some(
           (entry) =>
-            entry.activityKey === item.key &&
+            entry.activityKey === activity.id &&
             entry.planYear === selectedYear &&
             entry.quarter === currentQuarter &&
             entry.note.trim(),
@@ -4490,9 +4492,8 @@ export default function Home() {
       ) {
         return false;
       }
-      return !parseQuarterlyNotes(item.note, selectedYear).quarters[
-        currentQuarter
-      ].trim();
+      const note = updates[activity.id]?.note ?? activity.progressSummary ?? "";
+      return !parseQuarterlyNotes(note, selectedYear).quarters[currentQuarter].trim();
     }).length;
     const unlinkedBudgetLines = allBudgetLines.filter(
       (line) =>
@@ -4518,8 +4519,8 @@ export default function Home() {
         !entry.vendor.trim(),
     ).length;
     const applicableChecks =
-      items.length * 3 +
-      allActivities.length +
+      items.length * 2 +
+      allActivities.length * 2 +
       subactivities.length +
       allBudgetLines.length +
       contracts.length +
@@ -4885,13 +4886,7 @@ export default function Home() {
                 statusMetaFor(subactivity.status as StatusKey).weight,
                 updates,
               ),
-              quarterlyUpdates: quarterlyUpdatesForExport(
-                subactivity.id,
-                updates[subactivity.id]?.note ?? "",
-                subactivity.progressSummary ?? "",
-                selectedYear,
-                quarterlyHistory,
-              ),
+              quarterlyUpdates: { Q1: "", Q2: "", Q3: "", Q4: "" },
             };
           }),
         ];
@@ -4992,12 +4987,15 @@ export default function Home() {
       downloadWorkplanExcel({
         year: selectedYear,
         items: buildWorkplanExportItems().map((item) => {
-          const savedQuarter = quarterlyHistory.find(
-            (entry) =>
-              entry.activityKey === item.activityKey &&
-              entry.planYear === selectedYear &&
-              entry.quarter === quarter,
-          );
+          const savedQuarter =
+            item.kind === "activity"
+              ? quarterlyHistory.find(
+                  (entry) =>
+                    entry.activityKey === item.activityKey &&
+                    entry.planYear === selectedYear &&
+                    entry.quarter === quarter,
+                )
+              : undefined;
           return savedQuarter
             ? {
                 ...item,
@@ -5149,6 +5147,7 @@ export default function Home() {
           />
         </div>
 
+        {target.kind === "activity" && (
         <details className="group mt-4 rounded-xl border border-[#d7e0d5] bg-white">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-bold marker:hidden">
             <span className="flex items-center gap-2">
@@ -5244,6 +5243,7 @@ export default function Home() {
             </div>
           </div>
         </details>
+        )}
 
         <div className="mt-4 flex flex-col gap-2 border-t border-[#e2e7e0] pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-[#718178]">
@@ -5325,7 +5325,7 @@ export default function Home() {
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
               >
                 <BarChart3 className="h-4 w-4" />
-                Monitoring
+                MEL
               </TabsTrigger>
               <TabsTrigger
                 value="access"
@@ -7407,7 +7407,7 @@ export default function Home() {
           <TabsContent value="reports" className="space-y-6">
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
               <div>
-                <h2 className="text-xl font-black">Monitoring and year comparison</h2>
+                <h2 className="text-xl font-black">MEL and year comparison</h2>
                 <p className="mt-1 text-sm text-[#718178]">
                   Download each quarter&apos;s saved progress and notes, review data quality, and compare years.
                 </p>
@@ -7654,7 +7654,7 @@ export default function Home() {
                   <div className="border-b border-[#e2e7e0] p-5">
                     <h3 className="text-lg font-black">System dropdown options</h3>
                     <p className="mt-1 text-sm text-[#718178]">
-                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, Monitoring, and Contracts.
+                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, MEL, and Contracts.
                     </p>
                   </div>
                   <div className="grid min-h-[420px] md:grid-cols-[230px_minmax(0,1fr)]">
@@ -10449,7 +10449,7 @@ export default function Home() {
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.7fr)] lg:overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(350px,0.95fr)_minmax(0,1.45fr)] lg:overflow-hidden">
                 <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-5 lg:overflow-y-auto lg:border-r lg:border-b-0">
                   <section className="rounded-3xl border-2 border-[#082d22] bg-[#0d4635] p-5 text-white shadow-[0_14px_34px_rgba(12,59,45,0.22)]">
                     <div className="flex items-start justify-between gap-3">
@@ -10587,8 +10587,8 @@ export default function Home() {
                   </details>
                 </aside>
 
-                <section className="bg-white p-4 lg:overflow-y-auto sm:p-5">
-                  <div className="mb-3 flex flex-col gap-2 border-b border-[#e0e6de] pb-3 sm:flex-row sm:items-center sm:justify-between">
+                <section className="bg-white p-3.5 lg:overflow-y-auto sm:p-4">
+                  <div className="mb-2.5 flex flex-col gap-2 border-b border-[#e0e6de] pb-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-lg font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
@@ -10606,7 +10606,7 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="grid gap-2.5 xl:grid-cols-2">
                     {selected.subactivities.map((sub, index) => {
                       const currentStatus = recordStatus(
                         sub.id,
@@ -10630,14 +10630,14 @@ export default function Home() {
                           key={sub.id}
                           className={
                             isEditing
-                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-3.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] sm:p-4"
-                              : "rounded-xl border border-[#dbe3d9] bg-white p-3.5 sm:p-4"
+                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-3 shadow-[0_8px_22px_rgba(35,91,67,0.1)] xl:col-span-2"
+                              : "rounded-xl border border-[#dbe3d9] bg-white p-3"
                           }
                         >
-                          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="flex min-w-0 items-start gap-2.5">
-                              <span className="rounded-lg bg-[#e8f1e6] p-2 text-[#2c795a]">
-                                <ListChecks className="h-4 w-4" />
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex min-w-0 items-start gap-2">
+                              <span className="rounded-md bg-[#e8f1e6] p-1.5 text-[#2c795a]">
+                                <ListChecks className="h-3.5 w-3.5" />
                               </span>
                               <div className="min-w-0">
                                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[#6b7c72]">
@@ -10651,7 +10651,7 @@ export default function Home() {
                             <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
                           </div>
 
-                          <div className="mt-3 flex items-center gap-2.5">
+                          <div className="mt-2.5 flex items-center gap-2">
                             <Progress
                               value={currentProgress}
                               className="h-1.5 flex-1 bg-[#e1e8de] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
@@ -10661,7 +10661,7 @@ export default function Home() {
                             </span>
                           </div>
 
-                          <div className="mt-3 grid gap-2.5 border-t border-[#e4e9e2] pt-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                          <div className="mt-2.5 grid gap-2 border-t border-[#e4e9e2] pt-2.5 sm:grid-cols-[1fr_auto] sm:items-center">
                             <div className="min-w-0">
                               <p
                                 className={
@@ -10695,7 +10695,7 @@ export default function Home() {
                             </div>
                           </div>
 
-                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
                             <Button
                               variant="outline"
                               size="sm"
@@ -10732,7 +10732,7 @@ export default function Home() {
                     })}
 
                     {selected.subactivities.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center">
+                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center xl:col-span-2">
                         <ListChecks className="mx-auto h-7 w-7 text-[#6b7c72]" />
                         <p className="mt-3 font-bold">No sub-activities yet</p>
                         <p className="mt-1 text-sm text-[#718178]">

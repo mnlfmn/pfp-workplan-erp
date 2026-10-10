@@ -1,8 +1,9 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { quarterlyUpdates, systemMetadata } from "@/db/schema";
+import { quarterlyUpdates, systemMetadata, workplanRecords } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
+import workplan from "@/lib/workplan-data.json";
 
 const quarters = new Set(["Q1", "Q2", "Q3", "Q4"]);
 const statuses = new Set([
@@ -28,6 +29,28 @@ async function isAllowedStatus(status: string) {
     )
     .limit(1);
   return Boolean(rows[0]);
+}
+
+async function isMainActivity(activityKey: string, planYear: number) {
+  const rows = await getDb()
+    .select({
+      recordType: workplanRecords.recordType,
+      isDeleted: workplanRecords.isDeleted,
+    })
+    .from(workplanRecords)
+    .where(
+      and(
+        eq(workplanRecords.planYear, planYear),
+        eq(workplanRecords.recordKey, activityKey),
+      ),
+    );
+  const savedActivity = rows.find((row) => row.recordType === "activity");
+  if (savedActivity) return savedActivity.isDeleted === 0;
+  if (rows.some((row) => row.recordType === "subactivity")) return false;
+  return (
+    planYear === 2026 &&
+    workplan.activities.some((activity) => activity.id === activityKey)
+  );
 }
 
 function storageMessage(error: unknown) {
@@ -92,6 +115,12 @@ export async function POST(request: Request) {
     }
     if (!quarters.has(quarter)) {
       return Response.json({ error: "Choose a valid quarter." }, { status: 400 });
+    }
+    if (!(await isMainActivity(activityKey, planYear))) {
+      return Response.json(
+        { error: "Quarterly progress notes are available only for main activities." },
+        { status: 400 },
+      );
     }
     if (!note) {
       return Response.json({ error: "Enter a quarterly progress note." }, { status: 400 });
