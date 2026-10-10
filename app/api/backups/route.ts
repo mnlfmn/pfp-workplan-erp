@@ -9,6 +9,8 @@ import {
   contractPayments,
   contracts,
   financeEntries,
+  melIndicators,
+  melResults,
   paymentDocuments,
   quarterlyUpdates,
   systemMetadata,
@@ -80,6 +82,8 @@ export async function POST(request: Request) {
 
     const db = getDb();
     await db.delete(auditLogs);
+    await db.delete(melResults);
+    await db.delete(melIndicators);
     await db.delete(paymentDocuments);
     await db.delete(contractPayments);
     await db.delete(contracts);
@@ -109,6 +113,14 @@ export async function POST(request: Request) {
     }
     for (let index = 0; index < tables.financeEntries.length; index += 20) {
       await db.insert(financeEntries).values(tables.financeEntries.slice(index, index + 20));
+    }
+    const melIndicatorRows = tables.melIndicators ?? [];
+    for (let index = 0; index < melIndicatorRows.length; index += 20) {
+      await db.insert(melIndicators).values(melIndicatorRows.slice(index, index + 20));
+    }
+    const melResultRows = tables.melResults ?? [];
+    for (let index = 0; index < melResultRows.length; index += 20) {
+      await db.insert(melResults).values(melResultRows.slice(index, index + 20));
     }
     for (let index = 0; index < tables.budgetAllocations.length; index += 20) {
       await db.insert(budgetAllocations).values(tables.budgetAllocations.slice(index, index + 20));

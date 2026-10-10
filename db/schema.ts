@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -37,6 +38,75 @@ export const quarterlyUpdates = sqliteTable(
       table.planYear,
     ),
     index("idx_quarterly_updates_submitted_at").on(table.submittedAt),
+  ],
+);
+
+export const melIndicators = sqliteTable(
+  "mel_indicators",
+  {
+    id: text("id").primaryKey(),
+    planYear: integer("plan_year").notNull(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    definition: text("definition").notNull().default(""),
+    unit: text("unit").notNull(),
+    level: text("level").notNull(),
+    reportingFrequency: text("reporting_frequency").notNull(),
+    dataSource: text("data_source").notNull().default(""),
+    responsibleMemberId: text("responsible_member_id").notNull().default(""),
+    goal: text("goal").notNull().default(""),
+    activityKey: text("activity_key").notNull().default(""),
+    active: integer("active").notNull().default(1),
+    baselineValue: real("baseline_value"),
+    baselineYear: integer("baseline_year"),
+    annualTarget: real("annual_target"),
+    q1Target: real("q1_target"),
+    q2Target: real("q2_target"),
+    q3Target: real("q3_target"),
+    q4Target: real("q4_target"),
+    endTarget: real("end_target"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdBy: text("created_by").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_mel_indicators_year_code").on(table.planYear, table.code),
+    index("idx_mel_indicators_year").on(table.planYear),
+    index("idx_mel_indicators_activity").on(table.activityKey),
+  ],
+);
+
+export const melResults = sqliteTable(
+  "mel_results",
+  {
+    id: text("id").primaryKey(),
+    indicatorId: text("indicator_id").notNull(),
+    planYear: integer("plan_year").notNull(),
+    period: text("period").notNull(),
+    actualValue: real("actual_value").notNull(),
+    note: text("note").notNull().default(""),
+    evidenceReference: text("evidence_reference").notNull().default(""),
+    workflowStatus: text("workflow_status").notNull().default("draft"),
+    reviewComment: text("review_comment").notNull().default(""),
+    enteredAt: text("entered_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    enteredBy: text("entered_by").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+    submittedAt: text("submitted_at").notNull().default(""),
+    submittedBy: text("submitted_by").notNull().default(""),
+    reviewedAt: text("reviewed_at").notNull().default(""),
+    reviewedBy: text("reviewed_by").notNull().default(""),
+    approvedAt: text("approved_at").notNull().default(""),
+    approvedBy: text("approved_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_mel_results_indicator_period").on(
+      table.indicatorId,
+      table.period,
+    ),
+    index("idx_mel_results_year").on(table.planYear),
+    index("idx_mel_results_indicator").on(table.indicatorId),
   ],
 );
 

@@ -8,6 +8,8 @@ import {
   contractPayments,
   contracts,
   financeEntries,
+  melIndicators,
+  melResults,
   paymentDocuments,
   quarterlyUpdates,
   workplanRecords,
@@ -775,6 +777,8 @@ export async function DELETE(request: Request) {
         await db.delete(contractPayments).where(inArray(contractPayments.contractId, ids));
       }
       await db.delete(contracts).where(eq(contracts.planYear, year));
+      await db.delete(melResults).where(eq(melResults.planYear, year));
+      await db.delete(melIndicators).where(eq(melIndicators.planYear, year));
       await db.delete(quarterlyUpdates).where(eq(quarterlyUpdates.planYear, year));
       await db.delete(budgetAllocations).where(eq(budgetAllocations.planYear, year));
       for (const keys of chunks(activityKeys)) {

@@ -9,6 +9,8 @@ import {
   contractPayments,
   contracts,
   financeEntries,
+  melIndicators,
+  melResults,
   paymentDocuments,
   quarterlyUpdates,
   systemMetadata,
@@ -26,6 +28,8 @@ export type BackupPayload = {
     activityUpdates: Array<typeof activityUpdates.$inferSelect>;
     quarterlyUpdates: Array<typeof quarterlyUpdates.$inferSelect>;
     financeEntries: Array<typeof financeEntries.$inferSelect>;
+    melIndicators?: Array<typeof melIndicators.$inferSelect>;
+    melResults?: Array<typeof melResults.$inferSelect>;
     teamMembers: Array<typeof teamMembers.$inferSelect>;
     workplanYears: Array<typeof workplanYears.$inferSelect>;
     workplanRecords: Array<typeof workplanRecords.$inferSelect>;
@@ -92,6 +96,8 @@ export async function createBackupSnapshot(
     activityRows,
     quarterlyRows,
     financeRows,
+    melIndicatorRows,
+    melResultRows,
     teamRows,
     yearRows,
     workplanRows,
@@ -105,6 +111,8 @@ export async function createBackupSnapshot(
     db.select().from(activityUpdates),
     db.select().from(quarterlyUpdates),
     db.select().from(financeEntries),
+    db.select().from(melIndicators),
+    db.select().from(melResults),
     db.select().from(teamMembers),
     db.select().from(workplanYears),
     db.select().from(workplanRecords),
@@ -124,6 +132,8 @@ export async function createBackupSnapshot(
       activityUpdates: activityRows,
       quarterlyUpdates: quarterlyRows,
       financeEntries: financeRows,
+      melIndicators: melIndicatorRows,
+      melResults: melResultRows,
       teamMembers: teamRows,
       workplanYears: yearRows,
       workplanRecords: workplanRows,

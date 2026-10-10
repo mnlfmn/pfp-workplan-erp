@@ -40,6 +40,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MelModule } from "@/components/mel-module";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -7405,9 +7406,15 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
+            <MelModule
+              year={selectedYear}
+              activities={allActivities}
+              teamMembers={teamMembers}
+              session={currentSession}
+            />
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
               <div>
-                <h2 className="text-xl font-black">MEL and year comparison</h2>
+                <h2 className="text-xl font-black">Workplan monitoring and year comparison</h2>
                 <p className="mt-1 text-sm text-[#718178]">
                   Download each quarter&apos;s saved progress and notes, review data quality, and compare years.
                 </p>
