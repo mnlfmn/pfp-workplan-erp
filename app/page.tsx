@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MelModule } from "@/components/mel-module";
+import { StaffKpiModule } from "@/components/staff-kpi-module";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1254,6 +1255,9 @@ export default function Home() {
   const [melSection, setMelSection] = useState<"indicators" | "monitoring">(
     "indicators",
   );
+  const [teamPerformanceSection, setTeamPerformanceSection] = useState<
+    "workplan" | "kpi"
+  >("workplan");
   const [teamDirectoryQuery, setTeamDirectoryQuery] = useState("");
   const [teamDirectoryMember, setTeamDirectoryMember] = useState("all");
   const [currentSession, setCurrentSession] = useState<AppSession | null>(null);
@@ -7369,6 +7373,40 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="team" className="space-y-6">
+            <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setTeamPerformanceSection("workplan")}
+                className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                  teamPerformanceSection === "workplan"
+                    ? "bg-[#0c3b2d] text-white shadow-sm"
+                    : "text-[#53685c] hover:bg-[#f0f5ee]"
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" /> Workplan Performance
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeamPerformanceSection("kpi")}
+                className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                  teamPerformanceSection === "kpi"
+                    ? "bg-[#0c3b2d] text-white shadow-sm"
+                    : "text-[#53685c] hover:bg-[#f0f5ee]"
+                }`}
+              >
+                <Target className="h-4 w-4" /> Staff KPI
+              </button>
+            </div>
+
+            {teamPerformanceSection === "kpi" ? (
+              <StaffKpiModule
+                year={selectedYear}
+                activities={allActivities}
+                teamMembers={teamMembers}
+                session={currentSession}
+              />
+            ) : (
+              <>
             <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">
@@ -7515,6 +7553,8 @@ export default function Home() {
               <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-white px-6 py-12 text-center text-sm text-[#718178]">
                 Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email in Admin Control.
               </div>
+            )}
+              </>
             )}
           </TabsContent>
 

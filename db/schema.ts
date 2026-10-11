@@ -148,6 +148,61 @@ export const teamMembers = sqliteTable(
   ],
 );
 
+export const staffKpiReviews = sqliteTable(
+  "staff_kpi_reviews",
+  {
+    id: text("id").primaryKey(),
+    memberId: text("member_id").notNull(),
+    planYear: integer("plan_year").notNull(),
+    period: text("period").notNull(),
+    linkedActivityKeys: text("linked_activity_keys").notNull().default("[]"),
+    achievementNote: text("achievement_note").notNull().default(""),
+    selfPerformanceScore: real("self_performance_score").notNull().default(0),
+    selfAttendanceScore: real("self_attendance_score").notNull().default(0),
+    selfDevelopmentScore: real("self_development_score").notNull().default(0),
+    reviewPerformanceScore: real("review_performance_score"),
+    reviewAttendanceScore: real("review_attendance_score"),
+    reviewDevelopmentScore: real("review_development_score"),
+    cultureBonus: real("culture_bonus").notNull().default(0),
+    reviewComment: text("review_comment").notNull().default(""),
+    workflowStatus: text("workflow_status").notNull().default("draft"),
+    submittedAt: text("submitted_at").notNull().default(""),
+    submittedBy: text("submitted_by").notNull().default(""),
+    reviewedAt: text("reviewed_at").notNull().default(""),
+    reviewedBy: text("reviewed_by").notNull().default(""),
+    approvedAt: text("approved_at").notNull().default(""),
+    approvedBy: text("approved_by").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdBy: text("created_by").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("ux_staff_kpi_member_year_period").on(
+      table.memberId,
+      table.planYear,
+      table.period,
+    ),
+    index("idx_staff_kpi_year").on(table.planYear),
+    index("idx_staff_kpi_member").on(table.memberId),
+  ],
+);
+
+export const staffKpiHistory = sqliteTable(
+  "staff_kpi_history",
+  {
+    id: text("id").primaryKey(),
+    reviewId: text("review_id").notNull(),
+    snapshot: text("snapshot").notNull(),
+    changedAt: text("changed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    changedBy: text("changed_by").notNull().default(""),
+  },
+  (table) => [
+    index("idx_staff_kpi_history_review").on(table.reviewId),
+    index("idx_staff_kpi_history_changed_at").on(table.changedAt),
+  ],
+);
+
 export const workplanYears = sqliteTable("workplan_years", {
   year: integer("year").primaryKey(),
   title: text("title").notNull().default(""),
