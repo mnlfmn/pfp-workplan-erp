@@ -829,6 +829,10 @@ function procurementTypeForSubactivity(
   return String(subactivity.procurementType ?? "").trim() || "Not applicable";
 }
 
+function requiresProcurement(subactivity: Subactivity) {
+  return procurementTypeForSubactivity(subactivity).toLocaleLowerCase() !== "not applicable";
+}
+
 function subactivityOwner(
   subactivity: Subactivity,
   updates: Record<string, UpdateRecord>,
@@ -1222,6 +1226,11 @@ export default function Home() {
   const [workplanDensity, setWorkplanDensity] = useState<
     "compact" | "comfortable"
   >("compact");
+  const [workplanSection, setWorkplanSection] = useState<
+    "activities" | "procurement"
+  >("activities");
+  const [procurementQuery, setProcurementQuery] = useState("");
+  const [procurementTypeFilter, setProcurementTypeFilter] = useState("all");
   const [updates, setUpdates] = useState<Record<string, UpdateRecord>>({});
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
     defaultTeamMembers,
@@ -4133,6 +4142,54 @@ export default function Home() {
     return totals;
   }, [allocations]);
 
+  const procurementItems = useMemo(
+    () =>
+      allActivities.flatMap((activity) =>
+        activity.subactivities
+          .filter(requiresProcurement)
+          .map((subactivity) => ({
+            activity,
+            subactivity,
+            procurementType: procurementTypeForSubactivity(subactivity),
+            owner: responsibilityParts(
+              subactivityOwner(subactivity, updates),
+              teamMembers,
+            ).accountable,
+            status: recordStatus(
+              subactivity.id,
+              subactivity.status as StatusKey,
+              updates,
+            ),
+            progress: recordProgress(
+              subactivity.id,
+              statusMetaFor(subactivity.status as StatusKey).weight,
+              updates,
+            ),
+            allocatedMnt: allocationByActivityKey.get(subactivity.id) ?? 0,
+          })),
+      ),
+    [allActivities, allocationByActivityKey, teamMembers, updates],
+  );
+
+  const visibleProcurementItems = useMemo(() => {
+    const needle = procurementQuery.trim().toLocaleLowerCase();
+    return procurementItems.filter((item) => {
+      const matchesType =
+        procurementTypeFilter === "all" ||
+        item.procurementType === procurementTypeFilter;
+      const haystack = [
+        item.activity.code,
+        item.activity.title,
+        item.subactivity.title,
+        item.procurementType,
+        item.owner,
+      ]
+        .join(" ")
+        .toLocaleLowerCase();
+      return matchesType && haystack.includes(needle);
+    });
+  }, [procurementItems, procurementQuery, procurementTypeFilter]);
+
   const selectedBudgetLine = useMemo(
     () => allBudgetLines.find((line) => line.id === selectedBudgetKey) ?? null,
     [allBudgetLines, selectedBudgetKey],
@@ -5801,6 +5858,20 @@ export default function Home() {
 
           <TabsContent value="workplan" className="space-y-6">
 
+        <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Workplan workspace</p>
+            <h2 className="mt-1 text-xl font-black">Plan and procurement</h2>
+            <p className="mt-1 text-sm text-[#718178]">Switch between the complete activity register and the procurement plan generated from applicable sub-activities.</p>
+          </div>
+          <div className="mt-4 inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-[#f8faf7] p-1 shadow-sm">
+            <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}><ListChecks className="h-4 w-4" /> Activity Register</button>
+            <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
+          </div>
+        </section>
+
+        {workplanSection === "activities" ? (
+
         <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
           <div className="sticky top-0 z-30 border-b border-[#dbe3d9] bg-white/95 p-4 backdrop-blur lg:p-5">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -6391,6 +6462,52 @@ export default function Home() {
             </aside>
           </div>
         </section>
+        ) : (
+          <div className="space-y-4">
+            <section className="overflow-hidden rounded-2xl border border-[#bfd0c2] bg-gradient-to-br from-[#0c3b2d] to-[#246348] text-white shadow-[0_12px_30px_rgba(12,59,45,0.14)]">
+              <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-end">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-[#dbf081]">{selectedYear} procurement plan</p>
+                  <h2 className="mt-1 text-2xl font-black">Applicable procurement activities</h2>
+                  <p className="mt-1 max-w-2xl text-sm text-white/70">This plan updates automatically whenever the procurement type is changed in a sub-activity. “Not applicable” items are excluded.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["Plan items", procurementItems.length],
+                    ["In progress", procurementItems.filter((item) => item.status === "in_progress").length],
+                    ["Allocated", formatMnt(procurementItems.reduce((total, item) => total + item.allocatedMnt, 0))],
+                  ].map(([label, value]) => <div key={String(label)} className="min-w-28 rounded-xl border border-white/15 bg-white/10 p-3"><p className="text-[11px] font-semibold text-white/65">{label}</p><p className="mt-1 text-lg font-black tabular-nums">{value}</p></div>)}
+                </div>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_8px_24px_rgba(20,36,27,0.04)]">
+              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] p-4 sm:flex-row sm:items-center">
+                <label className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={procurementQuery} onChange={(event) => setProcurementQuery(event.target.value)} placeholder="Search procurement activity, owner or code" className="h-9 bg-[#f8faf7] pl-9" /></label>
+                <NativeSelect value={procurementTypeFilter} onChange={(event) => setProcurementTypeFilter(event.target.value)} className="h-9 sm:w-56"><NativeSelectOption value="all">All procurement types</NativeSelectOption>{procurementTypeOptions.filter((item) => item.value.toLocaleLowerCase() !== "not applicable").map((item) => <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>)}</NativeSelect>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="min-w-[940px]">
+                  <div className="grid grid-cols-[100px_minmax(220px,1.5fr)_170px_135px_130px_100px_130px] gap-3 bg-[#f4f7f2] px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]"><span>Code</span><span>Procurement item</span><span>Type</span><span>Owner</span><span>Timeline</span><span>Status</span><span className="text-right">Allocation</span></div>
+                  <div className="divide-y divide-[#e5eae4]">
+                    {visibleProcurementItems.map((item) => (
+                      <button key={item.subactivity.id} type="button" onClick={() => openActivity(item.activity)} className="grid w-full grid-cols-[100px_minmax(220px,1.5fr)_170px_135px_130px_100px_130px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[#f7faf5]">
+                        <span className="font-mono text-xs font-black text-[#245f47]">{item.activity.code || item.activity.uid}</span>
+                        <span className="min-w-0"><strong className="block line-clamp-2 text-sm text-[#183529]">{item.subactivity.title}</strong><span className="mt-0.5 block truncate text-[11px] text-[#718178]">Under {item.activity.title}</span></span>
+                        <span className="rounded-lg bg-[#eef4eb] px-2 py-1.5 text-xs font-bold text-[#315845]">{metadataLabel("procurement_type", item.procurementType)}</span>
+                        <span className={`truncate text-xs font-bold ${item.owner ? "text-[#315845]" : "text-rose-700"}`}>{item.owner || "Owner required"}</span>
+                        <span className="text-xs text-[#65766d]">{formatDate(item.subactivity.startDate, language)} – {formatDate(item.subactivity.endDate, language)}</span>
+                        <span><StatusPill status={item.status} label={metadataLabel("status", item.status)} /></span>
+                        <span className="text-right text-xs font-black tabular-nums text-[#245f47]">{formatMnt(item.allocatedMnt)}</span>
+                      </button>
+                    ))}
+                    {!visibleProcurementItems.length && <div className="px-6 py-14 text-center"><ReceiptText className="mx-auto h-7 w-7 text-[#809288]" /><p className="mt-3 font-black">No procurement activities found</p><p className="mt-1 text-sm text-[#718178]">Choose Goods and service or Intellectual service in a sub-activity to include it automatically.</p></div>}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
           </TabsContent>
 
           <TabsContent value="finance" className="space-y-6">
@@ -6901,7 +7018,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="contracts" className="space-y-6">
-            <nav className="flex items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
+            <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
               <button type="button" onClick={() => setContractStatusFilter("all")} className="hover:text-[#174734]">Contracts</button>
               {contractStatusFilter !== "all" && (
                 <>
@@ -6910,7 +7027,7 @@ export default function Home() {
                 </>
               )}
             </nav>
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
+            <section className="mx-auto w-full max-w-6xl rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between">
               <div className="mb-4 lg:mb-0">
                 <h2 className="text-xl font-black">Contract management</h2>
                 <p className="mt-1 max-w-3xl text-sm text-[#718178]">
@@ -6938,7 +7055,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[#b9cabb] bg-[#e9f1e6] p-3 sm:p-4">
+            <section className="mx-auto w-full max-w-6xl rounded-2xl border border-[#b9cabb] bg-[#e9f1e6] p-3">
               <div className="mb-3 flex items-center gap-2 px-1">
                 <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#0c3b2d] text-white">
                   <ReceiptText className="h-4 w-4" />
@@ -6955,9 +7072,9 @@ export default function Home() {
                   ["Outstanding commitment", formatMnt(contractStats.outstanding)],
                   ["Paid expenditure", formatMnt(contractStats.paid)],
                 ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-white/80 bg-white p-4 shadow-sm">
+                  <div key={label} className="rounded-xl border border-white/80 bg-white p-3 shadow-sm">
                     <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                    <dd className="mt-1 whitespace-nowrap text-lg font-black tabular-nums text-[#183529]">
+                    <dd className="mt-1 whitespace-nowrap text-base font-black tabular-nums text-[#183529]">
                       {value}
                     </dd>
                   </div>
@@ -6965,7 +7082,7 @@ export default function Home() {
               </dl>
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
+            <section className="mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
               <div className="flex flex-col gap-3 border-b border-[#e2e7e0] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div className="relative min-w-0 flex-1 sm:max-w-xl">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a8c81]" />
@@ -6997,7 +7114,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="space-y-4 bg-[#f7f9f5] p-4 sm:p-5">
+              <div className="space-y-3 bg-[#f7f9f5] p-3 sm:p-4">
                 {filteredContracts.map((contract) => {
                   const target = contractTargets.find(
                     (item) => item.key === contract.activityKey,
@@ -7014,8 +7131,8 @@ export default function Home() {
                       key={contract.id}
                       className="overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)]"
                     >
-                      <div className="p-4 sm:p-5">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="p-3 sm:p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
@@ -7030,10 +7147,10 @@ export default function Home() {
                                 {statusInfo.label}
                               </span>
                             </div>
-                            <h3 className="mt-3 break-words text-lg font-black leading-6 text-[#183529]">
+                            <h3 className="mt-2 break-words text-base font-black leading-5 text-[#183529]">
                               {contract.torName}
                             </h3>
-                            <p className="mt-1 text-sm font-semibold text-[#53685c]">
+                            <p className="mt-1 text-xs font-semibold text-[#53685c]">
                               {contract.serviceProviderName} · {contract.serviceProviderType}
                             </p>
                             <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
@@ -7080,7 +7197,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                           {[
                             [
                               "Contract amount",
@@ -7091,7 +7208,7 @@ export default function Home() {
                             ["Outstanding commitment", formatMnt(commitmentMnt)],
                             ["Paid expenditure", formatMnt(paidMnt)],
                           ].map(([label, value]) => (
-                            <div key={label} className="rounded-xl bg-[#f3f7f1] p-3">
+                            <div key={label} className="rounded-lg bg-[#f3f7f1] px-3 py-2">
                               <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
                               <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums">
                                 {value}
@@ -7114,7 +7231,7 @@ export default function Home() {
                               return next;
                             })
                           }
-                          className="mt-4"
+                          className="mt-3 h-8 px-2.5 text-xs"
                           aria-expanded={expanded}
                         >
                           <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
@@ -7123,7 +7240,7 @@ export default function Home() {
                       </div>
 
                       {expanded && (
-                        <div className="border-t border-[#dfe7dc] bg-[#fbfcfa] p-4 sm:p-5">
+                        <div className="border-t border-[#dfe7dc] bg-[#fbfcfa] p-3 sm:p-4">
                           <div className="space-y-3">
                             {contract.payments.map((payment) => (
                               <div

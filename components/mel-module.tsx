@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { indicatorActivityKeys } from "@/lib/mel-links";
 import type { TeamMember } from "@/lib/team-members";
 
 export type MelIndicator = {
@@ -113,15 +114,11 @@ type IndicatorDraft = {
   dataSource: string;
   responsibleMemberId: string;
   goal: string;
-  activityKey: string;
+  activityKeys: string[];
   active: boolean;
   baselineValue: string;
   baselineYear: string;
   annualTarget: string;
-  q1Target: string;
-  q2Target: string;
-  q3Target: string;
-  q4Target: string;
   endTarget: string;
 };
 
@@ -162,15 +159,11 @@ function emptyIndicator(): IndicatorDraft {
     dataSource: "",
     responsibleMemberId: "",
     goal: "",
-    activityKey: "",
+    activityKeys: [],
     active: true,
     baselineValue: "",
     baselineYear: "",
     annualTarget: "",
-    q1Target: "",
-    q2Target: "",
-    q3Target: "",
-    q4Target: "",
     endTarget: "",
   };
 }
@@ -187,15 +180,11 @@ function indicatorDraft(item: MelIndicator): IndicatorDraft {
     dataSource: item.dataSource,
     responsibleMemberId: item.responsibleMemberId,
     goal: item.goal,
-    activityKey: item.activityKey,
+    activityKeys: indicatorActivityKeys(item.activityKey),
     active: Boolean(item.active),
     baselineValue: numberText(item.baselineValue),
     baselineYear: numberText(item.baselineYear),
     annualTarget: numberText(item.annualTarget),
-    q1Target: numberText(item.q1Target),
-    q2Target: numberText(item.q2Target),
-    q3Target: numberText(item.q3Target),
-    q4Target: numberText(item.q4Target),
     endTarget: numberText(item.endTarget),
   };
 }
@@ -205,9 +194,8 @@ function currentQuarter() {
 }
 
 function targetFor(indicator: MelIndicator, period: MelResult["period"]) {
-  if (period === "Annual") return indicator.annualTarget;
-  const key = `${period.toLowerCase()}Target` as "q1Target" | "q2Target" | "q3Target" | "q4Target";
-  return indicator[key] ?? indicator.annualTarget;
+  void period;
+  return indicator.annualTarget;
 }
 
 function deliveryStatus(actual: number | null, target: number | null) {
@@ -250,6 +238,7 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
   const [reportingStatus, setReportingStatus] = useState("all");
   const [indicatorDialogOpen, setIndicatorDialogOpen] = useState(false);
   const [indicatorForm, setIndicatorForm] = useState<IndicatorDraft>(emptyIndicator());
+  const [activityLinkQuery, setActivityLinkQuery] = useState("");
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [resultIndicator, setResultIndicator] = useState<MelIndicator | null>(null);
   const [resultForm, setResultForm] = useState<ResultDraft>({ id: "", indicatorId: "", period: currentQuarter(), actualValue: "", note: "", evidenceReference: "", reviewComment: "" });
@@ -336,8 +325,42 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
     return counts;
   }, [indicators, period, resultByIndicatorPeriod]);
 
+  const levelDashboard = useMemo(
+    () =>
+      (["output", "outcome", "impact"] as const).map((indicatorLevel) => {
+        const items = indicators.filter(
+          (item) => item.active && item.level === indicatorLevel,
+        );
+        const reported = items.filter((item) =>
+          resultByIndicatorPeriod.has(`${item.id}:${period}`),
+        ).length;
+        const percentages = items
+          .map((item) => {
+            const actual = resultByIndicatorPeriod.get(`${item.id}:${period}`)?.actualValue;
+            const target = targetFor(item, period);
+            return actual !== undefined && target !== null && target !== 0
+              ? Math.max(0, Math.round((actual / target) * 100))
+              : null;
+          })
+          .filter((value): value is number => value !== null);
+        return {
+          level: indicatorLevel,
+          items,
+          reported,
+          average: percentages.length
+            ? Math.round(
+                percentages.reduce((total, value) => total + value, 0) /
+                  percentages.length,
+              )
+            : 0,
+        };
+      }),
+    [indicators, period, resultByIndicatorPeriod],
+  );
+
   function openIndicator(item?: MelIndicator) {
     setIndicatorForm(item ? indicatorDraft(item) : emptyIndicator());
+    setActivityLinkQuery("");
     setIndicatorDialogOpen(true);
   }
 
@@ -347,7 +370,12 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
       const response = await fetch("/api/mel", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ entity: "indicator", planYear: year, ...indicatorForm }),
+        body: JSON.stringify({
+          entity: "indicator",
+          planYear: year,
+          ...indicatorForm,
+          activityKey: JSON.stringify(indicatorForm.activityKeys),
+        }),
       });
       const payload = (await response.json()) as { indicator?: MelIndicator; error?: string };
       if (!response.ok || !payload.indicator) throw new Error(payload.error || "Indicator could not be saved.");
@@ -503,6 +531,88 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
         </section>
       )}
 
+      <section>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black">Indicators by results level</h3>
+            <p className="mt-0.5 text-sm text-[#718178]">
+              Output, outcome, and impact indicators shown in parallel for {period}.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {levelDashboard.map((column, index) => (
+            <article
+              key={column.level}
+              className={`overflow-hidden rounded-2xl border bg-white shadow-[0_8px_22px_rgba(20,36,27,0.04)] ${
+                index === 0
+                  ? "border-emerald-200"
+                  : index === 1
+                    ? "border-blue-200"
+                    : "border-violet-200"
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 ${
+                  index === 0
+                    ? "bg-emerald-50"
+                    : index === 1
+                      ? "bg-blue-50"
+                      : "bg-violet-50"
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.12em] text-[#53685c]">
+                    Level {index + 1}
+                  </p>
+                  <h4 className="mt-0.5 text-lg font-black capitalize">{column.level}</h4>
+                </div>
+                <span className="text-3xl font-black tabular-nums text-[#183529]">
+                  {column.items.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 border-b border-[#e5eae4] p-3">
+                <div className="rounded-xl bg-[#f7f9f5] p-2.5">
+                  <p className="text-[11px] font-semibold text-[#718178]">Reported</p>
+                  <p className="mt-0.5 font-black">{column.reported}/{column.items.length}</p>
+                </div>
+                <div className="rounded-xl bg-[#f7f9f5] p-2.5">
+                  <p className="text-[11px] font-semibold text-[#718178]">Average achieved</p>
+                  <p className="mt-0.5 font-black">{column.average}%</p>
+                </div>
+              </div>
+              <div className="max-h-64 space-y-1.5 overflow-y-auto p-3">
+                {column.items.map((item) => {
+                  const actual = resultByIndicatorPeriod.get(`${item.id}:${period}`)?.actualValue ?? null;
+                  const target = targetFor(item, period);
+                  const achieved =
+                    actual !== null && target !== null && target !== 0
+                      ? Math.max(0, Math.round((actual / target) * 100))
+                      : null;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => openResult(item)}
+                      className="w-full rounded-xl border border-[#e2e8df] p-2.5 text-left transition hover:border-[#9eb7a5] hover:bg-[#f7faf5]"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-xs font-black text-[#245f47]">{item.code}</span>
+                        <span className="text-xs font-black">{achieved === null ? "—" : `${achieved}%`}</span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-4 text-[#294438]">{item.name}</p>
+                    </button>
+                  );
+                })}
+                {!column.items.length && (
+                  <p className="py-6 text-center text-xs text-[#718178]">No active {column.level} indicators.</p>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-[0.72fr_1.28fr]">
         <article className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_24px_rgba(20,36,27,0.04)]">
           <div className="flex items-center justify-between"><div><h3 className="font-black">Delivery status</h3><p className="text-xs text-[#718178]">Target achievement for {period}</p></div><Gauge className="h-5 w-5 text-[#2f634c]" /></div>
@@ -557,14 +667,16 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
             const pct = actual !== null && target !== null && target !== 0 ? Math.round((actual / target) * 100) : null;
             const delivery = deliveryMeta[deliveryStatus(actual, target)];
             const member = teamMembers.find((memberItem) => memberItem.id === item.responsibleMemberId);
-            const activity = activities.find((activityItem) => activityItem.id === item.activityKey);
+            const linkedActivities = indicatorActivityKeys(item.activityKey)
+              .map((key) => activities.find((activityItem) => activityItem.id === key))
+              .filter((activityItem): activityItem is ActivityOption => Boolean(activityItem));
             return (
               <article key={item.id} className="grid gap-4 p-4 transition hover:bg-[#fbfcfa] lg:grid-cols-[minmax(0,1.45fr)_0.75fr_0.8fr_auto] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2"><span className="rounded-md bg-[#e9f1e7] px-2 py-1 text-xs font-black text-[#245f47]">{item.code}</span><span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#718178]">{item.level}</span>{!item.active && <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">Inactive</span>}</div>
                   <h3 className="mt-2 text-sm font-black leading-5 text-[#183529]">{item.name}</h3>
                   <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#718178]">{item.definition || "No definition entered"}</p>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#65766d]"><span>{item.goal === "All goals" ? "Cross-goal" : item.goal || "No goal"}</span><span>{activity ? `${activity.code || activity.uid} · ${activity.title}` : "No linked activity"}</span><span>{member?.name || "No responsible person"}</span></div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#65766d]"><span>{item.goal === "All goals" ? "Cross-goal" : item.goal || "No goal"}</span><span>{linkedActivities.length ? `${linkedActivities.length} linked ${linkedActivities.length === 1 ? "activity" : "activities"}: ${linkedActivities.map((activity) => activity.code || activity.uid).join(", ")}` : "No linked activity"}</span><span>{member?.name || "No responsible person"}</span></div>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#718178]">{period} target / actual</p>
@@ -587,8 +699,26 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
           <DialogHeader><DialogTitle>{indicatorForm.id ? "Edit indicator" : "Add indicator"}</DialogTitle><DialogDescription>Define the indicator, responsibility, links, baseline, and reporting targets.</DialogDescription></DialogHeader>
           <div className="grid gap-5 py-2 lg:grid-cols-2">
             <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4"><div><p className="font-black">1. Indicator definition</p><p className="text-xs text-[#718178]">Required identification and measurement rules.</p></div><div className="grid gap-3 sm:grid-cols-[150px_1fr]"><label className="space-y-1"><span className="text-xs font-bold">Indicator code *</span><Input value={indicatorForm.code} onChange={(event) => setIndicatorForm((form) => ({ ...form, code: event.target.value }))} placeholder="IND-01" /></label><label className="space-y-1"><span className="text-xs font-bold">Indicator name *</span><Input value={indicatorForm.name} onChange={(event) => setIndicatorForm((form) => ({ ...form, name: event.target.value }))} /></label></div><label className="block space-y-1"><span className="text-xs font-bold">Definition</span><Textarea value={indicatorForm.definition} onChange={(event) => setIndicatorForm((form) => ({ ...form, definition: event.target.value }))} className="min-h-24" /></label><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1"><span className="text-xs font-bold">Unit *</span><Input value={indicatorForm.unit} onChange={(event) => setIndicatorForm((form) => ({ ...form, unit: event.target.value }))} placeholder="%, people, hectares" /></label><label className="space-y-1"><span className="text-xs font-bold">Level *</span><NativeSelect value={indicatorForm.level} onChange={(event) => setIndicatorForm((form) => ({ ...form, level: event.target.value as MelIndicator["level"] }))}><NativeSelectOption value="output">Output</NativeSelectOption><NativeSelectOption value="outcome">Outcome</NativeSelectOption><NativeSelectOption value="impact">Impact</NativeSelectOption></NativeSelect></label><label className="space-y-1"><span className="text-xs font-bold">Frequency *</span><NativeSelect value={indicatorForm.reportingFrequency} onChange={(event) => setIndicatorForm((form) => ({ ...form, reportingFrequency: event.target.value as MelIndicator["reportingFrequency"] }))}><NativeSelectOption value="quarterly">Quarterly</NativeSelectOption><NativeSelectOption value="annual">Annual</NativeSelectOption></NativeSelect></label></div><label className="block space-y-1"><span className="text-xs font-bold">Data source</span><Input value={indicatorForm.dataSource} onChange={(event) => setIndicatorForm((form) => ({ ...form, dataSource: event.target.value }))} placeholder="Survey, administrative record, report…" /></label></section>
-            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4"><div><p className="font-black">2. Responsibility and workplan links</p><p className="text-xs text-[#718178]">Connect the indicator to programme delivery.</p></div><label className="block space-y-1"><span className="text-xs font-bold">Responsible person</span><NativeSelect value={indicatorForm.responsibleMemberId} onChange={(event) => setIndicatorForm((form) => ({ ...form, responsibleMemberId: event.target.value }))}><NativeSelectOption value="">Not assigned</NativeSelectOption>{teamMembers.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></label><label className="block space-y-1"><span className="text-xs font-bold">Goal</span><NativeSelect value={indicatorForm.goal} onChange={(event) => setIndicatorForm((form) => ({ ...form, goal: event.target.value }))}><NativeSelectOption value="">Not linked</NativeSelectOption>{goals.map((item) => <NativeSelectOption key={item} value={item}>{item === "All goals" ? "Cross-goal" : item}</NativeSelectOption>)}</NativeSelect></label><label className="block space-y-1"><span className="text-xs font-bold">Main workplan activity</span><NativeSelect value={indicatorForm.activityKey} onChange={(event) => setIndicatorForm((form) => ({ ...form, activityKey: event.target.value }))}><NativeSelectOption value="">Not linked</NativeSelectOption>{activities.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.code || item.uid} · {item.title}</NativeSelectOption>)}</NativeSelect></label><label className="flex items-center gap-2 rounded-xl border border-[#d9e1d8] bg-white p-3 text-sm font-semibold"><Checkbox checked={indicatorForm.active} onCheckedChange={(checked) => setIndicatorForm((form) => ({ ...form, active: checked === true }))} /> Active indicator</label></section>
-            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4 lg:col-span-2"><div><p className="font-black">3. Baseline and targets</p><p className="text-xs text-[#718178]">Leave a target blank when it does not apply.</p></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="space-y-1"><span className="text-xs font-bold">Baseline value</span><Input type="number" step="any" value={indicatorForm.baselineValue} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineValue: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Baseline year</span><Input type="number" value={indicatorForm.baselineYear} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineYear: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Annual target</span><Input type="number" step="any" value={indicatorForm.annualTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, annualTarget: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">End target</span><Input type="number" step="any" value={indicatorForm.endTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, endTarget: event.target.value }))} /></label>{indicatorForm.reportingFrequency === "quarterly" && ["q1Target", "q2Target", "q3Target", "q4Target"].map((key, index) => <label key={key} className="space-y-1"><span className="text-xs font-bold">Q{index + 1} target</span><Input type="number" step="any" value={indicatorForm[key as keyof IndicatorDraft] as string} onChange={(event) => setIndicatorForm((form) => ({ ...form, [key]: event.target.value }))} /></label>)}</div></section>
+            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4">
+              <div><p className="font-black">2. Responsibility and workplan links</p><p className="text-xs text-[#718178]">Connect one indicator to any number of main activity lines.</p></div>
+              <label className="block space-y-1"><span className="text-xs font-bold">Responsible person</span><NativeSelect value={indicatorForm.responsibleMemberId} onChange={(event) => setIndicatorForm((form) => ({ ...form, responsibleMemberId: event.target.value }))}><NativeSelectOption value="">Not assigned</NativeSelectOption>{teamMembers.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></label>
+              <label className="block space-y-1"><span className="text-xs font-bold">Goal</span><NativeSelect value={indicatorForm.goal} onChange={(event) => setIndicatorForm((form) => ({ ...form, goal: event.target.value }))}><NativeSelectOption value="">Not linked</NativeSelectOption>{goals.map((item) => <NativeSelectOption key={item} value={item}>{item === "All goals" ? "Cross-goal" : item}</NativeSelectOption>)}</NativeSelect></label>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2"><span className="text-xs font-bold">Linked main activities</span><span className="text-[11px] font-semibold text-[#5f7568]">{indicatorForm.activityKeys.length} selected</span></div>
+                <label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#718178]" /><Input value={activityLinkQuery} onChange={(event) => setActivityLinkQuery(event.target.value)} placeholder="Search code or activity" className="h-9 bg-white pl-8 text-xs" /></label>
+                <div className="max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[#d9e1d8] bg-white p-2">
+                  {activities.filter((item) => `${item.code || item.uid} ${item.title}`.toLocaleLowerCase().includes(activityLinkQuery.trim().toLocaleLowerCase())).map((item) => {
+                    const checked = indicatorForm.activityKeys.includes(item.id);
+                    return <label key={item.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-xs hover:bg-[#f3f7f1]"><Checkbox checked={checked} onCheckedChange={(nextChecked) => setIndicatorForm((form) => ({ ...form, activityKeys: nextChecked === true ? [...form.activityKeys, item.id] : form.activityKeys.filter((key) => key !== item.id) }))} /><span><strong className="font-mono text-[#245f47]">{item.code || item.uid}</strong><span className="ml-2 font-semibold text-[#294438]">{item.title}</span></span></label>;
+                  })}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 rounded-xl border border-[#d9e1d8] bg-white p-3 text-sm font-semibold"><Checkbox checked={indicatorForm.active} onCheckedChange={(checked) => setIndicatorForm((form) => ({ ...form, active: checked === true }))} /> Active indicator</label>
+            </section>
+            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4 lg:col-span-2">
+              <div><p className="font-black">3. Baseline and annual target</p><p className="text-xs text-[#718178]">Quarterly results are measured against the annual target.</p></div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="space-y-1"><span className="text-xs font-bold">Baseline value</span><Input type="number" step="any" value={indicatorForm.baselineValue} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineValue: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Baseline year</span><Input type="number" value={indicatorForm.baselineYear} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineYear: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Annual target</span><Input type="number" step="any" value={indicatorForm.annualTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, annualTarget: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">End target</span><Input type="number" step="any" value={indicatorForm.endTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, endTarget: event.target.value }))} /></label></div>
+            </section>
           </div>
           <DialogFooter className="sm:justify-between">{indicatorForm.id && <Button variant="outline" onClick={() => { setIndicatorDialogOpen(false); setDeleteIndicator(indicators.find((item) => item.id === indicatorForm.id) ?? null); }} className="border-rose-200 text-rose-700"><Trash2 className="h-4 w-4" /> Remove</Button>}<div className="flex gap-2"><Button variant="outline" onClick={() => setIndicatorDialogOpen(false)}>Cancel</Button><Button onClick={() => void saveIndicator()} disabled={saving} className="bg-[#0c3b2d] text-white">{saving ? "Saving…" : "Save indicator"}</Button></div></DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 
 import type { MelIndicator, MelResult } from "@/components/mel-module";
+import { indicatorActivityKeys } from "@/lib/mel-links";
 import type { TeamMember } from "@/lib/team-members";
 
 type ActivityOption = { id: string; code?: string; uid?: string; title: string };
@@ -75,18 +76,20 @@ const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleShe
 
 function workbookFiles(options: Options) {
   const memberName = (id: string) => options.teamMembers.find((item) => item.id === id)?.name ?? "";
-  const activityName = (id: string) => {
-    const item = options.activities.find((activity) => activity.id === id);
-    return item ? `${item.code || item.uid} · ${item.title}` : "";
-  };
-  const indicatorHeaders = ["Code", "Indicator", "Definition", "Unit", "Level", "Frequency", "Goal", "Linked main activity", "Responsible person", "Data source", "Active", "Baseline", "Baseline year", "Q1 target", "Q2 target", "Q3 target", "Q4 target", "Annual target", "End target", "Updated at", "Updated by"];
+  const activityName = (ids: string) =>
+    indicatorActivityKeys(ids)
+      .map((id) => options.activities.find((activity) => activity.id === id))
+      .filter((item): item is ActivityOption => Boolean(item))
+      .map((item) => `${item.code || item.uid} · ${item.title}`)
+      .join("; ");
+  const indicatorHeaders = ["Code", "Indicator", "Definition", "Unit", "Level", "Frequency", "Goal", "Linked main activities", "Responsible person", "Data source", "Active", "Baseline", "Baseline year", "Annual target", "End target", "Updated at", "Updated by"];
   const indicatorRows: Cell[][] = options.indicators.map((item) => [
-    { type: "text", value: item.code }, { type: "text", value: item.name }, { type: "text", value: item.definition }, { type: "text", value: item.unit }, { type: "text", value: item.level }, { type: "text", value: item.reportingFrequency }, { type: "text", value: item.goal }, { type: "text", value: activityName(item.activityKey) }, { type: "text", value: memberName(item.responsibleMemberId) }, { type: "text", value: item.dataSource }, { type: "text", value: item.active ? "Active" : "Inactive" }, { type: "number", value: item.baselineValue ?? 0 }, { type: "number", value: item.baselineYear ?? 0 }, { type: "number", value: item.q1Target ?? 0 }, { type: "number", value: item.q2Target ?? 0 }, { type: "number", value: item.q3Target ?? 0 }, { type: "number", value: item.q4Target ?? 0 }, { type: "number", value: item.annualTarget ?? 0 }, { type: "number", value: item.endTarget ?? 0 }, { type: "date", value: item.updatedAt }, { type: "text", value: item.updatedBy },
+    { type: "text", value: item.code }, { type: "text", value: item.name }, { type: "text", value: item.definition }, { type: "text", value: item.unit }, { type: "text", value: item.level }, { type: "text", value: item.reportingFrequency }, { type: "text", value: item.goal }, { type: "text", value: activityName(item.activityKey) }, { type: "text", value: memberName(item.responsibleMemberId) }, { type: "text", value: item.dataSource }, { type: "text", value: item.active ? "Active" : "Inactive" }, { type: "number", value: item.baselineValue ?? 0 }, { type: "number", value: item.baselineYear ?? 0 }, { type: "number", value: item.annualTarget ?? 0 }, { type: "number", value: item.endTarget ?? 0 }, { type: "date", value: item.updatedAt }, { type: "text", value: item.updatedBy },
   ]);
   const resultHeaders = ["Indicator code", "Indicator", "Period", "Target", "Actual", "% achieved", "Delivery status", "Workflow status", "Progress explanation", "Evidence reference", "Entered at", "Entered by", "Updated at", "Updated by", "Submitted at", "Submitted by", "Reviewed at", "Reviewed by", "Approved at", "Approved by", "Review comment"];
   const resultRows: Cell[][] = options.results.map((result) => {
     const indicator = options.indicators.find((item) => item.id === result.indicatorId);
-    const target = indicator ? result.period === "Annual" ? indicator.annualTarget : indicator[`${result.period.toLowerCase()}Target` as "q1Target" | "q2Target" | "q3Target" | "q4Target"] ?? indicator.annualTarget : null;
+    const target = indicator?.annualTarget ?? null;
     const achieved = target && target !== 0 ? result.actualValue / target : 0;
     const delivery = target === null ? "No target" : achieved >= 0.9 ? "On track" : achieved >= 0.7 ? "Needs attention" : "Off track";
     return [
@@ -101,7 +104,7 @@ function workbookFiles(options: Options) {
     "xl/workbook.xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="INDICATORS" sheetId="1" r:id="rId1"/><sheet name="RESULTS" sheetId="2" r:id="rId2"/></sheets></workbook>`),
     "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
     "xl/styles.xml": strToU8(styles),
-    "xl/worksheets/sheet1.xml": strToU8(sheetXml(indicatorHeaders, indicatorRows, [12, 38, 46, 14, 12, 14, 14, 42, 22, 30, 11, 12, 12, 12, 12, 12, 12, 14, 14, 16, 24])),
+    "xl/worksheets/sheet1.xml": strToU8(sheetXml(indicatorHeaders, indicatorRows, [12, 38, 46, 14, 12, 14, 14, 48, 22, 30, 11, 12, 12, 14, 14, 16, 24])),
     "xl/worksheets/sheet2.xml": strToU8(sheetXml(resultHeaders, resultRows, [14, 38, 10, 12, 12, 12, 16, 16, 45, 38, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 40])),
   };
 }
