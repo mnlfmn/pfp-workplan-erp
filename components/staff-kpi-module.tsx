@@ -69,6 +69,7 @@ type KpiHistory = {
 
 type KpiPeriod = "Q1" | "Q2" | "Q3" | "Q4" | "Annual";
 type KpiStatus = "draft" | "submitted" | "reviewed" | "approved";
+type Quarter = "Q1" | "Q2" | "Q3" | "Q4";
 
 type KpiDraft = {
   period: KpiPeriod;
@@ -178,15 +179,24 @@ export function StaffKpiModule({
   teamMembers,
   session,
   assignedActivityKeysByMember,
+  activityQuarterNotes,
 }: {
   year: number;
   activities: KpiActivity[];
   teamMembers: TeamMember[];
   session: KpiSession | null;
   assignedActivityKeysByMember: Record<string, string[]>;
+  activityQuarterNotes: Record<string, Record<Quarter, string>>;
 }) {
   const accessibleMembers = useMemo(
-    () => session?.isAdmin ? teamMembers : teamMembers.filter((member) => member.id === session?.memberId),
+    () => session?.isAdmin
+      ? teamMembers
+      : teamMembers.filter(
+          (member) =>
+            member.id === session?.memberId ||
+            member.kpiReviewerId === session?.memberId ||
+            member.kpiApproverId === session?.memberId,
+        ),
     [session, teamMembers],
   );
   const [memberId, setMemberId] = useState("");
@@ -203,7 +213,9 @@ export function StaffKpiModule({
   const [historyLoading, setHistoryLoading] = useState(false);
   const activeMemberId = accessibleMembers.some((member) => member.id === memberId)
     ? memberId
-    : accessibleMembers[0]?.id ?? "";
+    : accessibleMembers.some((member) => member.id === session?.memberId)
+      ? session?.memberId ?? ""
+      : accessibleMembers[0]?.id ?? "";
 
   useEffect(() => {
     if (!activeMemberId) return;
@@ -226,6 +238,20 @@ export function StaffKpiModule({
   }, [activeMemberId, year]);
 
   const selectedMember = accessibleMembers.find((member) => member.id === activeMemberId) ?? null;
+  const isOwnReview = activeMemberId === session?.memberId;
+  const canEditSelf = Boolean(session?.isAdmin || isOwnReview);
+  const canReview = Boolean(
+    session?.isAdmin || selectedMember?.kpiReviewerId === session?.memberId,
+  );
+  const canApprove = Boolean(
+    session?.isAdmin || selectedMember?.kpiApproverId === session?.memberId,
+  );
+  const reviewerName = teamMembers.find(
+    (member) => member.id === selectedMember?.kpiReviewerId,
+  )?.name;
+  const approverName = teamMembers.find(
+    (member) => member.id === selectedMember?.kpiApproverId,
+  )?.name;
   const assignedActivityKeys = useMemo(
     () => assignedActivityKeysByMember[activeMemberId] ?? [],
     [activeMemberId, assignedActivityKeysByMember],
@@ -245,6 +271,22 @@ export function StaffKpiModule({
     const query = activityQuery.trim().toLocaleLowerCase();
     return activities.filter((activity) => !query || `${activity.code} ${activity.title}`.toLocaleLowerCase().includes(query));
   }, [activities, activityQuery]);
+  const linkedActivities = useMemo(
+    () => activities.filter((activity) => draft.linkedActivityKeys.includes(activity.id)),
+    [activities, draft.linkedActivityKeys],
+  );
+  const availableStatuses = useMemo(() => {
+    const allowed: KpiStatus[] = session?.isAdmin
+      ? ["draft", "submitted", "reviewed", "approved"]
+      : isOwnReview
+        ? ["draft", "submitted"]
+        : canReview
+          ? ["submitted", "reviewed"]
+          : ["reviewed", "approved"];
+    return allowed.includes(draft.workflowStatus)
+      ? allowed
+      : [draft.workflowStatus, ...allowed];
+  }, [canReview, draft.workflowStatus, isOwnReview, session?.isAdmin]);
   const draftTotal = weightedTotal({
     performance: numeric(draft.reviewPerformanceScore || draft.selfPerformanceScore),
     attendance: numeric(draft.reviewAttendanceScore || draft.selfAttendanceScore),
@@ -330,7 +372,7 @@ export function StaffKpiModule({
             <h2 className="mt-1 text-xl font-black">Staff KPI</h2>
             <p className="mt-1 text-sm text-[#718178]">Plan, self-assess, review and approve staff performance without monthly reporting.</p>
           </div>
-          {session.isAdmin && (
+          {accessibleMembers.length > 1 && (
             <label className="min-w-64 text-xs font-bold text-[#53685c]">
               Staff member
               <NativeSelect value={activeMemberId} onChange={(event) => setMemberId(event.target.value)} className="mt-1 h-10 border-[#ced8cf] bg-[#f8faf7]">
@@ -357,7 +399,7 @@ export function StaffKpiModule({
 
       <section className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
         <div className="flex flex-col gap-2 border-b border-[#dce4da] bg-[#f5f8f3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div><h3 className="font-black text-[#183529]">{selectedMember?.name}</h3><p className="text-xs text-[#718178]">{selectedMember?.role} · {year} KPI cycle</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-black text-[#183529]">{selectedMember?.name}</h3><span className="rounded-full bg-[#e3eee1] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#315845]">{session.isAdmin ? "Administrator" : isOwnReview ? "Your KPI" : canReview ? "Reviewer" : "Approver"}</span></div><p className="text-xs text-[#718178]">{selectedMember?.role} · {year} KPI cycle</p><p className="mt-1 text-[11px] text-[#718178]">Reviewer: {reviewerName ?? "Not assigned"} · Approver: {approverName ?? "Not assigned"}</p></div>
           <p className="text-xs font-semibold text-[#53685c]">Weights: performance 75% · attendance 15% · development 10% · bonus up to 5</p>
         </div>
         <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
@@ -388,23 +430,37 @@ export function StaffKpiModule({
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader><DialogTitle>{draft.period} Staff KPI · {selectedMember?.name}</DialogTitle><DialogDescription>Complete the three short steps. Step headings can be selected directly.</DialogDescription></DialogHeader>
           <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#edf3ec] p-1">
-            {["Work & achievements", "Self-assessment", session.isAdmin ? "Review & approval" : "Summary & submit"].map((label, index) => <button key={label} type="button" onClick={() => setStep(index)} className={`rounded-lg px-2 py-2 text-xs font-black transition ${step === index ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}>{index + 1}. {label}</button>)}
+            {["Work & achievements", "Self-assessment", canReview || canApprove ? "Review & approval" : "Summary & submit"].map((label, index) => <button key={label} type="button" onClick={() => setStep(index)} className={`rounded-lg px-2 py-2 text-xs font-black transition ${step === index ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}>{index + 1}. {label}</button>)}
           </div>
 
           {step === 0 && (
             <div className="space-y-4 py-2">
-              <label className="block text-sm font-bold">Review period<NativeSelect value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as KpiPeriod }))} disabled={Boolean(editingId)} className="mt-1"><NativeSelectOption value="Q1">Q1</NativeSelectOption><NativeSelectOption value="Q2">Q2</NativeSelectOption><NativeSelectOption value="Q3">Q3</NativeSelectOption><NativeSelectOption value="Q4">Q4</NativeSelectOption><NativeSelectOption value="Annual">Annual</NativeSelectOption></NativeSelect></label>
+              <label className="block text-sm font-bold">Review period<NativeSelect value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as KpiPeriod }))} disabled={Boolean(editingId) || !canEditSelf} className="mt-1"><NativeSelectOption value="Q1">Q1</NativeSelectOption><NativeSelectOption value="Q2">Q2</NativeSelectOption><NativeSelectOption value="Q3">Q3</NativeSelectOption><NativeSelectOption value="Q4">Q4</NativeSelectOption><NativeSelectOption value="Annual">Annual</NativeSelectOption></NativeSelect></label>
               <div>
-                <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Linked workplan activities</p><p className="text-xs text-[#718178]">Responsible activities are selected automatically. You can adjust the selection for this review.</p></div><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys }))} className="h-8 px-2 text-xs">Use assigned activities</Button><span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} selected</span></div></div>
+                <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Linked workplan activities</p><p className="text-xs text-[#718178]">Responsible activities are selected automatically. Activity notes below come directly from the Work Plan.</p></div><div className="flex items-center gap-2">{canEditSelf && <Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys }))} className="h-8 px-2 text-xs">Use assigned activities</Button>}<span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} selected</span></div></div>
                 <label className="relative mt-2 block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="pl-9" /></label>
                 <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[#d7ded5] p-2">
                   {selectableActivities.map((activity) => {
                     const checked = draft.linkedActivityKeys.includes(activity.id);
-                    return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-[#f3f7f1]"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => ({ ...current, linkedActivityKeys: value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id) }))} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>;
+                    return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-[#f3f7f1]"><Checkbox checked={checked} disabled={!canEditSelf} onCheckedChange={(value) => setDraft((current) => ({ ...current, linkedActivityKeys: value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id) }))} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>;
                   })}
                 </div>
               </div>
-              <label className="block text-sm font-bold">Achievement summary<Textarea value={draft.achievementNote} onChange={(event) => setDraft((current) => ({ ...current, achievementNote: event.target.value }))} placeholder="Summarize results, evidence, challenges and next actions." className="mt-1 min-h-28" /></label>
+              <div className="rounded-xl border border-[#d7ded5] bg-[#f8faf7] p-3">
+                <p className="text-sm font-black text-[#183529]">Reused Work Plan quarterly notes</p>
+                <p className="mt-1 text-xs text-[#718178]">These notes are read-only here. Update them from each activity in the Work Plan.</p>
+                <div className="mt-2 max-h-52 space-y-2 overflow-y-auto">
+                  {linkedActivities.map((activity) => {
+                    const notes = activityQuarterNotes[activity.id];
+                    const entries = draft.period === "Annual"
+                      ? (["Q1", "Q2", "Q3", "Q4"] as Quarter[]).map((quarter) => [quarter, notes?.[quarter] ?? ""] as const).filter(([, note]) => note.trim())
+                      : [[draft.period, notes?.[draft.period as Quarter] ?? ""] as const];
+                    return <details key={activity.id} className="rounded-lg border border-[#dce4da] bg-white px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#315845]">{activity.code} · {activity.title}</summary><div className="mt-2 space-y-2">{entries.length ? entries.map(([quarter, note]) => <div key={quarter} className="rounded-md bg-[#f3f7f1] px-2 py-1.5 text-xs leading-5 text-[#53685c]"><strong>{quarter}</strong> · {note || "No Work Plan quarterly note yet."}</div>) : <p className="text-xs text-[#718178]">No Work Plan quarterly note yet.</p>}</div></details>;
+                  })}
+                  {!linkedActivities.length && <p className="py-3 text-center text-xs text-[#718178]">Select at least one linked activity to see its Work Plan notes.</p>}
+                </div>
+              </div>
+              <label className="block text-sm font-bold">{draft.period === "Annual" ? "Overall annual KPI note" : "Overall quarterly KPI note"}<Textarea value={draft.achievementNote} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, achievementNote: event.target.value }))} placeholder="Add an overall reflection, cross-activity result, challenge or priority." className="mt-1 min-h-28" /></label>
             </div>
           )}
 
@@ -415,26 +471,26 @@ export function StaffKpiModule({
                 ["Work performance", "75%", "selfPerformanceScore"],
                 ["Attendance and participation", "15%", "selfAttendanceScore"],
                 ["Personal development", "10%", "selfDevelopmentScore"],
-              ].map(([label, weight, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_72px_120px]"><span className="text-sm font-bold">{label}</span><span className="text-xs font-black text-[#5f7568]">Weight {weight}</span><Input type="number" min="0" max="100" step="0.1" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
+              ].map(([label, weight, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_72px_120px]"><span className="text-sm font-bold">{label}</span><span className="text-xs font-black text-[#5f7568]">Weight {weight}</span><Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
               <div className="rounded-xl bg-[#0c3b2d] p-4 text-white"><p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-100/75">Current weighted score</p><p className="mt-1 text-3xl font-black">{weightedTotal({ performance: numeric(draft.selfPerformanceScore), attendance: numeric(draft.selfAttendanceScore), development: numeric(draft.selfDevelopmentScore), bonus: 0 })}%</p></div>
             </div>
           )}
 
           {step === 2 && (
             <div className="space-y-4 py-2">
-              {session.isAdmin ? (
+              {canReview || canApprove ? (
                 <>
                   <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">Reviewer scores are optional. If left empty, the staff member&apos;s self-assessment is used.</div>
                   {[
                     ["Reviewed work performance", "reviewPerformanceScore"],
                     ["Reviewed attendance and participation", "reviewAttendanceScore"],
                     ["Reviewed personal development", "reviewDevelopmentScore"],
-                  ].map(([label, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_120px]"><span className="text-sm font-bold">{label}</span><Input type="number" min="0" max="100" step="0.1" placeholder="Use self score" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
-                  <label className="block text-sm font-bold">Team-culture bonus (0–5)<Input type="number" min="0" max="5" step="0.1" value={draft.cultureBonus} onChange={(event) => setDraft((current) => ({ ...current, cultureBonus: event.target.value }))} className="mt-1" /></label>
-                  <label className="block text-sm font-bold">Reviewer comment<Textarea value={draft.reviewComment} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-24" placeholder="Record feedback, required follow-up or approval rationale." /></label>
+                  ].map(([label, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_120px]"><span className="text-sm font-bold">{label}</span><Input type="number" min="0" max="100" step="0.1" disabled={!canReview} placeholder="Use self score" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
+                  <label className="block text-sm font-bold">Team-culture bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canReview} value={draft.cultureBonus} onChange={(event) => setDraft((current) => ({ ...current, cultureBonus: event.target.value }))} className="mt-1" /></label>
+                  <label className="block text-sm font-bold">Reviewer or approval comment<Textarea value={draft.reviewComment} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-24" placeholder="Record feedback, required follow-up or approval rationale." /></label>
                 </>
-              ) : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review your activities, achievement note and self-assessment before submitting this KPI to an administrator.</div>}
-              <div className="grid gap-3 rounded-xl border border-[#cfdacf] bg-white p-4 sm:grid-cols-[1fr_180px] sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718178]">Final weighted score</p><p className={`mt-1 text-4xl font-black ${scoreTone(draftTotal)}`}>{draftTotal}%</p></div><label className="text-sm font-bold">Workflow status<NativeSelect value={draft.workflowStatus} onChange={(event) => setDraft((current) => ({ ...current, workflowStatus: event.target.value as KpiStatus }))} className="mt-1"><NativeSelectOption value="draft">Draft</NativeSelectOption><NativeSelectOption value="submitted">Submitted</NativeSelectOption>{session.isAdmin && <><NativeSelectOption value="reviewed">Reviewed</NativeSelectOption><NativeSelectOption value="approved">Approved</NativeSelectOption></>}</NativeSelect></label></div>
+              ) : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review the linked activities, overall KPI note and self-assessment before submitting this KPI to your assigned reviewer.</div>}
+              <div className="grid gap-3 rounded-xl border border-[#cfdacf] bg-white p-4 sm:grid-cols-[1fr_180px] sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718178]">Final weighted score</p><p className={`mt-1 text-4xl font-black ${scoreTone(draftTotal)}`}>{draftTotal}%</p></div><label className="text-sm font-bold">Workflow status<NativeSelect value={draft.workflowStatus} onChange={(event) => setDraft((current) => ({ ...current, workflowStatus: event.target.value as KpiStatus }))} className="mt-1">{availableStatuses.map((status) => <NativeSelectOption key={status} value={status} disabled={status === draft.workflowStatus && !((session.isAdmin) || (isOwnReview && ["draft", "submitted"].includes(status)) || (canReview && ["submitted", "reviewed"].includes(status)) || (canApprove && ["reviewed", "approved"].includes(status)))}>{statusMeta[status].label}</NativeSelectOption>)}</NativeSelect></label></div>
             </div>
           )}
 

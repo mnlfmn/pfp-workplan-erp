@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { staffKpiHistory, staffKpiReviews } from "@/db/schema";
+import { staffKpiHistory, staffKpiReviews, teamMembers } from "@/db/schema";
 import { requireAppSession } from "@/lib/app-auth";
 
 const periods = new Set(["Q1", "Q2", "Q3", "Q4", "Annual"]);
@@ -37,6 +37,23 @@ function historyView(row: typeof staffKpiHistory.$inferSelect) {
   }
 }
 
+async function kpiAccess(memberId: string, actorMemberId: string) {
+  const [member] = await getDb()
+    .select({
+      reviewerId: teamMembers.kpiReviewerId,
+      approverId: teamMembers.kpiApproverId,
+      isDeleted: teamMembers.isDeleted,
+    })
+    .from(teamMembers)
+    .where(eq(teamMembers.id, memberId))
+    .limit(1);
+  return {
+    isSelf: memberId === actorMemberId,
+    isReviewer: Boolean(member && !member.isDeleted && member.reviewerId === actorMemberId),
+    isApprover: Boolean(member && !member.isDeleted && member.approverId === actorMemberId),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const session = await requireAppSession(request);
@@ -44,7 +61,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const year = Number(url.searchParams.get("year") || new Date().getFullYear());
     const requestedMemberId = text(url.searchParams.get("memberId"), 160);
-    const memberId = session.isAdmin ? requestedMemberId : session.memberId;
+    const memberId = requestedMemberId || (session.isAdmin ? "" : session.memberId);
     const reviewId = text(url.searchParams.get("reviewId"), 180);
     const db = getDb();
 
@@ -54,7 +71,13 @@ export async function GET(request: Request) {
         .from(staffKpiReviews)
         .where(eq(staffKpiReviews.id, reviewId))
         .limit(1);
-      if (!review || (!session.isAdmin && review.memberId !== session.memberId)) {
+      const access = review
+        ? await kpiAccess(review.memberId, session.memberId)
+        : { isSelf: false, isReviewer: false, isApprover: false };
+      if (
+        !review ||
+        (!session.isAdmin && !access.isSelf && !access.isReviewer && !access.isApprover)
+      ) {
         return Response.json({ error: "KPI review not found." }, { status: 404 });
       }
       const history = await db
@@ -65,6 +88,12 @@ export async function GET(request: Request) {
       return Response.json({ history: history.map(historyView) });
     }
 
+    if (memberId && !session.isAdmin) {
+      const access = await kpiAccess(memberId, session.memberId);
+      if (!access.isSelf && !access.isReviewer && !access.isApprover) {
+        return Response.json({ error: "You do not have access to this KPI review." }, { status: 403 });
+      }
+    }
     const where = memberId
       ? and(
           eq(staffKpiReviews.planYear, year),
@@ -99,17 +128,20 @@ export async function POST(request: Request) {
     if (!memberId || !Number.isInteger(planYear) || !periods.has(period)) {
       return Response.json({ error: "Choose a valid staff member, year and review period." }, { status: 400 });
     }
-    if (!session.isAdmin && memberId !== session.memberId) {
-      return Response.json({ error: "You can update only your own KPI review." }, { status: 403 });
-    }
     if (!workflowStatuses.has(workflowStatus)) {
       return Response.json({ error: "Choose a valid workflow status." }, { status: 400 });
     }
-    if (!session.isAdmin && !["draft", "submitted"].includes(workflowStatus)) {
-      return Response.json({ error: "Only an administrator can review or approve a KPI." }, { status: 403 });
-    }
 
     const db = getDb();
+    const access = await kpiAccess(memberId, session.memberId);
+    if (
+      !session.isAdmin &&
+      !access.isSelf &&
+      !access.isReviewer &&
+      !access.isApprover
+    ) {
+      return Response.json({ error: "You are not assigned to this KPI review." }, { status: 403 });
+    }
     const [existing] = await db
       .select()
       .from(staffKpiReviews)
@@ -121,6 +153,26 @@ export async function POST(request: Request) {
         ),
       )
       .limit(1);
+    if (!existing && !session.isAdmin && !access.isSelf) {
+      return Response.json(
+        { error: "The staff member must create and submit this KPI before it can be reviewed." },
+        { status: 400 },
+      );
+    }
+    if (!session.isAdmin) {
+      if (access.isSelf) {
+        if (!["draft", "submitted"].includes(workflowStatus)) {
+          return Response.json({ error: "Staff can save a KPI as draft or submitted." }, { status: 403 });
+        }
+        if (existing && ["reviewed", "approved"].includes(existing.workflowStatus)) {
+          return Response.json({ error: "This KPI has already been reviewed and can no longer be edited by the staff member." }, { status: 403 });
+        }
+      } else if (access.isReviewer && !["submitted", "reviewed"].includes(workflowStatus)) {
+        return Response.json({ error: "The assigned reviewer can mark this KPI as reviewed." }, { status: 403 });
+      } else if (access.isApprover && !["reviewed", "approved"].includes(workflowStatus)) {
+        return Response.json({ error: "The assigned approver can approve a reviewed KPI." }, { status: 403 });
+      }
+    }
     const now = new Date().toISOString();
     const id = existing?.id ?? `kpi-${crypto.randomUUID()}`;
     const submitted = workflowStatus === "submitted" || workflowStatus === "reviewed" || workflowStatus === "approved";
@@ -131,24 +183,39 @@ export async function POST(request: Request) {
       memberId,
       planYear,
       period,
-      linkedActivityKeys: JSON.stringify(activityKeys(payload.linkedActivityKeys)),
-      achievementNote: text(payload.achievementNote, 8000),
-      selfPerformanceScore: score(payload.selfPerformanceScore),
-      selfAttendanceScore: score(payload.selfAttendanceScore),
-      selfDevelopmentScore: score(payload.selfDevelopmentScore),
-      reviewPerformanceScore: session.isAdmin
+      linkedActivityKeys:
+        session.isAdmin || access.isSelf
+          ? JSON.stringify(activityKeys(payload.linkedActivityKeys))
+          : existing?.linkedActivityKeys ?? "[]",
+      achievementNote:
+        session.isAdmin || access.isSelf
+          ? text(payload.achievementNote, 8000)
+          : existing?.achievementNote ?? "",
+      selfPerformanceScore:
+        session.isAdmin || access.isSelf
+          ? score(payload.selfPerformanceScore)
+          : existing?.selfPerformanceScore ?? 0,
+      selfAttendanceScore:
+        session.isAdmin || access.isSelf
+          ? score(payload.selfAttendanceScore)
+          : existing?.selfAttendanceScore ?? 0,
+      selfDevelopmentScore:
+        session.isAdmin || access.isSelf
+          ? score(payload.selfDevelopmentScore)
+          : existing?.selfDevelopmentScore ?? 0,
+      reviewPerformanceScore: session.isAdmin || access.isReviewer
         ? optionalScore(payload.reviewPerformanceScore)
         : existing?.reviewPerformanceScore ?? null,
-      reviewAttendanceScore: session.isAdmin
+      reviewAttendanceScore: session.isAdmin || access.isReviewer
         ? optionalScore(payload.reviewAttendanceScore)
         : existing?.reviewAttendanceScore ?? null,
-      reviewDevelopmentScore: session.isAdmin
+      reviewDevelopmentScore: session.isAdmin || access.isReviewer
         ? optionalScore(payload.reviewDevelopmentScore)
         : existing?.reviewDevelopmentScore ?? null,
-      cultureBonus: session.isAdmin
+      cultureBonus: session.isAdmin || access.isReviewer
         ? score(payload.cultureBonus, 5)
         : existing?.cultureBonus ?? 0,
-      reviewComment: session.isAdmin
+      reviewComment: session.isAdmin || access.isReviewer || access.isApprover
         ? text(payload.reviewComment, 5000)
         : existing?.reviewComment ?? "",
       workflowStatus,

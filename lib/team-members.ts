@@ -9,9 +9,13 @@ export type TeamMember = {
   inviteStatus: "not_invited" | "invited" | "active";
   inviteSentAt: string;
   lastSignedInAt: string;
+  kpiReviewerId: string;
+  kpiApproverId: string;
 };
 
-export const defaultTeamMembers: TeamMember[] = [
+const defaultTeamMemberSeed: Array<
+  Omit<TeamMember, "kpiReviewerId" | "kpiApproverId">
+> = [
   {
     id: "tuvshinjargal-p",
     name: "Tuvshinjargal.P",
@@ -157,3 +161,11 @@ export const defaultTeamMembers: TeamMember[] = [
     lastSignedInAt: "",
   },
 ];
+
+export const defaultTeamMembers: TeamMember[] = defaultTeamMemberSeed.map(
+  (member) => ({
+    ...member,
+    kpiReviewerId: "",
+    kpiApproverId: "",
+  }),
+);

@@ -130,6 +130,8 @@ export async function getAppSessionForIdentity(
       inviteStatus: "active",
       inviteSentAt: existing?.inviteSentAt ?? "",
       lastSignedInAt: now,
+      kpiReviewerId: existing?.kpiReviewerId ?? "",
+      kpiApproverId: existing?.kpiApproverId ?? "",
       isDeleted: 0,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

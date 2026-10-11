@@ -136,6 +136,8 @@ export const teamMembers = sqliteTable(
     inviteStatus: text("invite_status").notNull().default("not_invited"),
     inviteSentAt: text("invite_sent_at").notNull().default(""),
     lastSignedInAt: text("last_signed_in_at").notNull().default(""),
+    kpiReviewerId: text("kpi_reviewer_id").notNull().default(""),
+    kpiApproverId: text("kpi_approver_id").notNull().default(""),
     isDeleted: integer("is_deleted").notNull().default(0),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

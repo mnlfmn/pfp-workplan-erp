@@ -195,6 +195,8 @@ type TeamDraft = {
   aliasesText: string;
   email: string;
   accessRole: "admin" | "member";
+  kpiReviewerId: string;
+  kpiApproverId: string;
 };
 
 type AppSession = {
@@ -1275,6 +1277,8 @@ export default function Home() {
     aliasesText: "",
     email: "",
     accessRole: "member",
+    kpiReviewerId: "",
+    kpiApproverId: "",
   });
   const [syncState, setSyncState] = useState<
     "loading" | "ready" | "unavailable"
@@ -3529,6 +3533,8 @@ export default function Home() {
       aliasesText: "",
       email: "",
       accessRole: "member",
+      kpiReviewerId: "",
+      kpiApproverId: "",
     });
     setFormDirty(true);
     setTeamDialogOpen(true);
@@ -3544,6 +3550,8 @@ export default function Home() {
       aliasesText: teamMember.aliases.join(", "),
       email: teamMember.email,
       accessRole: teamMember.accessRole,
+      kpiReviewerId: teamMember.kpiReviewerId,
+      kpiApproverId: teamMember.kpiApproverId,
     });
     setFormDirty(true);
     setTeamDialogOpen(true);
@@ -3572,6 +3580,8 @@ export default function Home() {
           aliases,
           email: teamDraft.email,
           accessRole: teamDraft.accessRole,
+          kpiReviewerId: teamDraft.kpiReviewerId,
+          kpiApproverId: teamDraft.kpiApproverId,
         }),
       });
       const result = (await response.json()) as {
@@ -4871,6 +4881,23 @@ export default function Home() {
         ]),
       ),
     [allActivities, teamMembers, updates],
+  );
+
+  const kpiActivityQuarterNotes = useMemo(
+    () =>
+      Object.fromEntries(
+        allActivities.map((activity) => [
+          activity.id,
+          quarterlyUpdatesForExport(
+            activity.id,
+            updates[activity.id]?.note ?? "",
+            activity.progressSummary ?? "",
+            selectedYear,
+            quarterlyHistory,
+          ),
+        ]),
+      ),
+    [allActivities, quarterlyHistory, selectedYear, updates],
   );
 
   const accessMembers = useMemo(
@@ -7439,6 +7466,7 @@ export default function Home() {
                 teamMembers={teamMembers}
                 session={currentSession}
                 assignedActivityKeysByMember={kpiAssignedActivityKeysByMember}
+                activityQuarterNotes={kpiActivityQuarterNotes}
               />
             ) : (
               <>
@@ -10563,6 +10591,66 @@ export default function Home() {
                 Administrators can add people, prepare invitations, and grant administrator access.
               </span>
             </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">KPI reviewer</span>
+                <NativeSelect
+                  value={teamDraft.kpiReviewerId}
+                  onChange={(event) =>
+                    setTeamDraft((current) => ({
+                      ...current,
+                      kpiReviewerId: event.target.value,
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Not assigned</NativeSelectOption>
+                  {teamMembers
+                    .filter(
+                      (member) =>
+                        member.id !== editingTeamId &&
+                        member.id !== teamDraft.kpiApproverId,
+                    )
+                    .map((member) => (
+                      <NativeSelectOption key={member.id} value={member.id}>
+                        {member.name}
+                      </NativeSelectOption>
+                    ))}
+                </NativeSelect>
+                <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
+                  Reviews the officer&apos;s submitted quarterly and annual KPI.
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-bold">KPI approver</span>
+                <NativeSelect
+                  value={teamDraft.kpiApproverId}
+                  onChange={(event) =>
+                    setTeamDraft((current) => ({
+                      ...current,
+                      kpiApproverId: event.target.value,
+                    }))
+                  }
+                  className="h-11 w-full border-[#cbd6cc] bg-white"
+                >
+                  <NativeSelectOption value="">Not assigned</NativeSelectOption>
+                  {teamMembers
+                    .filter(
+                      (member) =>
+                        member.id !== editingTeamId &&
+                        member.id !== teamDraft.kpiReviewerId,
+                    )
+                    .map((member) => (
+                      <NativeSelectOption key={member.id} value={member.id}>
+                        {member.name}
+                      </NativeSelectOption>
+                    ))}
+                </NativeSelect>
+                <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
+                  Gives final approval after the reviewer completes the review.
+                </span>
+              </label>
+            </div>
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold">Member type</span>
               <NativeSelect

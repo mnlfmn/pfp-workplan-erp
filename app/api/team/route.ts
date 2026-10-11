@@ -58,6 +58,8 @@ function rowToMember(row: TeamMemberRow): TeamMember {
           : "not_invited",
     inviteSentAt: row.inviteSentAt,
     lastSignedInAt: row.lastSignedInAt,
+    kpiReviewerId: row.kpiReviewerId,
+    kpiApproverId: row.kpiApproverId,
   };
 }
 
@@ -85,6 +87,8 @@ function normalizePayload(payload: {
   aliases?: unknown;
   email?: unknown;
   accessRole?: unknown;
+  kpiReviewerId?: unknown;
+  kpiApproverId?: unknown;
 }) {
   const name = String(payload.name ?? "").trim();
   const role = String(payload.role ?? "").trim();
@@ -100,6 +104,8 @@ function normalizePayload(payload: {
     : [];
   const email = String(payload.email ?? "").trim().toLocaleLowerCase();
   const accessRole = payload.accessRole === "admin" ? "admin" : "member";
+  const kpiReviewerId = String(payload.kpiReviewerId ?? "").trim();
+  const kpiApproverId = String(payload.kpiApproverId ?? "").trim();
   if (!name || name.length > 120) {
     return { error: "Enter a team member name of up to 120 characters." } as const;
   }
@@ -118,7 +124,41 @@ function normalizePayload(payload: {
   ) {
     return { error: "Enter a valid email address." } as const;
   }
-  return { name, role, group, aliases, email, accessRole } as const;
+  if (kpiReviewerId.length > 160 || kpiApproverId.length > 160) {
+    return { error: "Choose valid KPI review assignments." } as const;
+  }
+  if (kpiReviewerId && kpiReviewerId === kpiApproverId) {
+    return { error: "Choose different people for KPI review and approval." } as const;
+  }
+  return {
+    name,
+    role,
+    group,
+    aliases,
+    email,
+    accessRole,
+    kpiReviewerId,
+    kpiApproverId,
+  } as const;
+}
+
+function validateKpiAssignments(
+  memberId: string,
+  reviewerId: string,
+  approverId: string,
+  members: TeamMember[],
+) {
+  if (reviewerId === memberId || approverId === memberId) {
+    return "A team member cannot review or approve their own KPI.";
+  }
+  const activeIds = new Set(members.map((member) => member.id));
+  if (reviewerId && !activeIds.has(reviewerId)) {
+    return "Choose an active team member as KPI reviewer.";
+  }
+  if (approverId && !activeIds.has(approverId)) {
+    return "Choose an active team member as KPI approver.";
+  }
+  return "";
 }
 
 async function validMemberType(value: string) {
@@ -244,6 +284,15 @@ export async function POST(request: Request) {
     }
     const now = new Date().toISOString();
     const id = `member-${crypto.randomUUID()}`;
+    const assignmentError = validateKpiAssignments(
+      id,
+      values.kpiReviewerId,
+      values.kpiApproverId,
+      current,
+    );
+    if (assignmentError) {
+      return Response.json({ error: assignmentError }, { status: 400 });
+    }
     const [row] = await db
       .insert(teamMembers)
       .values({
@@ -257,6 +306,8 @@ export async function POST(request: Request) {
         inviteStatus: "not_invited",
         inviteSentAt: "",
         lastSignedInAt: "",
+        kpiReviewerId: values.kpiReviewerId,
+        kpiApproverId: values.kpiApproverId,
         isDeleted: 0,
         createdAt: now,
         updatedAt: now,
@@ -319,6 +370,15 @@ export async function PUT(request: Request) {
     }
     const existing = existingRows.find((row) => row.id === id);
     const currentMember = current.find((member) => member.id === id)!;
+    const assignmentError = validateKpiAssignments(
+      id,
+      values.kpiReviewerId,
+      values.kpiApproverId,
+      current,
+    );
+    if (assignmentError) {
+      return Response.json({ error: assignmentError }, { status: 400 });
+    }
     if (
       existing?.accessRole === "admin" &&
       values.accessRole !== "admin" &&
@@ -344,6 +404,8 @@ export async function PUT(request: Request) {
         : existing?.inviteStatus ?? "not_invited",
       inviteSentAt: emailChanged ? "" : existing?.inviteSentAt ?? "",
       lastSignedInAt: emailChanged ? "" : existing?.lastSignedInAt ?? "",
+      kpiReviewerId: values.kpiReviewerId,
+      kpiApproverId: values.kpiApproverId,
       isDeleted: 0,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -369,6 +431,8 @@ export async function PUT(request: Request) {
       inviteStatus: currentMember.inviteStatus,
       inviteSentAt: currentMember.inviteSentAt,
       lastSignedInAt: currentMember.lastSignedInAt,
+      kpiReviewerId: currentMember.kpiReviewerId,
+      kpiApproverId: currentMember.kpiApproverId,
       isDeleted: 0,
       createdAt: now,
       updatedAt: now,
@@ -424,6 +488,8 @@ export async function DELETE(request: Request) {
       inviteStatus: existing?.inviteStatus ?? member.inviteStatus,
       inviteSentAt: existing?.inviteSentAt ?? member.inviteSentAt,
       lastSignedInAt: existing?.lastSignedInAt ?? member.lastSignedInAt,
+      kpiReviewerId: existing?.kpiReviewerId ?? member.kpiReviewerId,
+      kpiApproverId: existing?.kpiApproverId ?? member.kpiApproverId,
       isDeleted: 1,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -447,6 +513,21 @@ export async function DELETE(request: Request) {
       newValue: snapshot("team_member", stored),
       changedBy: session.email,
     });
+
+    for (const row of rows) {
+      const clearsReviewer = row.kpiReviewerId === id;
+      const clearsApprover = row.kpiApproverId === id;
+      if (!clearsReviewer && !clearsApprover) continue;
+      await db
+        .update(teamMembers)
+        .set({
+          kpiReviewerId: clearsReviewer ? "" : row.kpiReviewerId,
+          kpiApproverId: clearsApprover ? "" : row.kpiApproverId,
+          updatedAt: now,
+          updatedBy: session.email,
+        })
+        .where(eq(teamMembers.id, row.id));
+    }
 
     const [savedUpdates, planRecords] = await Promise.all([
       db.select().from(activityUpdates),
