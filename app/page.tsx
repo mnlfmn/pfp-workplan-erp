@@ -4839,6 +4839,40 @@ export default function Home() {
     ],
   );
 
+  const kpiAssignedActivityKeysByMember = useMemo(
+    () =>
+      Object.fromEntries(
+        teamMembers.map((teamMember) => [
+          teamMember.id,
+          allActivities
+            .filter((activity) => {
+              const mainRoles = responsibilityParts(
+                activityOwner(activity, updates),
+                teamMembers,
+              );
+              if (
+                mainRoles.accountable === teamMember.name ||
+                mainRoles.supporting.includes(teamMember.name)
+              ) {
+                return true;
+              }
+              return activity.subactivities.some((subactivity) => {
+                const subRoles = responsibilityParts(
+                  subactivityOwner(subactivity, updates),
+                  teamMembers,
+                );
+                return (
+                  subRoles.accountable === teamMember.name ||
+                  subRoles.supporting.includes(teamMember.name)
+                );
+              });
+            })
+            .map((activity) => activity.id),
+        ]),
+      ),
+    [allActivities, teamMembers, updates],
+  );
+
   const accessMembers = useMemo(
     () =>
       currentSession?.isAdmin
@@ -7404,6 +7438,7 @@ export default function Home() {
                 activities={allActivities}
                 teamMembers={teamMembers}
                 session={currentSession}
+                assignedActivityKeysByMember={kpiAssignedActivityKeysByMember}
               />
             ) : (
               <>

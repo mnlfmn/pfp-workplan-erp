@@ -177,11 +177,13 @@ export function StaffKpiModule({
   activities,
   teamMembers,
   session,
+  assignedActivityKeysByMember,
 }: {
   year: number;
   activities: KpiActivity[];
   teamMembers: TeamMember[];
   session: KpiSession | null;
+  assignedActivityKeysByMember: Record<string, string[]>;
 }) {
   const accessibleMembers = useMemo(
     () => session?.isAdmin ? teamMembers : teamMembers.filter((member) => member.id === session?.memberId),
@@ -224,6 +226,14 @@ export function StaffKpiModule({
   }, [activeMemberId, year]);
 
   const selectedMember = accessibleMembers.find((member) => member.id === activeMemberId) ?? null;
+  const assignedActivityKeys = useMemo(
+    () => assignedActivityKeysByMember[activeMemberId] ?? [],
+    [activeMemberId, assignedActivityKeysByMember],
+  );
+  const assignedActivityKeySet = useMemo(
+    () => new Set(assignedActivityKeys),
+    [assignedActivityKeys],
+  );
   const reviewByPeriod = useMemo(() => new Map(reviews.map((review) => [review.period, review])), [reviews]);
   const approvedCount = reviews.filter((review) => review.workflowStatus === "approved").length;
   const pendingCount = reviews.filter((review) => review.workflowStatus === "submitted").length;
@@ -245,7 +255,11 @@ export function StaffKpiModule({
   function openReview(period: KpiPeriod) {
     const review = reviewByPeriod.get(period);
     setEditingId(review?.id ?? "");
-    setDraft(review ? reviewDraft(review) : emptyDraft(period));
+    setDraft(
+      review
+        ? reviewDraft(review)
+        : { ...emptyDraft(period), linkedActivityKeys: assignedActivityKeys },
+    );
     setStep(0);
     setActivityQuery("");
     setDialogOpen(true);
@@ -381,12 +395,12 @@ export function StaffKpiModule({
             <div className="space-y-4 py-2">
               <label className="block text-sm font-bold">Review period<NativeSelect value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as KpiPeriod }))} disabled={Boolean(editingId)} className="mt-1"><NativeSelectOption value="Q1">Q1</NativeSelectOption><NativeSelectOption value="Q2">Q2</NativeSelectOption><NativeSelectOption value="Q3">Q3</NativeSelectOption><NativeSelectOption value="Q4">Q4</NativeSelectOption><NativeSelectOption value="Annual">Annual</NativeSelectOption></NativeSelect></label>
               <div>
-                <div className="flex items-end justify-between gap-3"><div><p className="text-sm font-bold">Linked workplan activities</p><p className="text-xs text-[#718178]">Select all activities that contributed to this KPI period.</p></div><span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} selected</span></div>
+                <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Linked workplan activities</p><p className="text-xs text-[#718178]">Responsible activities are selected automatically. You can adjust the selection for this review.</p></div><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys }))} className="h-8 px-2 text-xs">Use assigned activities</Button><span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} selected</span></div></div>
                 <label className="relative mt-2 block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="pl-9" /></label>
                 <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[#d7ded5] p-2">
                   {selectableActivities.map((activity) => {
                     const checked = draft.linkedActivityKeys.includes(activity.id);
-                    return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-[#f3f7f1]"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => ({ ...current, linkedActivityKeys: value ? [...current.linkedActivityKeys, activity.id] : current.linkedActivityKeys.filter((key) => key !== activity.id) }))} /><span className="text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span></label>;
+                    return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-[#f3f7f1]"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => ({ ...current, linkedActivityKeys: value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id) }))} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>;
                   })}
                 </div>
               </div>
