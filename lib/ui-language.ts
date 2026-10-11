@@ -94,7 +94,7 @@ const mn: Record<string, string> = {
   "Workplan activities": "Ажлын төлөвлөгөөний арга хэмжээ",
   "Workplan workspace": "Ажлын төлөвлөгөөний ажлын хэсэг",
   "Plan and procurement": "Төлөвлөгөө ба худалдан авалт",
-  "Activity Register": "Арга хэмжээний бүртгэл",
+  "Work Plan": "Ажлын төлөвлөгөө",
   "Procurement Plan": "Худалдан авах ажиллагааны төлөвлөгөө",
   "Applicable procurement activities": "Худалдан авалт шаардлагатай арга хэмжээнүүд",
   "Plan items": "Төлөвлөгөөний зүйл",

@@ -5858,17 +5858,10 @@ export default function Home() {
 
           <TabsContent value="workplan" className="space-y-6">
 
-        <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Workplan workspace</p>
-            <h2 className="mt-1 text-xl font-black">Plan and procurement</h2>
-            <p className="mt-1 text-sm text-[#718178]">Switch between the complete activity register and the procurement plan generated from applicable sub-activities.</p>
-          </div>
-          <div className="mt-4 inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-[#f8faf7] p-1 shadow-sm">
-            <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}><ListChecks className="h-4 w-4" /> Activity Register</button>
+        <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
+            <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ListChecks className="h-4 w-4" /> Work Plan</button>
             <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
-          </div>
-        </section>
+        </div>
 
         {workplanSection === "activities" ? (
 
