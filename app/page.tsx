@@ -2068,6 +2068,9 @@ export default function Home() {
         }
       }
       setFormDirty(false);
+      if (activeTarget.kind === "subactivity") {
+        setEditKey("");
+      }
       toast.success("Workplan update saved", {
         description: `${metadataLabel("status", update.status)} · ${update.progress}%`,
       });
