@@ -1545,8 +1545,7 @@ export default function Home() {
   const [paymentTransferDates, setPaymentTransferDates] = useState<Record<string, string>>({});
   const [contractQuery, setContractQuery] = useState("");
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
-  const [expandedContractIds, setExpandedContractIds] =
-    useState<Set<string>>(new Set());
+  const [contractDetailId, setContractDetailId] = useState("");
   const [contractDraft, setContractDraft] = useState<ContractDraft>(() =>
     emptyContractDraft(2026),
   );
@@ -4744,6 +4743,12 @@ export default function Home() {
       );
     });
   }, [allBudgetLines, contractQuery, contractStatusFilter, contractTargets, contracts]);
+  const selectedContract = contracts.find((contract) => contract.id === contractDetailId) ?? null;
+  const selectedContractFundingDetails = (selectedContract?.allocations ?? []).map((allocation) => ({
+    allocation,
+    target: contractTargets.find((item) => item.key === allocation.activityKey),
+    line: allBudgetLines.find((item) => item.id === allocation.budgetKey),
+  }));
 
   const contractStats = useMemo(
     () => ({
@@ -7692,7 +7697,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="space-y-3 bg-[#f7f9f5] p-3 sm:p-4">
+              <div className="grid gap-3 bg-[#f7f9f5] p-3 sm:p-4 lg:grid-cols-2">
                 {filteredContracts.map((contract) => {
                   const fundingDetails = (contract.allocations ?? []).map((allocation) => ({
                     allocation,
@@ -7705,12 +7710,25 @@ export default function Home() {
                   }));
                   const paidMnt = contractPaidMnt(contract);
                   const commitmentMnt = contractCommitmentMnt(contract);
-                  const expanded = expandedContractIds.has(contract.id);
+                  const expanded = false;
                   const statusInfo = contractStatusMeta[contract.status];
                   return (
                     <article
                       key={contract.id}
-                      className="overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)]"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setContractDetailId(contract.id);
+                        void loadContractDocuments(contract.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setContractDetailId(contract.id);
+                          void loadContractDocuments(contract.id);
+                        }
+                      }}
+                      className="group cursor-pointer overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)] transition hover:-translate-y-0.5 hover:border-[#7ea18d] hover:shadow-[0_12px_28px_rgba(20,36,27,0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
                     >
                       <div className="p-3 sm:p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -7745,12 +7763,15 @@ export default function Home() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => void openAuditHistory({ entityType: "contract", entityKey: contract.id, label: contract.contractNumber })}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void openAuditHistory({ entityType: "contract", entityKey: contract.id, label: contract.contractNumber });
+                              }}
                             >
                               <History className="h-4 w-4" />
                               Amendments
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => openEditContract(contract)}>
+                            <Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); openEditContract(contract); }}>
                               <PencilLine className="h-4 w-4" />
                               Edit
                             </Button>
@@ -7758,7 +7779,7 @@ export default function Home() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setContractToDelete(contract)}
+                                onClick={(event) => { event.stopPropagation(); setContractToDelete(contract); }}
                                 className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -7769,7 +7790,7 @@ export default function Home() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setContractToClose(contract)}
+                                onClick={(event) => { event.stopPropagation(); setContractToClose(contract); }}
                                 className="border-amber-300 text-amber-900 hover:bg-amber-50"
                               >
                                 Close contract
@@ -7801,22 +7822,14 @@ export default function Home() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            setExpandedContractIds((current) => {
-                              const next = new Set(current);
-                              if (next.has(contract.id)) next.delete(contract.id);
-                              else {
-                                next.add(contract.id);
-                                void loadContractDocuments(contract.id);
-                              }
-                              return next;
-                            })
-                          }
-                          className="mt-3 h-8 px-2.5 text-xs"
-                          aria-expanded={expanded}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setContractDetailId(contract.id);
+                            void loadContractDocuments(contract.id);
+                          }}
+                          className="mt-3 h-8 px-2.5 text-xs group-hover:border-[#7ea18d]"
                         >
-                          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
-                          {expanded ? "Hide payment structure" : `Payment structure (${contract.payments.length})`}
+                          Open contract <ChevronRight className="h-4 w-4" />
                         </Button>
                       </div>
 
@@ -7983,7 +7996,7 @@ export default function Home() {
                 })}
 
                 {contractState === "ready" && filteredContracts.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center">
+                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center lg:col-span-2">
                     <ReceiptText className="mx-auto h-7 w-7 text-[#779083]" />
                     <p className="mt-3 font-black">
                       {contracts.length ? "No contracts match these filters" : "No contracts yet"}
@@ -10661,6 +10674,193 @@ export default function Home() {
       </AlertDialog>
 
       <Dialog
+        open={Boolean(selectedContract)}
+        onOpenChange={(open) => {
+          if (!open) setContractDetailId("");
+        }}
+      >
+        <DialogContent className="max-h-[94vh] w-[96vw] overflow-y-auto bg-[#f7f9f5] text-[#14241b] sm:max-w-6xl!">
+          {selectedContract && (
+            <>
+              <DialogHeader className="sr-only">
+                <DialogTitle>{selectedContract.contractNumber}</DialogTitle>
+                <DialogDescription>Contract details, funding allocations and payment structure.</DialogDescription>
+              </DialogHeader>
+
+              <section className="rounded-2xl border border-[#b9cabb] bg-white p-4 shadow-sm sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                        {selectedContract.contractNumber}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${contractStatusMeta[selectedContract.status].tone}`}>
+                        {contractStatusMeta[selectedContract.status].label}
+                      </span>
+                      {selectedContract.transferredFromYear > 0 && (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
+                          Transferred from {selectedContract.transferredFromYear}
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="mt-3 max-w-4xl break-words text-xl font-black leading-7 text-[#183529]">
+                      {selectedContract.torName}
+                    </h2>
+                    <p className="mt-1 text-sm font-semibold text-[#53685c]">
+                      {selectedContract.serviceProviderName} · {selectedContract.serviceProviderType}
+                    </p>
+                    <p className="mt-1 text-xs text-[#718178]">
+                      {formatDate(selectedContract.startDate, language)} – {formatDate(selectedContract.endDate, language)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void openAuditHistory({ entityType: "contract", entityKey: selectedContract.id, label: selectedContract.contractNumber })}
+                    >
+                      <History className="h-4 w-4" /> Amendments
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const contract = selectedContract;
+                        setContractDetailId("");
+                        openEditContract(contract);
+                      }}
+                      className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
+                    >
+                      <PencilLine className="h-4 w-4" /> Edit contract
+                    </Button>
+                  </div>
+                </div>
+
+                <dl className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {[
+                    ["Contract amount", selectedContract.currency === "USD" ? `${formatUsd(selectedContract.foreignAmountMinor)} · ${formatMnt(selectedContract.amountMnt)}` : formatMnt(selectedContract.amountMnt)],
+                    ["Outstanding commitment", formatMnt(contractCommitmentMnt(selectedContract))],
+                    ["Paid expenditure", formatMnt(contractPaidMnt(selectedContract))],
+                    ["Payment schedule", `${selectedContract.payments.length} installment${selectedContract.payments.length === 1 ? "" : "s"}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl bg-[#f1f6ef] px-3 py-3">
+                      <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                      <dd className="mt-1 text-sm font-black tabular-nums text-[#183529]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-4 rounded-xl border border-[#d7e0d5] bg-[#f8faf7] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black">Funding allocation</p>
+                      <p className="text-xs text-[#718178]">Contract amount by connected workplan line.</p>
+                    </div>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#315845]">
+                      {selectedContractFundingDetails.length} line{selectedContractFundingDetails.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {selectedContractFundingDetails.map(({ allocation, line, target }) => {
+                      const paid = selectedContract.payments
+                        .filter((payment) => Boolean(payment.paid))
+                        .flatMap((payment) => payment.allocations ?? [])
+                        .filter((item) => item.budgetKey === allocation.budgetKey && item.activityKey === allocation.activityKey)
+                        .reduce((total, item) => total + item.amountMnt, 0);
+                      return (
+                        <div key={allocation.id} className="rounded-lg border border-[#e0e7df] bg-white p-3">
+                          <p className="font-mono text-xs font-black text-[#2f634c]">{line?.code ?? "Budget"} · {target?.code ?? "Workplan"}</p>
+                          <p className="mt-1 line-clamp-2 text-xs font-semibold text-[#53685c]">
+                            {target ? localizedTargetLabel(target, allActivities, language) : "Removed workplan item"}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                            <span><b>Allocated:</b> {formatMnt(allocation.amountMnt)}</span>
+                            <span><b>Paid:</b> {formatMnt(paid)}</span>
+                            <span><b>Committed:</b> {formatMnt(selectedContract.status === "closed" ? 0 : Math.max(allocation.amountMnt - paid, 0))}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </section>
+
+              <section className="mx-auto w-full max-w-4xl">
+                <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                  <div>
+                    <h3 className="font-black text-[#183529]">Payment structure</h3>
+                    <p className="text-xs text-[#718178]">Deliverables and payment records.</p>
+                  </div>
+                  <span className="rounded-full bg-[#e3eee1] px-2.5 py-1 text-xs font-bold text-[#315845]">
+                    {selectedContract.payments.length} payment{selectedContract.payments.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {selectedContract.payments.map((payment) => (
+                    <article key={payment.id} className="rounded-xl border border-[#d7ded5] bg-white p-3 shadow-sm">
+                      <div className="grid gap-3 md:grid-cols-[1fr_115px_minmax(180px,1.6fr)_65px_135px] md:items-start">
+                        <div><p className="text-[11px] font-semibold text-[#718178]">Payment</p><p className="mt-0.5 text-sm font-black">{payment.label}</p></div>
+                        <div><p className="text-[11px] font-semibold text-[#718178]">Due date</p><p className="mt-0.5 text-xs font-bold">{formatDate(payment.dueDate, language)}</p></div>
+                        <div className="min-w-0"><p className="text-[11px] font-semibold text-[#718178]">Deliverable</p><p className="mt-0.5 break-words text-xs font-semibold leading-5">{payment.deliverable}</p></div>
+                        <div><p className="text-[11px] font-semibold text-[#718178]">Share</p><p className="mt-0.5 text-sm font-black tabular-nums">{payment.percentage}%</p></div>
+                        <div><p className="text-[11px] font-semibold text-[#718178]">Amount</p><p className="mt-0.5 text-sm font-black tabular-nums">{selectedContract.currency === "USD" && payment.foreignAmountMinor ? `${formatUsd(payment.foreignAmountMinor)} · ` : ""}{formatMnt(payment.amountMnt)}</p></div>
+                      </div>
+                      <div className="mt-3 rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs">
+                        <span className="font-bold text-[#53685c]">Funding split: </span>
+                        {(payment.allocations ?? []).map((allocation) => {
+                          const target = contractTargets.find((item) => item.key === allocation.activityKey);
+                          return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
+                        }).join(" · ") || "Not assigned"}
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#e5eae4] pt-3">
+                        <label className="block w-40">
+                          <span className="text-[11px] font-semibold text-[#718178]">Transfer date</span>
+                          <Input
+                            type="date"
+                            value={paymentTransferDates[payment.id] ?? payment.paidAt ?? ""}
+                            onChange={(event) => setPaymentTransferDates((current) => ({ ...current, [payment.id]: event.target.value }))}
+                            disabled={Boolean(payment.paid) || selectedContract.status === "closed"}
+                            className="mt-1 h-8 border-[#cbd6cc] bg-white px-2 text-xs"
+                          />
+                        </label>
+                        <Button
+                          size="sm"
+                          variant={payment.paid ? "outline" : "default"}
+                          disabled={contractSaving || selectedContract.status === "closed"}
+                          onClick={() => setPaymentPaid(selectedContract, payment, !payment.paid)}
+                          className={`h-8 px-2.5 text-xs ${payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}`}
+                        >
+                          {payment.paid ? <><CircleCheck className="h-4 w-4" /> Paid</> : "Mark paid"}
+                        </Button>
+                        <label className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
+                          <FileUp className="h-4 w-4" />
+                          {documentUploadingId === payment.id ? "Uploading…" : "Upload document"}
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,.xlsx"
+                            className="sr-only"
+                            disabled={documentUploadingId === payment.id}
+                            onChange={(event) => {
+                              void uploadPaymentDocument(selectedContract, payment, event.target.files?.[0]);
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                        {paymentDocuments.filter((document) => document.paymentId === payment.id).map((document) => (
+                          <a key={document.id} href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]">
+                            <FileText className="h-3.5 w-3.5" /> {document.fileName}
+                          </a>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={contractDialogOpen}
         onOpenChange={(open) => {
           if (
@@ -11346,7 +11546,7 @@ export default function Home() {
             </label>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">KPI reviewer</span>
+                <span className="mb-1.5 block text-sm font-bold">Supervisor</span>
                 <NativeSelect
                   value={teamDraft.kpiReviewerId}
                   onChange={(event) =>
@@ -11371,11 +11571,11 @@ export default function Home() {
                     ))}
                 </NativeSelect>
                 <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
-                  Reviews the officer&apos;s submitted quarterly and annual KPI.
+                  Reviews the officer&apos;s submitted quarterly and annual KPI assessment.
                 </span>
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-sm font-bold">KPI approver</span>
+                <span className="mb-1.5 block text-sm font-bold">MNLF CEO</span>
                 <NativeSelect
                   value={teamDraft.kpiApproverId}
                   onChange={(event) =>
@@ -11400,7 +11600,7 @@ export default function Home() {
                     ))}
                 </NativeSelect>
                 <span className="mt-1.5 block text-xs leading-5 text-[#718178]">
-                  Gives final approval after the reviewer completes the review.
+                  Gives final approval after the supervisor completes the review.
                 </span>
               </label>
             </div>

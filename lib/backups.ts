@@ -15,6 +15,8 @@ import {
   melResults,
   paymentDocuments,
   quarterlyUpdates,
+  staffKpiHistory,
+  staffKpiReviews,
   systemMetadata,
   teamMembers,
   workplanRecords,
@@ -33,6 +35,8 @@ export type BackupPayload = {
     melIndicators?: Array<typeof melIndicators.$inferSelect>;
     melResults?: Array<typeof melResults.$inferSelect>;
     teamMembers: Array<typeof teamMembers.$inferSelect>;
+    staffKpiReviews?: Array<typeof staffKpiReviews.$inferSelect>;
+    staffKpiHistory?: Array<typeof staffKpiHistory.$inferSelect>;
     workplanYears: Array<typeof workplanYears.$inferSelect>;
     workplanRecords: Array<typeof workplanRecords.$inferSelect>;
     budgetAllocations: Array<typeof budgetAllocations.$inferSelect>;
@@ -103,6 +107,8 @@ export async function createBackupSnapshot(
     melIndicatorRows,
     melResultRows,
     teamRows,
+    staffKpiReviewRows,
+    staffKpiHistoryRows,
     yearRows,
     workplanRows,
     allocationRows,
@@ -120,6 +126,8 @@ export async function createBackupSnapshot(
     db.select().from(melIndicators),
     db.select().from(melResults),
     db.select().from(teamMembers),
+    db.select().from(staffKpiReviews),
+    db.select().from(staffKpiHistory),
     db.select().from(workplanYears),
     db.select().from(workplanRecords),
     db.select().from(budgetAllocations),
@@ -143,6 +151,8 @@ export async function createBackupSnapshot(
       melIndicators: melIndicatorRows,
       melResults: melResultRows,
       teamMembers: teamRows,
+      staffKpiReviews: staffKpiReviewRows,
+      staffKpiHistory: staffKpiHistoryRows,
       workplanYears: yearRows,
       workplanRecords: workplanRows,
       budgetAllocations: allocationRows,

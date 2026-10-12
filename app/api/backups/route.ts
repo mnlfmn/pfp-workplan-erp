@@ -15,6 +15,8 @@ import {
   melResults,
   paymentDocuments,
   quarterlyUpdates,
+  staffKpiHistory,
+  staffKpiReviews,
   systemMetadata,
   teamMembers,
   workplanRecords,
@@ -98,10 +100,20 @@ export async function POST(request: Request) {
     await db.delete(quarterlyUpdates);
     await db.delete(activityUpdates);
     await db.delete(systemMetadata);
+    await db.delete(staffKpiHistory);
+    await db.delete(staffKpiReviews);
     await db.delete(teamMembers);
     const tables = backup.payload.tables;
     for (let index = 0; index < tables.teamMembers.length; index += 20) {
       await db.insert(teamMembers).values(tables.teamMembers.slice(index, index + 20));
+    }
+    const staffKpiReviewRows = tables.staffKpiReviews ?? [];
+    for (let index = 0; index < staffKpiReviewRows.length; index += 20) {
+      await db.insert(staffKpiReviews).values(staffKpiReviewRows.slice(index, index + 20));
+    }
+    const staffKpiHistoryRows = tables.staffKpiHistory ?? [];
+    for (let index = 0; index < staffKpiHistoryRows.length; index += 20) {
+      await db.insert(staffKpiHistory).values(staffKpiHistoryRows.slice(index, index + 20));
     }
     for (let index = 0; index < tables.workplanYears.length; index += 20) {
       await db.insert(workplanYears).values(tables.workplanYears.slice(index, index + 20));

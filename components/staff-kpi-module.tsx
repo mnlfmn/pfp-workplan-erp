@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BookOpenCheck,
   CheckCircle2,
   History,
   Link2,
   PencilLine,
+  Plus,
   Search,
   Target,
+  Trash2,
   UserRoundCheck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +49,7 @@ type KpiReview = {
   planYear: number;
   period: KpiPeriod;
   linkedActivityKeys: string;
+  assessmentDetails: string;
   achievementNote: string;
   selfPerformanceScore: number;
   selfAttendanceScore: number;
@@ -55,6 +59,7 @@ type KpiReview = {
   reviewDevelopmentScore: number | null;
   cultureBonus: number;
   reviewComment: string;
+  approvalComment: string;
   workflowStatus: KpiStatus;
   updatedAt: string;
   updatedBy: string;
@@ -74,6 +79,7 @@ type Quarter = "Q1" | "Q2" | "Q3" | "Q4";
 type KpiDraft = {
   period: KpiPeriod;
   linkedActivityKeys: string[];
+  assessmentDetails: KpiAssessmentDetails;
   achievementNote: string;
   selfPerformanceScore: string;
   selfAttendanceScore: string;
@@ -83,8 +89,46 @@ type KpiDraft = {
   reviewDevelopmentScore: string;
   cultureBonus: string;
   reviewComment: string;
+  approvalComment: string;
   workflowStatus: KpiStatus;
 };
+
+type ActivityAssessment = {
+  activityKey: string;
+  selfScore: number | null;
+};
+
+type AdditionalWork = {
+  id: string;
+  title: string;
+  outcome: string;
+  completionDate: string;
+  selfScore: number | null;
+};
+
+type CompetencyAssessment = {
+  key: string;
+  note: string;
+  selfScore: number | null;
+};
+
+type KpiAssessmentDetails = {
+  activityScores: ActivityAssessment[];
+  additionalWorks: AdditionalWork[];
+  competencies: CompetencyAssessment[];
+  development: { note: string; selfScore: number | null };
+  culture: { note: string; selfScore: number | null };
+  staffComment: string;
+};
+
+const competencyQuestions = [
+  { key: "productive-time", label: "Productive use of working time" },
+  { key: "technical-quality", label: "Technical skills and quality of work" },
+  { key: "teamwork", label: "Teamwork and relationships within the team" },
+  { key: "partner-relations", label: "Relationships with partner organizations" },
+  { key: "independence", label: "Independence and responsibility" },
+  { key: "initiative", label: "Creativity and initiative" },
+] as const;
 
 const periods: KpiPeriod[] = ["Q1", "Q2", "Q3", "Q4", "Annual"];
 const statusMeta: Record<KpiStatus, { label: string; tone: string }> = {
@@ -103,10 +147,85 @@ function parseKeys(value: string) {
   }
 }
 
+function defaultAssessmentDetails(activityKeys: string[] = []): KpiAssessmentDetails {
+  return {
+    activityScores: activityKeys.map((activityKey) => ({ activityKey, selfScore: null })),
+    additionalWorks: [],
+    competencies: competencyQuestions.map(({ key }) => ({ key, note: "", selfScore: null })),
+    development: { note: "", selfScore: null },
+    culture: { note: "", selfScore: null },
+    staffComment: "",
+  };
+}
+
+function nullableScore(value: unknown, maximum = 100) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(maximum, Math.round(number * 10) / 10));
+}
+
+function parseAssessmentDetails(value: string, activityKeys: string[]): KpiAssessmentDetails {
+  try {
+    const parsed = JSON.parse(value) as Partial<KpiAssessmentDetails>;
+    const savedActivityScores = Array.isArray(parsed.activityScores) ? parsed.activityScores : [];
+    const savedCompetencies = Array.isArray(parsed.competencies) ? parsed.competencies : [];
+    return {
+      activityScores: activityKeys.map((activityKey) => {
+        const saved = savedActivityScores.find((item) => item?.activityKey === activityKey);
+        return { activityKey, selfScore: nullableScore(saved?.selfScore) };
+      }),
+      additionalWorks: Array.isArray(parsed.additionalWorks)
+        ? parsed.additionalWorks.map((item) => ({
+            id: String(item?.id || `additional-${crypto.randomUUID()}`),
+            title: String(item?.title ?? ""),
+            outcome: String(item?.outcome ?? ""),
+            completionDate: String(item?.completionDate ?? ""),
+            selfScore: nullableScore(item?.selfScore),
+          }))
+        : [],
+      competencies: competencyQuestions.map(({ key }) => {
+        const saved = savedCompetencies.find((item) => item?.key === key);
+        return { key, note: String(saved?.note ?? ""), selfScore: nullableScore(saved?.selfScore) };
+      }),
+      development: {
+        note: String(parsed.development?.note ?? ""),
+        selfScore: nullableScore(parsed.development?.selfScore),
+      },
+      culture: {
+        note: String(parsed.culture?.note ?? ""),
+        selfScore: nullableScore(parsed.culture?.selfScore, 5),
+      },
+      staffComment: String(parsed.staffComment ?? ""),
+    };
+  } catch {
+    return defaultAssessmentDetails(activityKeys);
+  }
+}
+
+function averageScores(values: Array<number | null>, fallback = 0) {
+  const scored = values.filter((value): value is number => value !== null);
+  if (!scored.length) return fallback;
+  return Math.round((scored.reduce((total, value) => total + value, 0) / scored.length) * 10) / 10;
+}
+
+function selfSectionScores(details: KpiAssessmentDetails, fallback: { performance: number; attendance: number; development: number }) {
+  return {
+    performance: averageScores(
+      [...details.activityScores, ...details.additionalWorks].map((item) => item.selfScore),
+      fallback.performance,
+    ),
+    attendance: averageScores(details.competencies.map((item) => item.selfScore), fallback.attendance),
+    development: details.development.selfScore ?? fallback.development,
+    bonus: details.culture.selfScore ?? 0,
+  };
+}
+
 function emptyDraft(period: KpiPeriod): KpiDraft {
   return {
     period,
     linkedActivityKeys: [],
+    assessmentDetails: defaultAssessmentDetails(),
     achievementNote: "",
     selfPerformanceScore: "0",
     selfAttendanceScore: "0",
@@ -116,14 +235,17 @@ function emptyDraft(period: KpiPeriod): KpiDraft {
     reviewDevelopmentScore: "",
     cultureBonus: "0",
     reviewComment: "",
+    approvalComment: "",
     workflowStatus: "draft",
   };
 }
 
 function reviewDraft(review: KpiReview): KpiDraft {
+  const linkedActivityKeys = parseKeys(review.linkedActivityKeys);
   return {
     period: review.period,
-    linkedActivityKeys: parseKeys(review.linkedActivityKeys),
+    linkedActivityKeys,
+    assessmentDetails: parseAssessmentDetails(review.assessmentDetails, linkedActivityKeys),
     achievementNote: review.achievementNote,
     selfPerformanceScore: String(review.selfPerformanceScore),
     selfAttendanceScore: String(review.selfAttendanceScore),
@@ -133,6 +255,7 @@ function reviewDraft(review: KpiReview): KpiDraft {
     reviewDevelopmentScore: review.reviewDevelopmentScore === null ? "" : String(review.reviewDevelopmentScore),
     cultureBonus: String(review.cultureBonus),
     reviewComment: review.reviewComment,
+    approvalComment: review.approvalComment,
     workflowStatus: review.workflowStatus,
   };
 }
@@ -152,11 +275,19 @@ function weightedTotal(values: {
 }
 
 function finalScore(review: KpiReview) {
+  const details = parseAssessmentDetails(review.assessmentDetails, parseKeys(review.linkedActivityKeys));
+  const selfScores = selfSectionScores(details, {
+    performance: review.selfPerformanceScore,
+    attendance: review.selfAttendanceScore,
+    development: review.selfDevelopmentScore,
+  });
   return weightedTotal({
     performance: review.reviewPerformanceScore ?? review.selfPerformanceScore,
     attendance: review.reviewAttendanceScore ?? review.selfAttendanceScore,
     development: review.reviewDevelopmentScore ?? review.selfDevelopmentScore,
-    bonus: review.cultureBonus,
+    bonus: ["reviewed", "approved"].includes(review.workflowStatus)
+      ? review.cultureBonus
+      : selfScores.bonus,
   });
 }
 
@@ -287,11 +418,18 @@ export function StaffKpiModule({
       ? allowed
       : [draft.workflowStatus, ...allowed];
   }, [canReview, draft.workflowStatus, isOwnReview, session?.isAdmin]);
+  const draftSelfScores = selfSectionScores(draft.assessmentDetails, {
+    performance: numeric(draft.selfPerformanceScore),
+    attendance: numeric(draft.selfAttendanceScore),
+    development: numeric(draft.selfDevelopmentScore),
+  });
   const draftTotal = weightedTotal({
-    performance: numeric(draft.reviewPerformanceScore || draft.selfPerformanceScore),
-    attendance: numeric(draft.reviewAttendanceScore || draft.selfAttendanceScore),
-    development: numeric(draft.reviewDevelopmentScore || draft.selfDevelopmentScore),
-    bonus: numeric(draft.cultureBonus),
+    performance: numeric(draft.reviewPerformanceScore || String(draftSelfScores.performance)),
+    attendance: numeric(draft.reviewAttendanceScore || String(draftSelfScores.attendance)),
+    development: numeric(draft.reviewDevelopmentScore || String(draftSelfScores.development)),
+    bonus: ["reviewed", "approved"].includes(draft.workflowStatus)
+      ? numeric(draft.cultureBonus)
+      : draftSelfScores.bonus,
   });
 
   function openReview(period: KpiPeriod) {
@@ -300,7 +438,11 @@ export function StaffKpiModule({
     setDraft(
       review
         ? reviewDraft(review)
-        : { ...emptyDraft(period), linkedActivityKeys: assignedActivityKeys },
+        : {
+            ...emptyDraft(period),
+            linkedActivityKeys: assignedActivityKeys,
+            assessmentDetails: defaultAssessmentDetails(assignedActivityKeys),
+          },
     );
     setStep(0);
     setActivityQuery("");
@@ -309,6 +451,11 @@ export function StaffKpiModule({
 
   async function saveReview() {
     if (!activeMemberId) return;
+    const computedSelfScores = selfSectionScores(draft.assessmentDetails, {
+      performance: numeric(draft.selfPerformanceScore),
+      attendance: numeric(draft.selfAttendanceScore),
+      development: numeric(draft.selfDevelopmentScore),
+    });
     setSaving(true);
     try {
       const response = await fetch("/api/kpi", {
@@ -318,9 +465,9 @@ export function StaffKpiModule({
           memberId: activeMemberId,
           planYear: year,
           ...draft,
-          selfPerformanceScore: numeric(draft.selfPerformanceScore),
-          selfAttendanceScore: numeric(draft.selfAttendanceScore),
-          selfDevelopmentScore: numeric(draft.selfDevelopmentScore),
+          selfPerformanceScore: computedSelfScores.performance,
+          selfAttendanceScore: computedSelfScores.attendance,
+          selfDevelopmentScore: computedSelfScores.development,
           reviewPerformanceScore: draft.reviewPerformanceScore === "" ? null : numeric(draft.reviewPerformanceScore),
           reviewAttendanceScore: draft.reviewAttendanceScore === "" ? null : numeric(draft.reviewAttendanceScore),
           reviewDevelopmentScore: draft.reviewDevelopmentScore === "" ? null : numeric(draft.reviewDevelopmentScore),
@@ -399,7 +546,7 @@ export function StaffKpiModule({
 
       <section className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
         <div className="flex flex-col gap-2 border-b border-[#dce4da] bg-[#f5f8f3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-black text-[#183529]">{selectedMember?.name}</h3><span className="rounded-full bg-[#e3eee1] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#315845]">{session.isAdmin ? "Administrator" : isOwnReview ? "Your KPI" : canReview ? "Reviewer" : "Approver"}</span></div><p className="text-xs text-[#718178]">{selectedMember?.role} · {year} KPI cycle</p><p className="mt-1 text-[11px] text-[#718178]">Reviewer: {reviewerName ?? "Not assigned"} · Approver: {approverName ?? "Not assigned"}</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-black text-[#183529]">{selectedMember?.name}</h3><span className="rounded-full bg-[#e3eee1] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#315845]">{session.isAdmin ? "Administrator" : isOwnReview ? "Your KPI" : canReview ? "Supervisor" : "MNLF CEO"}</span></div><p className="text-xs text-[#718178]">{selectedMember?.role} · {year} KPI cycle</p><p className="mt-1 text-[11px] text-[#718178]">Supervisor: {reviewerName ?? "Not assigned"} · MNLF CEO: {approverName ?? "Not assigned"}</p></div>
           <p className="text-xs font-semibold text-[#53685c]">Weights: performance 75% · attendance 15% · development 10% · bonus up to 5</p>
         </div>
         <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
@@ -427,76 +574,59 @@ export function StaffKpiModule({
       {loading && <div className="rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-sm text-[#718178]">Loading Staff KPI records…</div>}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader><DialogTitle>{draft.period} Staff KPI · {selectedMember?.name}</DialogTitle><DialogDescription>Complete the three short steps. Step headings can be selected directly.</DialogDescription></DialogHeader>
-          <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#edf3ec] p-1">
-            {["Work & achievements", "Self-assessment", canReview || canApprove ? "Review & approval" : "Summary & submit"].map((label, index) => <button key={label} type="button" onClick={() => setStep(index)} className={`rounded-lg px-2 py-2 text-xs font-black transition ${step === index ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}>{index + 1}. {label}</button>)}
+        <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader><DialogTitle>{draft.period} Staff KPI · {selectedMember?.name}</DialogTitle><DialogDescription>Complete the four short sections. Select a section heading to move directly to it.</DialogDescription></DialogHeader>
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#edf3ec] p-1 sm:grid-cols-4">
+            {["Activities", "Work behavior", "Development", "Review & submit"].map((label, index) => <button key={label} type="button" onClick={() => setStep(index)} className={`rounded-lg px-2 py-2 text-xs font-black transition ${step === index ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}>{index + 1}. {label}</button>)}
           </div>
 
           {step === 0 && (
             <div className="space-y-4 py-2">
               <label className="block text-sm font-bold">Review period<NativeSelect value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as KpiPeriod }))} disabled={Boolean(editingId) || !canEditSelf} className="mt-1"><NativeSelectOption value="Q1">Q1</NativeSelectOption><NativeSelectOption value="Q2">Q2</NativeSelectOption><NativeSelectOption value="Q3">Q3</NativeSelectOption><NativeSelectOption value="Q4">Q4</NativeSelectOption><NativeSelectOption value="Annual">Annual</NativeSelectOption></NativeSelect></label>
               <div>
-                <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Linked workplan activities</p><p className="text-xs text-[#718178]">Responsible activities are selected automatically. Activity notes below come directly from the Work Plan.</p></div><div className="flex items-center gap-2">{canEditSelf && <Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys }))} className="h-8 px-2 text-xs">Use assigned activities</Button>}<span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} selected</span></div></div>
-                <label className="relative mt-2 block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="pl-9" /></label>
-                <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[#d7ded5] p-2">
-                  {selectableActivities.map((activity) => {
-                    const checked = draft.linkedActivityKeys.includes(activity.id);
-                    return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-[#f3f7f1]"><Checkbox checked={checked} disabled={!canEditSelf} onCheckedChange={(value) => setDraft((current) => ({ ...current, linkedActivityKeys: value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id) }))} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>;
-                  })}
-                </div>
+                <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Responsible activities</p><p className="text-xs text-[#718178]">Assigned activities are linked automatically. Give each activity a self-assessment score from 0 to 100.</p></div><span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} activities</span></div>
+                {canEditSelf && <details className="mt-2 rounded-xl border border-[#d7ded5] bg-[#f8faf7]"><summary className="cursor-pointer px-3 py-2 text-xs font-black text-[#315845]">Add or remove activity links</summary><div className="border-t border-[#e1e7df] p-2"><div className="mb-2 flex items-center gap-2"><label className="relative block flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="h-9 pl-9" /></label><Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: assignedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null }) } }))} className="h-9 px-2 text-xs">Use assigned</Button></div><div className="max-h-48 space-y-1 overflow-y-auto">{selectableActivities.map((activity) => { const checked = draft.linkedActivityKeys.includes(activity.id); return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-white"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const linkedActivityKeys = value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id); return { ...current, linkedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: linkedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null }) } }; })} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>; })}</div></div></details>}
               </div>
-              <div className="rounded-xl border border-[#d7ded5] bg-[#f8faf7] p-3">
-                <p className="text-sm font-black text-[#183529]">Reused Work Plan quarterly notes</p>
-                <p className="mt-1 text-xs text-[#718178]">These notes are read-only here. Update them from each activity in the Work Plan.</p>
-                <div className="mt-2 max-h-52 space-y-2 overflow-y-auto">
-                  {linkedActivities.map((activity) => {
-                    const notes = activityQuarterNotes[activity.id];
-                    const entries = draft.period === "Annual"
-                      ? (["Q1", "Q2", "Q3", "Q4"] as Quarter[]).map((quarter) => [quarter, notes?.[quarter] ?? ""] as const).filter(([, note]) => note.trim())
-                      : [[draft.period, notes?.[draft.period as Quarter] ?? ""] as const];
-                    return <details key={activity.id} className="rounded-lg border border-[#dce4da] bg-white px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#315845]">{activity.code} · {activity.title}</summary><div className="mt-2 space-y-2">{entries.length ? entries.map(([quarter, note]) => <div key={quarter} className="rounded-md bg-[#f3f7f1] px-2 py-1.5 text-xs leading-5 text-[#53685c]"><strong>{quarter}</strong> · {note || "No Work Plan quarterly note yet."}</div>) : <p className="text-xs text-[#718178]">No Work Plan quarterly note yet.</p>}</div></details>;
-                  })}
-                  {!linkedActivities.length && <p className="py-3 text-center text-xs text-[#718178]">Select at least one linked activity to see its Work Plan notes.</p>}
-                </div>
+              <div className="space-y-2">
+                {linkedActivities.map((activity) => { const scoreRow = draft.assessmentDetails.activityScores.find((item) => item.activityKey === activity.id); const notes = activityQuarterNotes[activity.id]; const entries = draft.period === "Annual" ? (["Q1", "Q2", "Q3", "Q4"] as Quarter[]).map((quarter) => [quarter, notes?.[quarter] ?? ""] as const).filter(([, note]) => note.trim()) : [[draft.period, notes?.[draft.period as Quarter] ?? ""] as const]; return <article key={activity.id} className="rounded-xl border border-[#d7ded5] bg-white p-3"><div className="grid gap-3 sm:grid-cols-[1fr_115px] sm:items-start"><div className="min-w-0"><p className="font-mono text-xs font-black text-[#315845]">{activity.code}</p><p className="mt-1 text-sm font-bold leading-5 text-[#183529]">{activity.title}</p></div><label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={scoreRow?.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, activityScores: current.assessmentDetails.activityScores.map((item) => item.activityKey === activity.id ? { ...item, selfScore: nullableScore(event.target.value) } : item) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><details className="mt-2 rounded-lg bg-[#f3f7f1] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#53685c]">Work Plan progress note</summary><div className="mt-2 space-y-1">{entries.length ? entries.map(([quarter, note]) => <p key={quarter} className="text-xs leading-5 text-[#53685c]"><strong>{quarter}</strong> · {note || "No note submitted."}</p>) : <p className="text-xs text-[#718178]">No Work Plan quarterly note yet.</p>}</div></details></article>; })}
+                {!linkedActivities.length && <div className="rounded-xl border border-dashed border-[#cbd6cc] px-4 py-8 text-center text-xs text-[#718178]">No responsible activities are linked.</div>}
               </div>
-              <label className="block text-sm font-bold">{draft.period === "Annual" ? "Overall annual KPI note" : "Overall quarterly KPI note"}<Textarea value={draft.achievementNote} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, achievementNote: event.target.value }))} placeholder="Add an overall reflection, cross-activity result, challenge or priority." className="mt-1 min-h-28" /></label>
+              <section className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3">
+                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black">Additional work</p><p className="text-xs text-[#718178]">Add completed work that was not included in the Work Plan.</p></div>{canEditSelf && <Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: [...current.assessmentDetails.additionalWorks, { id: `additional-${crypto.randomUUID()}`, title: "", outcome: "", completionDate: "", selfScore: null }] } }))} className="h-8 px-2.5 text-xs"><Plus className="h-3.5 w-3.5" /> Add work</Button>}</div>
+                <div className="mt-3 space-y-2">{draft.assessmentDetails.additionalWorks.map((item, index) => <article key={item.id} className="rounded-lg border border-white bg-white p-3"><div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-[#315845]">Additional work {index + 1}</p>{canEditSelf && <Button type="button" variant="ghost" size="icon" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.filter((row) => row.id !== item.id) } }))} className="h-7 w-7 text-rose-700"><Trash2 className="h-3.5 w-3.5" /></Button>}</div><div className="grid gap-2 sm:grid-cols-[1.3fr_145px_105px]"><label className="text-xs font-bold">Work title<Input disabled={!canEditSelf} value={item.title} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, title: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Completion date<Input type="date" disabled={!canEditSelf} value={item.completionDate} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, completionDate: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><label className="mt-2 block text-xs font-bold">Result or evidence<Textarea disabled={!canEditSelf} value={item.outcome} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, outcome: event.target.value } : row) } }))} className="mt-1 min-h-16" /></label></article>)}{!draft.assessmentDetails.additionalWorks.length && <p className="rounded-lg bg-white px-3 py-4 text-center text-xs text-[#718178]">No additional work added.</p>}</div>
+              </section>
             </div>
           )}
 
           {step === 1 && (
             <div className="space-y-4 py-2">
-              <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4"><p className="text-sm font-black">Self-assessment</p><p className="mt-1 text-xs text-[#718178]">Score each area from 0 to 100. The final weighting follows the KPI workbook.</p></div>
-              {[
-                ["Work performance", "75%", "selfPerformanceScore"],
-                ["Attendance and participation", "15%", "selfAttendanceScore"],
-                ["Personal development", "10%", "selfDevelopmentScore"],
-              ].map(([label, weight, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_72px_120px]"><span className="text-sm font-bold">{label}</span><span className="text-xs font-black text-[#5f7568]">Weight {weight}</span><Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
-              <div className="rounded-xl bg-[#0c3b2d] p-4 text-white"><p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-100/75">Current weighted score</p><p className="mt-1 text-3xl font-black">{weightedTotal({ performance: numeric(draft.selfPerformanceScore), attendance: numeric(draft.selfAttendanceScore), development: numeric(draft.selfDevelopmentScore), bonus: 0 })}%</p></div>
+              <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4"><p className="text-sm font-black">Work attendance and participation</p><p className="mt-1 text-xs text-[#718178]">These six questions come from the KPI assessment sheet. Add a short example when useful and score each item from 0 to 100.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">{competencyQuestions.map((question, index) => { const item = draft.assessmentDetails.competencies.find((row) => row.key === question.key) ?? { key: question.key, note: "", selfScore: null }; return <article key={question.key} className="rounded-xl border border-[#d7ded5] bg-white p-3"><div className="grid gap-2 sm:grid-cols-[1fr_105px]"><div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">Question {index + 1}</p><p className="mt-1 text-sm font-bold leading-5">{question.label}</p></div><label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><Textarea disabled={!canEditSelf} value={item.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, note: event.target.value } : row) } }))} placeholder="Optional example or evidence" className="mt-2 min-h-16 text-xs" /></article>; })}</div>
+              <div className="rounded-xl bg-[#0c3b2d] p-4 text-white"><p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-100/75">Attendance and participation average</p><p className="mt-1 text-3xl font-black">{draftSelfScores.attendance}%</p></div>
             </div>
           )}
 
           {step === 2 && (
             <div className="space-y-4 py-2">
-              {canReview || canApprove ? (
-                <>
-                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">Reviewer scores are optional. If left empty, the staff member&apos;s self-assessment is used.</div>
-                  {[
-                    ["Reviewed work performance", "reviewPerformanceScore"],
-                    ["Reviewed attendance and participation", "reviewAttendanceScore"],
-                    ["Reviewed personal development", "reviewDevelopmentScore"],
-                  ].map(([label, key]) => <label key={key} className="grid items-center gap-2 rounded-xl border border-[#d7ded5] p-3 sm:grid-cols-[1fr_120px]"><span className="text-sm font-bold">{label}</span><Input type="number" min="0" max="100" step="0.1" disabled={!canReview} placeholder="Use self score" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="text-right font-black" /></label>)}
-                  <label className="block text-sm font-bold">Team-culture bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canReview} value={draft.cultureBonus} onChange={(event) => setDraft((current) => ({ ...current, cultureBonus: event.target.value }))} className="mt-1" /></label>
-                  <label className="block text-sm font-bold">Reviewer or approval comment<Textarea value={draft.reviewComment} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-24" placeholder="Record feedback, required follow-up or approval rationale." /></label>
-                </>
-              ) : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review the linked activities, overall KPI note and self-assessment before submitting this KPI to your assigned reviewer.</div>}
-              <div className="grid gap-3 rounded-xl border border-[#cfdacf] bg-white p-4 sm:grid-cols-[1fr_180px] sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718178]">Final weighted score</p><p className={`mt-1 text-4xl font-black ${scoreTone(draftTotal)}`}>{draftTotal}%</p></div><label className="text-sm font-bold">Workflow status<NativeSelect value={draft.workflowStatus} onChange={(event) => setDraft((current) => ({ ...current, workflowStatus: event.target.value as KpiStatus }))} className="mt-1">{availableStatuses.map((status) => <NativeSelectOption key={status} value={status} disabled={status === draft.workflowStatus && !((session.isAdmin) || (isOwnReview && ["draft", "submitted"].includes(status)) || (canReview && ["submitted", "reviewed"].includes(status)) || (canApprove && ["reviewed", "approved"].includes(status)))}>{statusMeta[status].label}</NativeSelectOption>)}</NativeSelect></label></div>
+              <article className="rounded-xl border border-[#d7ded5] bg-white p-4"><div className="flex items-start gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e6f0e4] text-[#315845]"><BookOpenCheck className="h-4 w-4" /></div><div><p className="font-black">Professional and personal development</p><p className="mt-1 text-xs leading-5 text-[#718178]">Include paid or free training, self-directed courses, professional meetings, reading or other development activities.</p></div></div><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.development.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, note: event.target.value } } }))} placeholder="Describe training, learning and how it supported your work." className="mt-3 min-h-24" /><label className="mt-3 block text-xs font-bold text-[#53685c]">Self score (0–100)<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.development.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, selfScore: nullableScore(event.target.value) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label></article>
+              <article className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-4"><p className="font-black">Positive contribution to team culture</p><p className="mt-1 text-xs leading-5 text-[#718178]">Optional bonus area from the KPI sheet. Describe a contribution that improved internal operations, productivity, culture, values or team goals.</p><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.culture.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, note: event.target.value } } }))} placeholder="Describe the contribution and result." className="mt-3 min-h-20 bg-white" /><label className="mt-3 block text-xs font-bold text-[#53685c]">Proposed bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.culture.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, selfScore: nullableScore(event.target.value, 5) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label></article>
+              <div className="grid gap-2 sm:grid-cols-3">{[["Work performance", "75%", draftSelfScores.performance], ["Attendance & participation", "15%", draftSelfScores.attendance], ["Personal development", "10%", draftSelfScores.development]].map(([label, weight, value]) => <div key={String(label)} className="rounded-xl border border-[#d7ded5] bg-white p-3"><p className="text-xs font-semibold text-[#718178]">{label} · {weight}</p><p className="mt-1 text-2xl font-black text-[#183529]">{value}%</p></div>)}</div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4 py-2">
+              <label className="block text-sm font-bold">{draft.period === "Annual" ? "Overall annual KPI note" : "Overall quarterly KPI note"}<Textarea value={draft.achievementNote} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, achievementNote: event.target.value }))} placeholder="Add the overall result, key challenge and next priority. Activity notes are reused from the Work Plan." className="mt-1 min-h-24" /></label>
+              <label className="block text-sm font-bold">Other issues, suggestions or requests<Textarea value={draft.assessmentDetails.staffComment} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, staffComment: event.target.value } }))} placeholder="Add any issue or suggestion you would like to discuss with your Supervisor or MNLF CEO." className="mt-1 min-h-20" /></label>
+              {(canReview || canApprove) ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm font-black text-blue-950">Supervisor assessment</p><p className="mt-1 text-xs text-blue-800">Section scores are optional. Blank fields continue to use the officer&apos;s self-assessment.</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{[["Work performance", "reviewPerformanceScore"], ["Attendance & participation", "reviewAttendanceScore"], ["Personal development", "reviewDevelopmentScore"]].map(([label, key]) => <label key={key} className="text-xs font-bold text-blue-950">{label}<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} placeholder="Use self score" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="mt-1 h-9 bg-white text-right font-black" /></label>)}</div><label className="mt-3 block text-xs font-bold text-blue-950">Team-culture bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canReview} value={draft.cultureBonus} onChange={(event) => setDraft((current) => ({ ...current, cultureBonus: event.target.value }))} className="mt-1 h-9 max-w-40 bg-white" /></label><label className="mt-3 block text-xs font-bold text-blue-950">Supervisor comment<Textarea value={draft.reviewComment} disabled={!canReview} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-20 bg-white" placeholder="Record feedback and follow-up." /></label></div> : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review the activities, questionnaire and overall KPI note before submitting to your Supervisor.</div>}
+              {(canApprove || session.isAdmin) && <label className="block rounded-xl border border-[#d8cba5] bg-[#fff9e8] p-4 text-sm font-bold text-[#6e5411]">MNLF CEO comment<Textarea value={draft.approvalComment} disabled={!canApprove && !session.isAdmin} onChange={(event) => setDraft((current) => ({ ...current, approvalComment: event.target.value }))} className="mt-2 min-h-20 bg-white text-[#183529]" placeholder="Record the final approval comment." /></label>}
+              <div className="grid gap-3 rounded-xl border border-[#cfdacf] bg-white p-4 sm:grid-cols-[1fr_180px] sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718178]">Final weighted score</p><p className={`mt-1 text-4xl font-black ${scoreTone(draftTotal)}`}>{draftTotal}%</p><p className="mt-1 text-xs text-[#718178]">Performance 75% · attendance 15% · development 10% · bonus up to 5</p></div><label className="text-sm font-bold">Workflow status<NativeSelect value={draft.workflowStatus} onChange={(event) => setDraft((current) => ({ ...current, workflowStatus: event.target.value as KpiStatus }))} className="mt-1">{availableStatuses.map((status) => <NativeSelectOption key={status} value={status} disabled={status === draft.workflowStatus && !((session.isAdmin) || (isOwnReview && ["draft", "submitted"].includes(status)) || (canReview && ["submitted", "reviewed"].includes(status)) || (canApprove && ["reviewed", "approved"].includes(status)))}>{statusMeta[status].label}</NativeSelectOption>)}</NativeSelect></label></div>
             </div>
           )}
 
           <DialogFooter className="gap-2 sm:justify-between">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <div className="flex gap-2"><Button variant="outline" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>Back</Button>{step < 2 ? <Button onClick={() => setStep((current) => Math.min(2, current + 1))} className="bg-[#0c3b2d] text-white">Continue</Button> : <Button onClick={() => void saveReview()} disabled={saving} className="bg-[#0c3b2d] text-white">{saving ? "Saving…" : "Save KPI review"}</Button>}</div>
+            <div className="flex gap-2"><Button variant="outline" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>Back</Button>{step < 3 ? <Button onClick={() => setStep((current) => Math.min(3, current + 1))} className="bg-[#0c3b2d] text-white">Continue</Button> : <Button onClick={() => void saveReview()} disabled={saving} className="bg-[#0c3b2d] text-white">{saving ? "Saving…" : "Save KPI review"}</Button>}</div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -6,6 +6,14 @@ import { requireAppSession } from "@/lib/app-auth";
 
 const periods = new Set(["Q1", "Q2", "Q3", "Q4", "Annual"]);
 const workflowStatuses = new Set(["draft", "submitted", "reviewed", "approved"]);
+const competencyKeys = new Set([
+  "productive-time",
+  "technical-quality",
+  "teamwork",
+  "partner-relations",
+  "independence",
+  "initiative",
+]);
 
 function score(value: unknown, maximum = 100) {
   const number = Number(value);
@@ -18,6 +26,11 @@ function optionalScore(value: unknown) {
   return score(value);
 }
 
+function optionalBoundedScore(value: unknown, maximum = 100) {
+  if (value === null || value === undefined || value === "") return null;
+  return score(value, maximum);
+}
+
 function text(value: unknown, maximum: number) {
   return String(value ?? "").trim().slice(0, maximum);
 }
@@ -27,6 +40,73 @@ function activityKeys(value: unknown) {
   return Array.from(
     new Set(value.map((item) => text(item, 180)).filter(Boolean)),
   ).slice(0, 100);
+}
+
+function object(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function assessmentDetails(value: unknown) {
+  const input = object(value);
+  const activityScores = Array.isArray(input.activityScores)
+    ? input.activityScores.slice(0, 100).map((item) => {
+        const row = object(item);
+        return {
+          activityKey: text(row.activityKey, 180),
+          selfScore: optionalBoundedScore(row.selfScore),
+        };
+      }).filter((item) => item.activityKey)
+    : [];
+  const additionalWorks = Array.isArray(input.additionalWorks)
+    ? input.additionalWorks.slice(0, 50).map((item) => {
+        const row = object(item);
+        return {
+          id: text(row.id, 180) || `additional-${crypto.randomUUID()}`,
+          title: text(row.title, 500),
+          outcome: text(row.outcome, 3000),
+          completionDate: text(row.completionDate, 20),
+          selfScore: optionalBoundedScore(row.selfScore),
+        };
+      }).filter((item) => item.title || item.outcome)
+    : [];
+  const competencies = Array.isArray(input.competencies)
+    ? input.competencies.slice(0, competencyKeys.size).map((item) => {
+        const row = object(item);
+        return {
+          key: text(row.key, 80),
+          note: text(row.note, 2000),
+          selfScore: optionalBoundedScore(row.selfScore),
+        };
+      }).filter((item) => competencyKeys.has(item.key))
+    : [];
+  const development = object(input.development);
+  const culture = object(input.culture);
+  return {
+    activityScores,
+    additionalWorks,
+    competencies,
+    development: {
+      note: text(development.note, 3000),
+      selfScore: optionalBoundedScore(development.selfScore),
+    },
+    culture: {
+      note: text(culture.note, 3000),
+      selfScore: optionalBoundedScore(culture.selfScore, 5),
+    },
+    staffComment: text(input.staffComment, 5000),
+  };
 }
 
 function historyView(row: typeof staffKpiHistory.$inferSelect) {
@@ -187,6 +267,10 @@ export async function POST(request: Request) {
         session.isAdmin || access.isSelf
           ? JSON.stringify(activityKeys(payload.linkedActivityKeys))
           : existing?.linkedActivityKeys ?? "[]",
+      assessmentDetails:
+        session.isAdmin || access.isSelf
+          ? JSON.stringify(assessmentDetails(payload.assessmentDetails))
+          : existing?.assessmentDetails ?? "{}",
       achievementNote:
         session.isAdmin || access.isSelf
           ? text(payload.achievementNote, 8000)
@@ -215,9 +299,12 @@ export async function POST(request: Request) {
       cultureBonus: session.isAdmin || access.isReviewer
         ? score(payload.cultureBonus, 5)
         : existing?.cultureBonus ?? 0,
-      reviewComment: session.isAdmin || access.isReviewer || access.isApprover
+      reviewComment: session.isAdmin || access.isReviewer
         ? text(payload.reviewComment, 5000)
         : existing?.reviewComment ?? "",
+      approvalComment: session.isAdmin || access.isApprover
+        ? text(payload.approvalComment, 5000)
+        : existing?.approvalComment ?? "",
       workflowStatus,
       submittedAt: submitted ? existing?.submittedAt || now : "",
       submittedBy: submitted ? existing?.submittedBy || session.email : "",

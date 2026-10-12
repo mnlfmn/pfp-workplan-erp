@@ -125,7 +125,7 @@ function normalizePayload(payload: {
     return { error: "Enter a valid email address." } as const;
   }
   if (kpiReviewerId.length > 160 || kpiApproverId.length > 160) {
-    return { error: "Choose valid KPI review assignments." } as const;
+    return { error: "Choose valid Supervisor and MNLF CEO assignments." } as const;
   }
   if (kpiReviewerId && kpiReviewerId === kpiApproverId) {
     return { error: "Choose different people for KPI review and approval." } as const;
@@ -149,14 +149,14 @@ function validateKpiAssignments(
   members: TeamMember[],
 ) {
   if (reviewerId === memberId || approverId === memberId) {
-    return "A team member cannot review or approve their own KPI.";
+    return "A team member cannot be their own Supervisor or MNLF CEO approver.";
   }
   const activeIds = new Set(members.map((member) => member.id));
   if (reviewerId && !activeIds.has(reviewerId)) {
-    return "Choose an active team member as KPI reviewer.";
+    return "Choose an active team member as Supervisor.";
   }
   if (approverId && !activeIds.has(approverId)) {
-    return "Choose an active team member as KPI approver.";
+    return "Choose an active team member as MNLF CEO.";
   }
   return "";
 }
