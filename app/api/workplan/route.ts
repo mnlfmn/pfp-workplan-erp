@@ -5,6 +5,8 @@ import { getDb } from "@/db";
 import {
   activityUpdates,
   budgetAllocations,
+  contractFundingAllocations,
+  contractPaymentAllocations,
   contractPayments,
   contracts,
   financeEntries,
@@ -327,11 +329,13 @@ export async function POST(request: Request) {
       };
 
       const source = await materializeYear(fromYear);
-      const [savedUpdates, sourceContracts, savedPayments, sourceFinanceEntries] = await Promise.all([
+      const [savedUpdates, sourceContracts, savedPayments, sourceFinanceEntries, sourceFunding, sourcePaymentFunding] = await Promise.all([
         db.select().from(activityUpdates),
         db.select().from(contracts).where(eq(contracts.planYear, fromYear)),
         db.select().from(contractPayments),
         db.select().from(financeEntries),
+        db.select().from(contractFundingAllocations),
+        db.select().from(contractPaymentAllocations),
       ]);
       const updateStatus = new Map(
         savedUpdates.map((item) => [item.activityKey, item.status]),
@@ -340,7 +344,12 @@ export async function POST(request: Request) {
         ["draft", "active"].includes(contract.status),
       );
       const contractTargetKeys = new Set(
-        openContracts.map((contract) => contract.activityKey),
+        openContracts.flatMap((contract) => {
+          const funding = sourceFunding.filter((item) => item.contractId === contract.id);
+          return funding.length
+            ? funding.map((item) => item.activityKey)
+            : [contract.activityKey];
+        }),
       );
       const copyFullStructure = Boolean(payload.copyCurrent);
       const includedActivities: Array<{
@@ -378,7 +387,12 @@ export async function POST(request: Request) {
         includedActivities.map(({ activity }) => activity.id),
       );
       const neededBudgetKeys = new Set(
-        openContracts.map((contract) => contract.budgetKey),
+        openContracts.flatMap((contract) => {
+          const funding = sourceFunding.filter((item) => item.contractId === contract.id);
+          return funding.length
+            ? funding.map((item) => item.budgetKey)
+            : [contract.budgetKey];
+        }),
       );
       const includedBudgets = source.budgetLines.filter((budget) => {
         if (copyFullStructure || neededBudgetKeys.has(budget.id)) return true;
@@ -391,6 +405,49 @@ export async function POST(request: Request) {
           codesShareBudgetLine(code, budget.code),
         );
       });
+      const sourceFundingForContract = (contract: typeof contracts.$inferSelect) => {
+        const saved = sourceFunding.filter((item) => item.contractId === contract.id);
+        return saved.length
+          ? saved.map((item) => ({
+              id: item.id,
+              budgetKey: item.budgetKey,
+              activityKey: item.activityKey,
+              amountMnt: item.amountMnt,
+            }))
+          : [
+              {
+                id: "",
+                budgetKey: contract.budgetKey,
+                activityKey: contract.activityKey,
+                amountMnt: contract.amountMnt,
+              },
+            ];
+      };
+      const paidForFunding = (
+        contract: typeof contracts.$inferSelect,
+        funding: { id: string; amountMnt: number },
+      ) => {
+        const paidPaymentIds = new Set(
+          savedPayments
+            .filter(
+              (payment) =>
+                payment.contractId === contract.id && Boolean(payment.paid),
+            )
+            .map((payment) => payment.id),
+        );
+        if (!funding.id) {
+          return savedPayments
+            .filter((payment) => paidPaymentIds.has(payment.id))
+            .reduce((total, payment) => total + payment.amountMnt, 0);
+        }
+        return sourcePaymentFunding
+          .filter(
+            (allocation) =>
+              allocation.fundingAllocationId === funding.id &&
+              paidPaymentIds.has(allocation.paymentId),
+          )
+          .reduce((total, allocation) => total + allocation.amountMnt, 0);
+      };
 
       const rows: Array<typeof workplanRecords.$inferInsert> = [];
       const activityKeys = new Map<string, string>();
@@ -462,30 +519,34 @@ export async function POST(request: Request) {
           )
           .reduce((total, entry) => total + entry.amountMnt, 0);
         const contractCommitmentMnt = sourceContracts
-          .filter(
-            (contract) =>
-              contract.budgetKey === budget.id && contract.status !== "closed",
-          )
+          .filter((contract) => contract.status !== "closed")
           .reduce((total, contract) => {
-            const paid = savedPayments
-              .filter(
-                (payment) =>
-                  payment.contractId === contract.id && Boolean(payment.paid),
-              )
-              .reduce((subtotal, payment) => subtotal + payment.amountMnt, 0);
-            return total + Math.max(contract.amountMnt - paid, 0);
+            return (
+              total +
+              sourceFundingForContract(contract)
+                .filter((funding) => funding.budgetKey === budget.id)
+                .reduce(
+                  (subtotal, funding) =>
+                    subtotal +
+                    Math.max(
+                      funding.amountMnt - paidForFunding(contract, funding),
+                      0,
+                    ),
+                  0,
+                )
+            );
           }, 0);
         const contractExpenditureMnt = sourceContracts
-          .filter((contract) => contract.budgetKey === budget.id)
           .reduce(
             (total, contract) =>
               total +
-              savedPayments
-                .filter(
-                  (payment) =>
-                    payment.contractId === contract.id && Boolean(payment.paid),
-                )
-                .reduce((subtotal, payment) => subtotal + payment.amountMnt, 0),
+              sourceFundingForContract(contract)
+                .filter((funding) => funding.budgetKey === budget.id)
+                .reduce(
+                  (subtotal, funding) =>
+                    subtotal + paidForFunding(contract, funding),
+                  0,
+                ),
             0,
           );
         const remainingMnt = Math.max(
@@ -520,10 +581,25 @@ export async function POST(request: Request) {
         });
       }
       const carriedContractRows: Array<typeof contracts.$inferInsert> = [];
+      const carriedFundingRows: Array<typeof contractFundingAllocations.$inferInsert> = [];
       const carriedPaymentRows: Array<typeof contractPayments.$inferInsert> = [];
+      const carriedPaymentFundingRows: Array<typeof contractPaymentAllocations.$inferInsert> = [];
       for (const contract of openContracts) {
-        const activityKey = activityKeys.get(contract.activityKey);
-        const budgetKey = budgetKeys.get(contract.budgetKey);
+        const sourceContractFunding = sourceFundingForContract(contract);
+        const outstandingFunding = sourceContractFunding
+          .map((funding) => ({
+            ...funding,
+            activityKey: activityKeys.get(funding.activityKey) ?? "",
+            budgetKey: budgetKeys.get(funding.budgetKey) ?? "",
+            outstandingMnt: Math.max(
+              funding.amountMnt - paidForFunding(contract, funding),
+              0,
+            ),
+          }))
+          .filter(
+            (funding) =>
+              funding.activityKey && funding.budgetKey && funding.outstandingMnt > 0,
+          );
         const unpaidPayments = savedPayments
           .filter(
             (payment) =>
@@ -534,17 +610,27 @@ export async function POST(request: Request) {
           (total, payment) => total + payment.amountMnt,
           0,
         );
-        if (!activityKey || !budgetKey || !outstandingMnt || !unpaidPayments.length) {
+        if (!outstandingFunding.length || !outstandingMnt || !unpaidPayments.length) {
           continue;
         }
         const newContractId = crypto.randomUUID();
+        const newFunding = outstandingFunding.map((funding) => ({
+          id: crypto.randomUUID(),
+          contractId: newContractId,
+          sourceFundingId: funding.id,
+          budgetKey: funding.budgetKey,
+          activityKey: funding.activityKey,
+          amountMnt: funding.outstandingMnt,
+          createdAt: now,
+          updatedAt: now,
+        }));
         carriedContractRows.push({
           id: newContractId,
           planYear: toYear,
           contractNumber: contract.contractNumber,
           status: contract.status,
-          budgetKey,
-          activityKey,
+          budgetKey: newFunding[0].budgetKey,
+          activityKey: newFunding[0].activityKey,
           torName: contract.torName,
           serviceProviderName: contract.serviceProviderName,
           serviceProviderType: contract.serviceProviderType,
@@ -564,9 +650,14 @@ export async function POST(request: Request) {
           updatedAt: now,
           updatedBy,
         });
+        carriedFundingRows.push(
+          ...newFunding.map(({ sourceFundingId: _sourceFundingId, ...funding }) => {
+            void _sourceFundingId;
+            return funding;
+          }),
+        );
         let assignedPercentage = 0;
-        carriedPaymentRows.push(
-          ...unpaidPayments.map((payment, index) => {
+        const newPayments = unpaidPayments.map((payment, index) => {
             const isLast = index === unpaidPayments.length - 1;
             const remainingSlots = unpaidPayments.length - index - 1;
             const percentage = isLast
@@ -593,8 +684,41 @@ export async function POST(request: Request) {
               paidAt: "",
               updatedAt: now,
             };
-          }),
-        );
+          });
+        carriedPaymentRows.push(...newPayments);
+        newPayments.forEach((payment, index) => {
+          const sourcePayment = unpaidPayments[index];
+          const savedSplits = sourcePaymentFunding.filter(
+            (allocation) => allocation.paymentId === sourcePayment.id,
+          );
+          if (savedSplits.length) {
+            for (const split of savedSplits) {
+              const funding = newFunding.find(
+                (item) => item.sourceFundingId === split.fundingAllocationId,
+              );
+              if (!funding) continue;
+              carriedPaymentFundingRows.push({
+                id: crypto.randomUUID(),
+                contractId: newContractId,
+                paymentId: payment.id,
+                fundingAllocationId: funding.id,
+                amountMnt: split.amountMnt,
+                createdAt: now,
+                updatedAt: now,
+              });
+            }
+          } else if (newFunding.length === 1) {
+            carriedPaymentFundingRows.push({
+              id: crypto.randomUUID(),
+              contractId: newContractId,
+              paymentId: payment.id,
+              fundingAllocationId: newFunding[0].id,
+              amountMnt: payment.amountMnt,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        });
       }
 
       const writes: BatchItem<"sqlite">[] = repairingEmptyDraft
@@ -616,6 +740,20 @@ export async function POST(request: Request) {
       for (let index = 0; index < carriedPaymentRows.length; index += 8) {
         writes.push(
           db.insert(contractPayments).values(carriedPaymentRows.slice(index, index + 8)),
+        );
+      }
+      for (let index = 0; index < carriedFundingRows.length; index += 8) {
+        writes.push(
+          db
+            .insert(contractFundingAllocations)
+            .values(carriedFundingRows.slice(index, index + 8)),
+        );
+      }
+      for (let index = 0; index < carriedPaymentFundingRows.length; index += 8) {
+        writes.push(
+          db
+            .insert(contractPaymentAllocations)
+            .values(carriedPaymentFundingRows.slice(index, index + 8)),
         );
       }
       await db.batch(
@@ -774,6 +912,12 @@ export async function DELETE(request: Request) {
 
       for (const ids of chunks(contractIds)) {
         await db.delete(paymentDocuments).where(inArray(paymentDocuments.contractId, ids));
+        await db
+          .delete(contractPaymentAllocations)
+          .where(inArray(contractPaymentAllocations.contractId, ids));
+        await db
+          .delete(contractFundingAllocations)
+          .where(inArray(contractFundingAllocations.contractId, ids));
         await db.delete(contractPayments).where(inArray(contractPayments.contractId, ids));
       }
       await db.delete(contracts).where(eq(contracts.planYear, year));

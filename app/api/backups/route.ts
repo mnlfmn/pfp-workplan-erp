@@ -6,6 +6,8 @@ import {
   auditLogs,
   backupSnapshots,
   budgetAllocations,
+  contractFundingAllocations,
+  contractPaymentAllocations,
   contractPayments,
   contracts,
   financeEntries,
@@ -85,6 +87,8 @@ export async function POST(request: Request) {
     await db.delete(melResults);
     await db.delete(melIndicators);
     await db.delete(paymentDocuments);
+    await db.delete(contractPaymentAllocations);
+    await db.delete(contractFundingAllocations);
     await db.delete(contractPayments);
     await db.delete(contracts);
     await db.delete(budgetAllocations);
@@ -130,6 +134,18 @@ export async function POST(request: Request) {
     }
     for (let index = 0; index < tables.contractPayments.length; index += 20) {
       await db.insert(contractPayments).values(tables.contractPayments.slice(index, index + 20));
+    }
+    const contractFundingRows = tables.contractFundingAllocations ?? [];
+    for (let index = 0; index < contractFundingRows.length; index += 20) {
+      await db
+        .insert(contractFundingAllocations)
+        .values(contractFundingRows.slice(index, index + 20));
+    }
+    const contractPaymentFundingRows = tables.contractPaymentAllocations ?? [];
+    for (let index = 0; index < contractPaymentFundingRows.length; index += 20) {
+      await db
+        .insert(contractPaymentAllocations)
+        .values(contractPaymentFundingRows.slice(index, index + 20));
     }
     for (let index = 0; index < tables.paymentDocuments.length; index += 20) {
       await db.insert(paymentDocuments).values(tables.paymentDocuments.slice(index, index + 20));

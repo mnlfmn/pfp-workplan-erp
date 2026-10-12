@@ -10,6 +10,17 @@ export type ContractExportPayment = {
   amountMnt: number;
   foreignAmountMinor: number;
   paid: boolean;
+  fundingSplit: string;
+};
+
+export type ContractExportFunding = {
+  budgetLine: string;
+  activityCode: string;
+  activityTitle: string;
+  activityLevel: string;
+  amountMnt: number;
+  paidMnt: number;
+  commitmentMnt: number;
 };
 
 export type ContractExportItem = {
@@ -33,6 +44,7 @@ export type ContractExportItem = {
   updatedAt: string;
   updatedBy: string;
   transferredFromYear: number;
+  fundingAllocations: ContractExportFunding[];
   payments: ContractExportPayment[];
 };
 
@@ -140,20 +152,25 @@ function workbookFiles(options: Options) {
   const contractRows = options.contracts.map((item) => [
     { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.status }, { type: "text" as const, value: item.budgetLine }, { type: "text" as const, value: item.activityCode }, { type: "text" as const, value: item.activityTitle }, { type: "text" as const, value: item.activityLevel }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "text" as const, value: item.providerType }, { type: "date" as const, value: item.startDate }, { type: "date" as const, value: item.endDate }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: item.foreignAmountMinor / 100 }, { type: "number" as const, value: item.exchangeRateMnt }, { type: "currency" as const, value: item.amountMnt }, { type: "currency" as const, value: item.paidMnt }, { type: "currency" as const, value: item.commitmentMnt }, { type: "number" as const, value: item.payments.length }, { type: "number" as const, value: item.transferredFromYear }, { type: "date" as const, value: item.updatedAt }, { type: "text" as const, value: item.updatedBy },
   ]);
-  const paymentHeaders = ["Contract number", "Terms of Reference", "Service provider", "Payment no.", "Payment label", "Due date", "Exact transfer date", "Deliverable", "Share %", "Currency", "Foreign amount", "Amount MNT", "Payment status"];
+  const paymentHeaders = ["Contract number", "Terms of Reference", "Service provider", "Payment no.", "Payment label", "Due date", "Exact transfer date", "Deliverable", "Share %", "Currency", "Foreign amount", "Amount MNT", "Funding split", "Payment status"];
   const paymentRows = options.contracts.flatMap((item) => item.payments.map((payment) => [
-    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "number" as const, value: payment.sequence }, { type: "text" as const, value: payment.label }, { type: "date" as const, value: payment.dueDate }, { type: "date" as const, value: payment.transferDate }, { type: "text" as const, value: payment.deliverable }, { type: "percentage" as const, value: payment.percentage / 100 }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: payment.foreignAmountMinor / 100 }, { type: "currency" as const, value: payment.amountMnt }, { type: "text" as const, value: payment.paid ? "Paid" : "Unpaid" },
+    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: item.providerName }, { type: "number" as const, value: payment.sequence }, { type: "text" as const, value: payment.label }, { type: "date" as const, value: payment.dueDate }, { type: "date" as const, value: payment.transferDate }, { type: "text" as const, value: payment.deliverable }, { type: "percentage" as const, value: payment.percentage / 100 }, { type: "text" as const, value: item.currency }, { type: "number" as const, value: payment.foreignAmountMinor / 100 }, { type: "currency" as const, value: payment.amountMnt }, { type: "text" as const, value: payment.fundingSplit }, { type: "text" as const, value: payment.paid ? "Paid" : "Unpaid" },
+  ]));
+  const fundingHeaders = ["Contract number", "Terms of Reference", "Budget line", "Workplan code", "Activity / sub-activity", "Level", "Contract allocation MNT", "Paid expenditure MNT", "Outstanding commitment MNT"];
+  const fundingRows = options.contracts.flatMap((item) => item.fundingAllocations.map((allocation) => [
+    { type: "text" as const, value: item.contractNumber }, { type: "text" as const, value: item.torName }, { type: "text" as const, value: allocation.budgetLine }, { type: "text" as const, value: allocation.activityCode }, { type: "text" as const, value: allocation.activityTitle }, { type: "text" as const, value: allocation.activityLevel }, { type: "currency" as const, value: allocation.amountMnt }, { type: "currency" as const, value: allocation.paidMnt }, { type: "currency" as const, value: allocation.commitmentMnt },
   ]));
   const now = new Date().toISOString();
   return {
-    "[Content_Types].xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`),
+    "[Content_Types].xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`),
     "_rels/.rels": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`),
     "docProps/core.xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>PFP ${options.year} Contract Register</dc:title><dc:creator>PFP ERP System</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created></cp:coreProperties>`),
-    "xl/workbook.xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="CONTRACT REGISTER" sheetId="1" r:id="rId1"/><sheet name="PAYMENT SCHEDULE" sheetId="2" r:id="rId2"/></sheets></workbook>`),
-    "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
+    "xl/workbook.xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="CONTRACT REGISTER" sheetId="1" r:id="rId1"/><sheet name="PAYMENT SCHEDULE" sheetId="2" r:id="rId2"/><sheet name="FUNDING ALLOCATION" sheetId="3" r:id="rId3"/></sheets></workbook>`),
+    "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
     "xl/styles.xml": strToU8(styles),
     "xl/worksheets/sheet1.xml": strToU8(sheetXml(contractHeaders, contractRows, [18, 14, 22, 16, 44, 15, 48, 28, 22, 13, 13, 11, 17, 17, 20, 20, 23, 11, 18, 15, 26])),
-    "xl/worksheets/sheet2.xml": strToU8(sheetXml(paymentHeaders, paymentRows, [18, 48, 28, 12, 20, 13, 18, 48, 11, 11, 16, 20, 14])),
+    "xl/worksheets/sheet2.xml": strToU8(sheetXml(paymentHeaders, paymentRows, [18, 48, 28, 12, 20, 13, 18, 48, 11, 11, 16, 20, 42, 14])),
+    "xl/worksheets/sheet3.xml": strToU8(sheetXml(fundingHeaders, fundingRows, [18, 48, 26, 18, 48, 16, 23, 23, 25])),
   };
 }
 

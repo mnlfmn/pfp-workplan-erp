@@ -6,6 +6,8 @@ import {
   auditLogs,
   backupSnapshots,
   budgetAllocations,
+  contractFundingAllocations,
+  contractPaymentAllocations,
   contractPayments,
   contracts,
   financeEntries,
@@ -36,6 +38,8 @@ export type BackupPayload = {
     budgetAllocations: Array<typeof budgetAllocations.$inferSelect>;
     contracts: Array<typeof contracts.$inferSelect>;
     contractPayments: Array<typeof contractPayments.$inferSelect>;
+    contractFundingAllocations?: Array<typeof contractFundingAllocations.$inferSelect>;
+    contractPaymentAllocations?: Array<typeof contractPaymentAllocations.$inferSelect>;
     paymentDocuments: Array<typeof paymentDocuments.$inferSelect>;
     auditLogs: Array<typeof auditLogs.$inferSelect>;
     systemMetadata?: Array<typeof systemMetadata.$inferSelect>;
@@ -104,6 +108,8 @@ export async function createBackupSnapshot(
     allocationRows,
     contractRows,
     paymentRows,
+    contractFundingRows,
+    contractPaymentFundingRows,
     documentRows,
     auditRows,
     metadataRows,
@@ -119,6 +125,8 @@ export async function createBackupSnapshot(
     db.select().from(budgetAllocations),
     db.select().from(contracts),
     db.select().from(contractPayments),
+    db.select().from(contractFundingAllocations),
+    db.select().from(contractPaymentAllocations),
     db.select().from(paymentDocuments),
     db.select().from(auditLogs),
     db.select().from(systemMetadata),
@@ -140,6 +148,8 @@ export async function createBackupSnapshot(
       budgetAllocations: allocationRows,
       contracts: contractRows,
       contractPayments: paymentRows,
+      contractFundingAllocations: contractFundingRows,
+      contractPaymentAllocations: contractPaymentFundingRows,
       paymentDocuments: documentRows,
       auditLogs: auditRows,
       systemMetadata: metadataRows,

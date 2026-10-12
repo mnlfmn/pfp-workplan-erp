@@ -353,6 +353,51 @@ export const contractPayments = sqliteTable(
   ],
 );
 
+export const contractFundingAllocations = sqliteTable(
+  "contract_funding_allocations",
+  {
+    id: text("id").primaryKey(),
+    contractId: text("contract_id").notNull(),
+    budgetKey: text("budget_key").notNull(),
+    activityKey: text("activity_key").notNull(),
+    amountMnt: integer("amount_mnt").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("ux_contract_funding_target").on(
+      table.contractId,
+      table.budgetKey,
+      table.activityKey,
+    ),
+    index("idx_contract_funding_contract").on(table.contractId),
+    index("idx_contract_funding_budget").on(table.budgetKey),
+    index("idx_contract_funding_activity").on(table.activityKey),
+  ],
+);
+
+export const contractPaymentAllocations = sqliteTable(
+  "contract_payment_allocations",
+  {
+    id: text("id").primaryKey(),
+    contractId: text("contract_id").notNull(),
+    paymentId: text("payment_id").notNull(),
+    fundingAllocationId: text("funding_allocation_id").notNull(),
+    amountMnt: integer("amount_mnt").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("ux_contract_payment_funding").on(
+      table.paymentId,
+      table.fundingAllocationId,
+    ),
+    index("idx_contract_payment_alloc_contract").on(table.contractId),
+    index("idx_contract_payment_alloc_payment").on(table.paymentId),
+    index("idx_contract_payment_alloc_funding").on(table.fundingAllocationId),
+  ],
+);
+
 export const paymentDocuments = sqliteTable(
   "payment_documents",
   {

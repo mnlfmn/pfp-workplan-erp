@@ -302,6 +302,29 @@ type ContractPayment = {
   paid: number;
   paidAt: string;
   updatedAt: string;
+  allocations: ContractPaymentAllocation[];
+};
+
+type ContractFundingAllocation = {
+  id: string;
+  contractId: string;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ContractPaymentAllocation = {
+  id: string;
+  contractId: string;
+  paymentId: string;
+  fundingAllocationId: string;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type ContractRecord = {
@@ -324,7 +347,22 @@ type ContractRecord = {
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
+  allocations: ContractFundingAllocation[];
   payments: ContractPayment[];
+};
+
+type ContractFundingAllocationDraft = {
+  id: string;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: string;
+};
+
+type ContractPaymentAllocationDraft = {
+  fundingAllocationId: string;
+  budgetKey: string;
+  activityKey: string;
+  amountMnt: string;
 };
 
 type ContractPaymentDraft = {
@@ -337,6 +375,7 @@ type ContractPaymentDraft = {
   foreignAmount: string;
   paid: boolean;
   paidAt: string;
+  allocations: ContractPaymentAllocationDraft[];
 };
 
 type ContractDraft = {
@@ -353,6 +392,7 @@ type ContractDraft = {
   currency: "MNT" | "USD";
   foreignAmount: string;
   exchangeRateMnt: string;
+  allocations: ContractFundingAllocationDraft[];
   payments: ContractPaymentDraft[];
 };
 
@@ -547,6 +587,14 @@ function emptyContractDraft(year: number): ContractDraft {
     currency: "MNT",
     foreignAmount: "",
     exchangeRateMnt: "",
+    allocations: [
+      {
+        id: "",
+        budgetKey: "",
+        activityKey: "",
+        amountMnt: "",
+      },
+    ],
     payments: [
       {
         id: "",
@@ -558,9 +606,112 @@ function emptyContractDraft(year: number): ContractDraft {
         foreignAmount: "",
         paid: false,
         paidAt: "",
+        allocations: [],
       },
     ],
   };
+}
+
+function contractFundingDraftKey(
+  allocation: Pick<ContractFundingAllocationDraft, "budgetKey" | "activityKey">,
+) {
+  return `${allocation.budgetKey}\u0000${allocation.activityKey}`;
+}
+
+function proportionalPaymentMatrix(
+  paymentAmounts: number[],
+  allocations: ContractFundingAllocationDraft[],
+) {
+  const remaining = allocations.map((allocation) =>
+    Math.max(0, Number(allocation.amountMnt.replace(/[\s,]/g, "") || 0)),
+  );
+  return paymentAmounts.map((paymentAmount, paymentIndex) => {
+    const totalRemaining = remaining.reduce((total, amount) => total + amount, 0);
+    const amounts = remaining.map(() => 0);
+    if (paymentIndex === paymentAmounts.length - 1) {
+      remaining.forEach((amount, index) => {
+        amounts[index] = amount;
+        remaining[index] = 0;
+      });
+    } else if (paymentAmount > 0 && totalRemaining > 0) {
+      const exact = remaining.map(
+        (amount) => (paymentAmount * amount) / totalRemaining,
+      );
+      exact.forEach((amount, index) => {
+        amounts[index] = Math.min(remaining[index], Math.floor(amount));
+      });
+      let unassigned = paymentAmount - amounts.reduce((total, amount) => total + amount, 0);
+      const order = exact
+        .map((amount, index) => ({ index, remainder: amount - Math.floor(amount) }))
+        .sort((a, b) => b.remainder - a.remainder);
+      for (const item of order) {
+        if (!unassigned) break;
+        const capacity = remaining[item.index] - amounts[item.index];
+        if (capacity <= 0) continue;
+        const addition = Math.min(capacity, unassigned);
+        amounts[item.index] += addition;
+        unassigned -= addition;
+      }
+      if (unassigned > 0) {
+        for (let index = 0; index < remaining.length && unassigned > 0; index += 1) {
+          const capacity = remaining[index] - amounts[index];
+          const addition = Math.min(capacity, unassigned);
+          amounts[index] += addition;
+          unassigned -= addition;
+        }
+      }
+      amounts.forEach((amount, index) => {
+        remaining[index] -= amount;
+      });
+    }
+    return allocations.map((allocation, index) => ({
+      fundingAllocationId: allocation.id,
+      budgetKey: allocation.budgetKey,
+      activityKey: allocation.activityKey,
+      amountMnt: amounts[index] > 0 ? formatNumberInput(amounts[index]) : "",
+    }));
+  });
+}
+
+function synchronizeContractPaymentSplits(
+  payments: ContractPaymentDraft[],
+  allocations: ContractFundingAllocationDraft[],
+) {
+  const paidByTarget = new Map<string, number>();
+  for (const payment of payments.filter((item) => item.paid)) {
+    for (const allocation of payment.allocations) {
+      const key = contractFundingDraftKey(allocation);
+      paidByTarget.set(
+        key,
+        (paidByTarget.get(key) ?? 0) +
+          Number(allocation.amountMnt.replace(/[\s,]/g, "") || 0),
+      );
+    }
+  }
+  const remainingAllocations = allocations.map((allocation) => ({
+    ...allocation,
+    amountMnt: formatNumberInput(
+      Math.max(
+        0,
+        Number(allocation.amountMnt.replace(/[\s,]/g, "") || 0) -
+          (paidByTarget.get(contractFundingDraftKey(allocation)) ?? 0),
+      ),
+    ),
+  }));
+  const unpaid = payments.filter((payment) => !payment.paid);
+  const matrix = proportionalPaymentMatrix(
+    unpaid.map((payment) =>
+      Number(payment.amountMnt.replace(/[\s,]/g, "") || 0),
+    ),
+    remainingAllocations,
+  );
+  let unpaidIndex = 0;
+  return payments.map((payment) => {
+    if (payment.paid) return payment;
+    const allocationsForPayment = matrix[unpaidIndex] ?? [];
+    unpaidIndex += 1;
+    return { ...payment, allocations: allocationsForPayment };
+  });
 }
 
 function todayForInput() {
@@ -1131,6 +1282,57 @@ function contractCommitmentMnt(contract: ContractRecord) {
   return Math.max(contract.amountMnt - contractPaidMnt(contract), 0);
 }
 
+function contractPaidForBudget(contract: ContractRecord, budgetKey: string) {
+  return contract.payments
+    .filter((payment) => Boolean(payment.paid))
+    .flatMap((payment) => payment.allocations ?? [])
+    .filter((allocation) => allocation.budgetKey === budgetKey)
+    .reduce((total, allocation) => total + allocation.amountMnt, 0);
+}
+
+function contractCommittedForBudget(contract: ContractRecord, budgetKey: string) {
+  if (contract.status === "closed") return 0;
+  const allocated = (contract.allocations ?? [])
+    .filter((allocation) => allocation.budgetKey === budgetKey)
+    .reduce((total, allocation) => total + allocation.amountMnt, 0);
+  return Math.max(allocated - contractPaidForBudget(contract, budgetKey), 0);
+}
+
+function contractPaidForTargets(
+  contract: ContractRecord,
+  budgetKey: string,
+  activityKeys: Set<string>,
+) {
+  return contract.payments
+    .filter((payment) => Boolean(payment.paid))
+    .flatMap((payment) => payment.allocations ?? [])
+    .filter(
+      (allocation) =>
+        allocation.budgetKey === budgetKey &&
+        activityKeys.has(allocation.activityKey),
+    )
+    .reduce((total, allocation) => total + allocation.amountMnt, 0);
+}
+
+function contractCommittedForTargets(
+  contract: ContractRecord,
+  budgetKey: string,
+  activityKeys: Set<string>,
+) {
+  if (contract.status === "closed") return 0;
+  const allocated = (contract.allocations ?? [])
+    .filter(
+      (allocation) =>
+        allocation.budgetKey === budgetKey &&
+        activityKeys.has(allocation.activityKey),
+    )
+    .reduce((total, allocation) => total + allocation.amountMnt, 0);
+  return Math.max(
+    allocated - contractPaidForTargets(contract, budgetKey, activityKeys),
+    0,
+  );
+}
+
 function summarizeFinance(
   lines: BudgetLine[],
   entries: FinanceEntry[],
@@ -1143,7 +1345,7 @@ function summarizeFinance(
   );
   const relevantEntries = entries.filter((entry) => keys.has(entry.budgetKey));
   const relevantContracts = contracts.filter((contract) =>
-    keys.has(contract.budgetKey),
+    (contract.allocations ?? []).some((allocation) => keys.has(allocation.budgetKey)),
   );
   const manualCommitmentMnt = relevantEntries
     .filter((entry) => entry.entryType === "commitment")
@@ -1154,18 +1356,32 @@ function summarizeFinance(
   const commitmentMnt =
     manualCommitmentMnt +
     relevantContracts.reduce(
-      (total, contract) => total + contractCommitmentMnt(contract),
+      (total, contract) =>
+        total +
+        [...keys].reduce(
+          (subtotal, budgetKey) =>
+            subtotal + contractCommittedForBudget(contract, budgetKey),
+          0,
+        ),
       0,
     );
   const expenditureMnt =
     manualExpenditureMnt +
     relevantContracts.reduce(
-      (total, contract) => total + contractPaidMnt(contract),
+      (total, contract) =>
+        total +
+        [...keys].reduce(
+          (subtotal, budgetKey) =>
+            subtotal + contractPaidForBudget(contract, budgetKey),
+          0,
+        ),
       0,
     );
   const linesWithEntries = new Set([
     ...relevantEntries.map((entry) => entry.budgetKey),
-    ...relevantContracts.map((contract) => contract.budgetKey),
+    ...relevantContracts.flatMap((contract) =>
+      (contract.allocations ?? []).map((allocation) => allocation.budgetKey),
+    ),
   ]);
   const remainingMnt = budgetMnt - commitmentMnt - expenditureMnt;
   return {
@@ -2265,6 +2481,22 @@ export default function Home() {
         contract.currency === "USD"
           ? formatNumberInput(contract.exchangeRateMnt || 0)
           : "",
+      allocations: (contract.allocations?.length
+        ? contract.allocations
+        : [
+            {
+              id: "",
+              budgetKey: contract.budgetKey,
+              activityKey: contract.activityKey,
+              amountMnt: contract.amountMnt,
+            },
+          ]
+      ).map((allocation) => ({
+        id: allocation.id.startsWith("legacy:") ? "" : allocation.id,
+        budgetKey: allocation.budgetKey,
+        activityKey: allocation.activityKey,
+        amountMnt: formatNumberInput(allocation.amountMnt),
+      })),
       payments: contract.payments.map((payment) => ({
         id: payment.id,
         label: payment.label,
@@ -2278,28 +2510,110 @@ export default function Home() {
             : "",
         paid: Boolean(payment.paid),
         paidAt: payment.paidAt,
+        allocations: (payment.allocations ?? []).map((allocation) => ({
+          fundingAllocationId: allocation.fundingAllocationId.startsWith("legacy:")
+            ? ""
+            : allocation.fundingAllocationId,
+          budgetKey: allocation.budgetKey,
+          activityKey: allocation.activityKey,
+          amountMnt: formatNumberInput(allocation.amountMnt),
+        })),
       })),
     });
     setFormDirty(true);
     setContractDialogOpen(true);
   }
 
-  function selectContractTarget(activityKey: string) {
+  function selectContractTarget(index: number, activityKey: string) {
     const line = budgetLineForTarget(activityKey);
-    setContractDraft((current) => ({
-      ...current,
-      activityKey,
-      budgetKey: line?.id ?? "",
-    }));
+    setContractDraft((current) => {
+      const allocations = current.allocations.map((allocation, allocationIndex) =>
+        allocationIndex === index
+          ? {
+              ...allocation,
+              activityKey,
+              budgetKey: line?.id ?? "",
+            }
+          : allocation,
+      );
+      return {
+        ...current,
+        allocations,
+        payments: synchronizeContractPaymentSplits(current.payments, allocations),
+      };
+    });
+  }
+
+  function updateContractFundingAllocation(index: number, value: string) {
+    setContractDraft((current) => {
+      const allocations = current.allocations.map((allocation, allocationIndex) =>
+        allocationIndex === index
+          ? { ...allocation, amountMnt: formatNumberInput(value) }
+          : allocation,
+      );
+      return {
+        ...current,
+        allocations,
+        payments: synchronizeContractPaymentSplits(current.payments, allocations),
+      };
+    });
+  }
+
+  function addContractFundingAllocation() {
+    setContractDraft((current) => {
+      const allocations = [
+        ...current.allocations,
+        { id: "", budgetKey: "", activityKey: "", amountMnt: "" },
+      ];
+      return {
+        ...current,
+        allocations,
+        payments: synchronizeContractPaymentSplits(current.payments, allocations),
+      };
+    });
+  }
+
+  function removeContractFundingAllocation(index: number) {
+    setContractDraft((current) => {
+      const allocations = current.allocations.filter(
+        (_, allocationIndex) => allocationIndex !== index,
+      );
+      return {
+        ...current,
+        allocations,
+        payments: synchronizeContractPaymentSplits(current.payments, allocations),
+      };
+    });
+  }
+
+  function contractBudgetAvailable(budgetKey: string) {
+    const line = allBudgetLines.find((item) => item.id === budgetKey);
+    if (!line) return 0;
+    const approved = Math.round(Number(line.budgetMntMillion) * 1_000_000);
+    const manual = financeEntries
+      .filter((entry) => entry.budgetKey === budgetKey)
+      .reduce((total, entry) => total + entry.amountMnt, 0);
+    const otherContracts = contracts
+      .filter((contract) => contract.id !== editingContractId)
+      .reduce(
+        (total, contract) =>
+          total +
+          contractCommittedForBudget(contract, budgetKey) +
+          contractPaidForBudget(contract, budgetKey),
+        0,
+      );
+    return approved - manual - otherContracts;
   }
 
   function updateContractTotal(value: string) {
     const formatted = formatNumberInput(value);
     const total = Number(formatted.replace(/,/g, ""));
-    setContractDraft((current) => ({
-      ...current,
-      amountMnt: formatted,
-      payments: current.payments.map((payment, index) => {
+    setContractDraft((current) => {
+      const allocations =
+        current.allocations.length === 1
+          ? [{ ...current.allocations[0], amountMnt: formatted }]
+          : current.allocations;
+      const payments = current.payments.map((payment, index) => {
         const percentage = Number(payment.percentage);
         const amount =
           Number.isSafeInteger(total) && total > 0 && percentage > 0
@@ -2322,8 +2636,14 @@ export default function Home() {
           ...payment,
           amountMnt: amount > 0 ? formatNumberInput(amount) : "",
         };
-      }),
-    }));
+      });
+      return {
+        ...current,
+        amountMnt: formatted,
+        allocations,
+        payments: synchronizeContractPaymentSplits(payments, allocations),
+      };
+    });
   }
 
   function updateContractForeignTotal(value: string) {
@@ -2332,6 +2652,15 @@ export default function Home() {
     setContractDraft((current) => {
       const rate = Number(current.exchangeRateMnt.replace(/,/g, ""));
       const amountMnt = Math.round((totalMinor / 100) * (rate || 0));
+      const allocations =
+        current.allocations.length === 1
+          ? [
+              {
+                ...current.allocations[0],
+                amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
+              },
+            ]
+          : current.allocations;
       let assignedMinor = 0;
       let assignedMnt = 0;
       const payments = current.payments.map((payment, index) => {
@@ -2355,7 +2684,8 @@ export default function Home() {
         ...current,
         foreignAmount: formatted,
         amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
-        payments,
+        allocations,
+        payments: synchronizeContractPaymentSplits(payments, allocations),
       };
     });
   }
@@ -2366,6 +2696,15 @@ export default function Home() {
       const rate = Number(formatted.replace(/,/g, ""));
       const totalMinor = dollarsToMinor(current.foreignAmount);
       const amountMnt = Math.round((totalMinor / 100) * (rate || 0));
+      const allocations =
+        current.allocations.length === 1
+          ? [
+              {
+                ...current.allocations[0],
+                amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
+              },
+            ]
+          : current.allocations;
       let assignedMnt = 0;
       const payments = current.payments.map((payment, index) => {
         const foreignMinor = dollarsToMinor(payment.foreignAmount);
@@ -2374,13 +2713,17 @@ export default function Home() {
           ? Math.max(amountMnt - assignedMnt, 0)
           : Math.round((foreignMinor / 100) * (rate || 0));
         assignedMnt += paymentMnt;
-        return { ...payment, amountMnt: paymentMnt ? formatNumberInput(paymentMnt) : "" };
+        return {
+          ...payment,
+          amountMnt: paymentMnt ? formatNumberInput(paymentMnt) : "",
+        };
       });
       return {
         ...current,
         exchangeRateMnt: formatted,
         amountMnt: amountMnt ? formatNumberInput(amountMnt) : "",
-        payments,
+        allocations,
+        payments: synchronizeContractPaymentSplits(payments, allocations),
       };
     });
   }
@@ -2424,14 +2767,52 @@ export default function Home() {
         }
         return next;
       });
-      return { ...current, payments };
+      return {
+        ...current,
+        payments:
+          ["percentage", "amountMnt", "foreignAmount"].includes(field)
+            ? synchronizeContractPaymentSplits(payments, current.allocations)
+            : payments,
+      };
     });
   }
 
-  function addContractPayment() {
+  function applyProportionalPaymentSplit(index: number) {
+    void index;
     setContractDraft((current) => ({
       ...current,
-      payments: [
+      payments: synchronizeContractPaymentSplits(
+        current.payments,
+        current.allocations,
+      ),
+    }));
+  }
+
+  function updatePaymentFundingSplit(
+    paymentIndex: number,
+    allocationIndex: number,
+    value: string,
+  ) {
+    setContractDraft((current) => ({
+      ...current,
+      payments: current.payments.map((payment, index) =>
+        index === paymentIndex
+          ? {
+              ...payment,
+              allocations: payment.allocations.map((allocation, splitIndex) =>
+                splitIndex === allocationIndex
+                  ? { ...allocation, amountMnt: formatNumberInput(value) }
+                  : allocation,
+              ),
+            }
+          : payment,
+      ),
+    }));
+  }
+
+  function addContractPayment() {
+    setContractDraft((current) => {
+      const payments = [
         ...current.payments,
         {
           id: "",
@@ -2443,16 +2824,26 @@ export default function Home() {
           foreignAmount: "",
           paid: false,
           paidAt: "",
+          allocations: [],
         },
-      ],
-    }));
+      ];
+      return {
+        ...current,
+        payments: synchronizeContractPaymentSplits(payments, current.allocations),
+      };
+    });
   }
 
   function removeContractPayment(index: number) {
-    setContractDraft((current) => ({
-      ...current,
-      payments: current.payments.filter((_, paymentIndex) => paymentIndex !== index),
-    }));
+    setContractDraft((current) => {
+      const payments = current.payments.filter(
+        (_, paymentIndex) => paymentIndex !== index,
+      );
+      return {
+        ...current,
+        payments: synchronizeContractPaymentSplits(payments, current.allocations),
+      };
+    });
   }
 
   async function saveContract() {
@@ -2461,6 +2852,10 @@ export default function Home() {
     const exchangeRateMnt = Number(
       contractDraft.exchangeRateMnt.replace(/[\s,]/g, ""),
     );
+    const fundingAllocations = contractDraft.allocations.map((allocation) => ({
+      ...allocation,
+      amountMnt: Number(allocation.amountMnt.replace(/[\s,]/g, "")),
+    }));
     let payments = contractDraft.payments.map((payment) => ({
       ...payment,
       percentage: Number(payment.percentage),
@@ -2469,9 +2864,22 @@ export default function Home() {
         contractDraft.currency === "USD"
           ? dollarsToMinor(payment.foreignAmount)
           : 0,
+      allocations: payment.allocations.map((allocation) => ({
+        ...allocation,
+        amountMnt: Number(allocation.amountMnt.replace(/[\s,]/g, "")),
+      })),
     }));
-    if (!contractDraft.activityKey || !contractDraft.budgetKey) {
-      toast.error("Choose a workplan activity or sub-activity.");
+    if (
+      !fundingAllocations.length ||
+      fundingAllocations.some(
+        (allocation) =>
+          !allocation.activityKey ||
+          !allocation.budgetKey ||
+          !Number.isSafeInteger(allocation.amountMnt) ||
+          allocation.amountMnt <= 0,
+      )
+    ) {
+      toast.error("Choose a workplan item and amount for every funding allocation.");
       return;
     }
     if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
@@ -2498,6 +2906,21 @@ export default function Home() {
         return { ...payment, amountMnt: paymentAmount };
       });
     }
+    const fundingTotal = fundingAllocations.reduce(
+      (total, allocation) => total + allocation.amountMnt,
+      0,
+    );
+    const fundingKeys = new Set(
+      fundingAllocations.map((allocation) => contractFundingDraftKey(allocation)),
+    );
+    if (fundingKeys.size !== fundingAllocations.length) {
+      toast.error("Each workplan funding line can be selected only once.");
+      return;
+    }
+    if (fundingTotal !== amountMnt) {
+      toast.error("Funding allocations must total the contract amount.");
+      return;
+    }
     const paymentAmountTotal = payments.reduce(
       (total, payment) => total + payment.amountMnt,
       0,
@@ -2510,6 +2933,42 @@ export default function Home() {
       toast.error("Payments must total the contract amount and 100%.");
       return;
     }
+    const scheduledByFunding = new Map<string, number>();
+    for (const payment of payments) {
+      const paymentFundingTotal = payment.allocations.reduce(
+        (total, allocation) => total + allocation.amountMnt,
+        0,
+      );
+      if (
+        paymentFundingTotal !== payment.amountMnt ||
+        payment.allocations.some(
+          (allocation) =>
+            !fundingKeys.has(contractFundingDraftKey(allocation)) ||
+            !Number.isSafeInteger(allocation.amountMnt) ||
+            allocation.amountMnt <= 0,
+        )
+      ) {
+        toast.error("Each payment funding split must total that payment amount.");
+        return;
+      }
+      for (const allocation of payment.allocations) {
+        const key = contractFundingDraftKey(allocation);
+        scheduledByFunding.set(
+          key,
+          (scheduledByFunding.get(key) ?? 0) + allocation.amountMnt,
+        );
+      }
+    }
+    if (
+      fundingAllocations.some(
+        (allocation) =>
+          (scheduledByFunding.get(contractFundingDraftKey(allocation)) ?? 0) !==
+          allocation.amountMnt,
+      )
+    ) {
+      toast.error("Payment splits must fully distribute every funding allocation.");
+      return;
+    }
     setContractSaving(true);
     try {
       const response = await fetch("/api/contracts", {
@@ -2518,10 +2977,13 @@ export default function Home() {
         body: JSON.stringify({
           ...(editingContractId ? { id: editingContractId } : {}),
           ...contractDraft,
+          budgetKey: fundingAllocations[0].budgetKey,
+          activityKey: fundingAllocations[0].activityKey,
           planYear: selectedYear,
           amountMnt,
           foreignAmountMinor,
           exchangeRateMnt,
+          allocations: fundingAllocations,
           payments,
         }),
       });
@@ -4104,13 +4566,18 @@ export default function Home() {
       totals.set(entry.budgetKey, current);
     }
     for (const contract of contracts) {
-      const current = totals.get(contract.budgetKey) ?? {
-        commitment: 0,
-        expenditure: 0,
-      };
-      current.commitment += contractCommitmentMnt(contract);
-      current.expenditure += contractPaidMnt(contract);
-      totals.set(contract.budgetKey, current);
+      const budgetKeys = new Set(
+        (contract.allocations ?? []).map((allocation) => allocation.budgetKey),
+      );
+      for (const budgetKey of budgetKeys) {
+        const current = totals.get(budgetKey) ?? {
+          commitment: 0,
+          expenditure: 0,
+        };
+        current.commitment += contractCommittedForBudget(contract, budgetKey);
+        current.expenditure += contractPaidForBudget(contract, budgetKey);
+        totals.set(budgetKey, current);
+      }
     }
     return totals;
   }, [contracts, financeEntries]);
@@ -4257,16 +4724,17 @@ export default function Home() {
   const filteredContracts = useMemo(() => {
     const normalized = contractQuery.trim().toLocaleLowerCase();
     return contracts.filter((contract) => {
-      const target = contractTargets.find((item) => item.key === contract.activityKey);
-      const line = allBudgetLines.find((item) => item.id === contract.budgetKey);
+      const linkedLabels = (contract.allocations ?? []).flatMap((allocation) => {
+        const target = contractTargets.find((item) => item.key === allocation.activityKey);
+        const line = allBudgetLines.find((item) => item.id === allocation.budgetKey);
+        return [target?.code, target?.label, line?.code, line?.title];
+      });
       const haystack = [
         contract.contractNumber,
         contract.torName,
         contract.serviceProviderName,
         contract.serviceProviderType,
-        target?.code,
-        target?.label,
-        line?.title,
+        ...linkedLabels,
       ]
         .join(" ")
         .toLocaleLowerCase();
@@ -4373,7 +4841,9 @@ export default function Home() {
 
   const dashboardContractStats = useMemo(() => {
     const keys = new Set(dashboardBudgetLines.map((line) => line.id));
-    const scoped = contracts.filter((contract) => keys.has(contract.budgetKey));
+    const scoped = contracts.filter((contract) =>
+      (contract.allocations ?? []).some((allocation) => keys.has(allocation.budgetKey)),
+    );
     const counts = {
       draft: scoped.filter((contract) => contract.status === "draft").length,
       active: scoped.filter((contract) => contract.status === "active").length,
@@ -4586,8 +5056,21 @@ export default function Home() {
         !contract.serviceProviderType.trim() ||
         !contract.startDate ||
         !contract.endDate ||
+        !contract.allocations?.length ||
+        (contract.allocations ?? []).reduce(
+          (total, allocation) => total + allocation.amountMnt,
+          0,
+        ) !== contract.amountMnt ||
         !contract.payments.length ||
-        contract.payments.some((payment) => !payment.deliverable.trim()),
+        contract.payments.some(
+          (payment) =>
+            !payment.deliverable.trim() ||
+            !payment.allocations?.length ||
+            payment.allocations.reduce(
+              (total, allocation) => total + allocation.amountMnt,
+              0,
+            ) !== payment.amountMnt,
+        ),
     ).length;
     const incompleteFinanceEntries = financeEntries.filter(
       (entry) =>
@@ -4642,7 +5125,9 @@ export default function Home() {
     const openContractKeys = new Set(
       contracts
         .filter((contract) => ["draft", "active"].includes(contract.status))
-        .map((contract) => contract.activityKey),
+        .flatMap((contract) =>
+          (contract.allocations ?? []).map((allocation) => allocation.activityKey),
+        ),
     );
     const activities = allActivities.filter((activity) => {
       if (copyCurrentYear) return true;
@@ -5059,15 +5544,38 @@ export default function Home() {
       downloadContractsExcel({
         year: selectedYear,
         contracts: filteredContracts.map((contract) => {
-          const line = allBudgetLines.find((item) => item.id === contract.budgetKey);
-          const target = contractTargets.find((item) => item.key === contract.activityKey);
+          const fundingAllocations = (contract.allocations ?? []).map((allocation) => {
+            const line = allBudgetLines.find((item) => item.id === allocation.budgetKey);
+            const target = contractTargets.find((item) => item.key === allocation.activityKey);
+            const paidMnt = contract.payments
+              .filter((payment) => Boolean(payment.paid))
+              .flatMap((payment) => payment.allocations ?? [])
+              .filter(
+                (paymentAllocation) =>
+                  paymentAllocation.budgetKey === allocation.budgetKey &&
+                  paymentAllocation.activityKey === allocation.activityKey,
+              )
+              .reduce((total, paymentAllocation) => total + paymentAllocation.amountMnt, 0);
+            return {
+              budgetLine: line ? `${line.code} · ${line.title}` : "Removed budget line",
+              activityCode: target?.code ?? "",
+              activityTitle: target?.label ?? "Removed workplan item",
+              activityLevel: target?.kind === "subactivity" ? "Sub-activity" : "Main activity",
+              amountMnt: allocation.amountMnt,
+              paidMnt,
+              commitmentMnt:
+                contract.status === "closed"
+                  ? 0
+                  : Math.max(allocation.amountMnt - paidMnt, 0),
+            };
+          });
           return {
             contractNumber: contract.contractNumber,
             status: contractStatusMeta[contract.status].label,
-            budgetLine: line ? `${line.code} · ${line.title}` : "Removed budget line",
-            activityCode: target?.code ?? "",
-            activityTitle: target?.label ?? "Removed workplan item",
-            activityLevel: target?.kind === "subactivity" ? "Sub-activity" : "Main activity",
+            budgetLine: fundingAllocations.map((item) => item.budgetLine).join("\n"),
+            activityCode: fundingAllocations.map((item) => item.activityCode).join("\n"),
+            activityTitle: fundingAllocations.map((item) => item.activityTitle).join("\n"),
+            activityLevel: fundingAllocations.map((item) => item.activityLevel).join("\n"),
             torName: contract.torName,
             providerName: contract.serviceProviderName,
             providerType: contract.serviceProviderType,
@@ -5082,6 +5590,7 @@ export default function Home() {
             updatedAt: contract.updatedAt,
             updatedBy: contract.updatedBy,
             transferredFromYear: contract.transferredFromYear,
+            fundingAllocations,
             payments: contract.payments.map((payment) => ({
               sequence: payment.sequence,
               label: payment.label,
@@ -5092,6 +5601,14 @@ export default function Home() {
               amountMnt: payment.amountMnt,
               foreignAmountMinor: payment.foreignAmountMinor,
               paid: Boolean(payment.paid),
+              fundingSplit: (payment.allocations ?? [])
+                .map((allocation) => {
+                  const target = contractTargets.find(
+                    (item) => item.key === allocation.activityKey,
+                  );
+                  return `${target?.code ?? "Workplan"}: ${formatMnt(allocation.amountMnt)}`;
+                })
+                .join(" · "),
             })),
           };
         }),
@@ -7177,12 +7694,15 @@ export default function Home() {
 
               <div className="space-y-3 bg-[#f7f9f5] p-3 sm:p-4">
                 {filteredContracts.map((contract) => {
-                  const target = contractTargets.find(
-                    (item) => item.key === contract.activityKey,
-                  );
-                  const line = allBudgetLines.find(
-                    (item) => item.id === contract.budgetKey,
-                  );
+                  const fundingDetails = (contract.allocations ?? []).map((allocation) => ({
+                    allocation,
+                    target: contractTargets.find(
+                      (item) => item.key === allocation.activityKey,
+                    ),
+                    line: allBudgetLines.find(
+                      (item) => item.id === allocation.budgetKey,
+                    ),
+                  }));
                   const paidMnt = contractPaidMnt(contract);
                   const commitmentMnt = contractCommitmentMnt(contract);
                   const expanded = expandedContractIds.has(contract.id);
@@ -7215,7 +7735,7 @@ export default function Home() {
                               {contract.serviceProviderName} · {contract.serviceProviderType}
                             </p>
                             <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
-                              {line?.code ?? "Budget"} · {target?.code ?? "Workplan"} · {target?.kind === "subactivity" ? "Sub-activity · " : ""}{target ? localizedTargetLabel(target, allActivities, language) : "Removed workplan item"}
+                              {fundingDetails.length} funding line{fundingDetails.length === 1 ? "" : "s"} · {fundingDetails.map(({ line, target }) => `${line?.code ?? "Budget"} / ${target?.code ?? "Workplan"}`).join(" · ")}
                             </p>
                             <p className="mt-1 text-xs text-[#718178]">
                               {formatDate(contract.startDate, language)} – {formatDate(contract.endDate, language)}
@@ -7302,6 +7822,45 @@ export default function Home() {
 
                       {expanded && (
                         <div className="border-t border-[#dfe7dc] bg-[#fbfcfa] p-3 sm:p-4">
+                          <section className="mb-4 rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-black">Funding allocation</p>
+                                <p className="text-xs text-[#718178]">Contract value distributed across connected workplan lines.</p>
+                              </div>
+                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#315845]">
+                                {fundingDetails.length} line{fundingDetails.length === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-2">
+                              {fundingDetails.map(({ allocation, line, target }) => {
+                                const paid = contract.payments
+                                  .filter((payment) => Boolean(payment.paid))
+                                  .flatMap((payment) => payment.allocations ?? [])
+                                  .filter(
+                                    (item) =>
+                                      item.budgetKey === allocation.budgetKey &&
+                                      item.activityKey === allocation.activityKey,
+                                  )
+                                  .reduce((total, item) => total + item.amountMnt, 0);
+                                return (
+                                  <div key={allocation.id} className="rounded-lg border border-white bg-white p-3">
+                                    <p className="font-mono text-xs font-black text-[#2f634c]">
+                                      {line?.code ?? "Budget"} · {target?.code ?? "Workplan"}
+                                    </p>
+                                    <p className="mt-1 line-clamp-2 text-xs font-semibold text-[#53685c]">
+                                      {target ? localizedTargetLabel(target, allActivities, language) : "Removed workplan item"}
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                                      <span><b>Allocated:</b> {formatMnt(allocation.amountMnt)}</span>
+                                      <span><b>Paid:</b> {formatMnt(paid)}</span>
+                                      <span><b>Committed:</b> {formatMnt(contract.status === "closed" ? 0 : Math.max(allocation.amountMnt - paid, 0))}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
                           <div className="space-y-3">
                             {contract.payments.map((payment) => (
                               <div
@@ -7370,6 +7929,15 @@ export default function Home() {
                                     Paid {formatDate(payment.paidAt, language)}
                                   </p>
                                 )}
+                                <div className="rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs lg:col-span-7">
+                                  <span className="font-bold text-[#53685c]">Funding split: </span>
+                                  {(payment.allocations ?? []).map((allocation) => {
+                                    const target = contractTargets.find(
+                                      (item) => item.key === allocation.activityKey,
+                                    );
+                                    return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
+                                  }).join(" · ") || "Not assigned"}
+                                </div>
                                 <div className="flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3 lg:col-span-7">
                                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
                                     <FileUp className="h-4 w-4" />
@@ -9425,8 +9993,11 @@ export default function Home() {
                   );
                   const targetContracts = contracts.filter(
                     (contract) =>
-                      contract.budgetKey === selectedBudgetLine.id &&
-                      rollupKeys.has(contract.activityKey),
+                      (contract.allocations ?? []).some(
+                        (item) =>
+                          item.budgetKey === selectedBudgetLine.id &&
+                          rollupKeys.has(item.activityKey),
+                      ),
                   );
                   const targetFinance = targetEntries.reduce(
                     (totals, entry) => ({
@@ -9436,11 +10007,23 @@ export default function Home() {
                     { commitment: 0, expenditure: 0 },
                   );
                   targetFinance.commitment += targetContracts.reduce(
-                    (total, contract) => total + contractCommitmentMnt(contract),
+                    (total, contract) =>
+                      total +
+                      contractCommittedForTargets(
+                        contract,
+                        selectedBudgetLine.id,
+                        rollupKeys,
+                      ),
                     0,
                   );
                   targetFinance.expenditure += targetContracts.reduce(
-                    (total, contract) => total + contractPaidMnt(contract),
+                    (total, contract) =>
+                      total +
+                      contractPaidForTargets(
+                        contract,
+                        selectedBudgetLine.id,
+                        rollupKeys,
+                      ),
                     0,
                   );
                   const childAllocatedMnt =
@@ -9458,7 +10041,12 @@ export default function Home() {
                     targetEntries.filter((entry) => entry.entryType === "commitment")
                       .length +
                     targetContracts.filter(
-                      (contract) => contractCommitmentMnt(contract) > 0,
+                      (contract) =>
+                        contractCommittedForTargets(
+                          contract,
+                          selectedBudgetLine.id,
+                          rollupKeys,
+                        ) > 0,
                     ).length;
                   const expenditureEntryCount =
                     targetEntries.filter((entry) => entry.entryType === "expenditure")
@@ -9466,8 +10054,15 @@ export default function Home() {
                     targetContracts.reduce(
                       (total, contract) =>
                         total +
-                        contract.payments.filter((payment) => Boolean(payment.paid))
-                          .length,
+                        contract.payments.filter(
+                          (payment) =>
+                            Boolean(payment.paid) &&
+                            (payment.allocations ?? []).some(
+                              (item) =>
+                                item.budgetKey === selectedBudgetLine.id &&
+                                rollupKeys.has(item.activityKey),
+                            ),
+                        ).length,
                       0,
                     );
                   const subactivityCount = selectedBudgetTargets.filter(
@@ -9720,13 +10315,25 @@ export default function Home() {
                                   <div>
                                     <p className="text-[11px] font-semibold text-[#718178]">Committed</p>
                                     <p className="text-sm font-black tabular-nums">
-                                      {formatMnt(contractCommitmentMnt(contract))}
+                                      {formatMnt(
+                                        contractCommittedForTargets(
+                                          contract,
+                                          selectedBudgetLine.id,
+                                          rollupKeys,
+                                        ),
+                                      )}
                                     </p>
                                   </div>
                                   <div>
                                     <p className="text-[11px] font-semibold text-[#718178]">Paid</p>
                                     <p className="text-sm font-black tabular-nums text-emerald-800">
-                                      {formatMnt(contractPaidMnt(contract))}
+                                      {formatMnt(
+                                        contractPaidForTargets(
+                                          contract,
+                                          selectedBudgetLine.id,
+                                          rollupKeys,
+                                        ),
+                                      )}
                                     </p>
                                   </div>
                                   <Button
@@ -10113,28 +10720,101 @@ export default function Home() {
                   ))}
                 </NativeSelect>
               </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-bold">
-                  Workplan activity or sub-activity
-                </span>
-                <NativeSelect
-                  value={contractDraft.activityKey}
-                  onChange={(event) => selectContractTarget(event.target.value)}
-                  className="h-11 w-full border-[#cbd6cc] bg-white"
-                >
-                  <NativeSelectOption value="">Choose workplan item</NativeSelectOption>
-                  {contractTargets.map((target) => (
-                    <NativeSelectOption key={target.key} value={target.key}>
-                      {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{localizedTargetLabel(target, allActivities, language)}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-                {contractDraft.budgetKey && (
-                  <span className="mt-1.5 block text-xs font-semibold text-[#2f634c]">
-                    Budget line: {allBudgetLines.find((line) => line.id === contractDraft.budgetKey)?.code ?? "—"}
+              <section className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3 sm:col-span-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black">Funding allocation</h3>
+                    <p className="mt-0.5 text-xs text-[#718178]">
+                      Connect one contract to one or more workplan lines. Allocations must equal the contract total.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={addContractFundingAllocation}>
+                    <Plus className="h-4 w-4" /> Add workplan line
+                  </Button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {contractDraft.allocations.map((allocation, index) => {
+                    const line = allBudgetLines.find(
+                      (item) => item.id === allocation.budgetKey,
+                    );
+                    return (
+                      <div
+                        key={allocation.id || `funding-${index}`}
+                        className="grid gap-2 rounded-lg border border-white bg-white p-3 md:grid-cols-[minmax(0,1fr)_190px_auto] md:items-end"
+                      >
+                        <label className="block min-w-0">
+                          <span className="mb-1 block text-xs font-bold text-[#53685c]">
+                            Workplan activity or sub-activity
+                          </span>
+                          <NativeSelect
+                            value={allocation.activityKey}
+                            onChange={(event) =>
+                              selectContractTarget(index, event.target.value)
+                            }
+                            className="h-10 w-full border-[#cbd6cc] bg-white"
+                          >
+                            <NativeSelectOption value="">Choose workplan item</NativeSelectOption>
+                            {contractTargets.map((target) => (
+                              <NativeSelectOption
+                                key={target.key}
+                                value={target.key}
+                                disabled={contractDraft.allocations.some(
+                                  (item, itemIndex) =>
+                                    itemIndex !== index && item.activityKey === target.key,
+                                )}
+                              >
+                                {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{localizedTargetLabel(target, allActivities, language)}
+                              </NativeSelectOption>
+                            ))}
+                          </NativeSelect>
+                          {line && (
+                            <span className="mt-1 block text-[11px] font-semibold text-[#2f634c]">
+                              Budget {line.code} · available before this contract {formatMnt(contractBudgetAvailable(line.id))}
+                            </span>
+                          )}
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-bold text-[#53685c]">
+                            Contract allocation (MNT)
+                          </span>
+                          <Input
+                            value={allocation.amountMnt}
+                            inputMode="numeric"
+                            onChange={(event) =>
+                              updateContractFundingAllocation(index, event.target.value)
+                            }
+                            className="h-10 border-[#cbd6cc] bg-white"
+                            placeholder="50,000,000"
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => removeContractFundingAllocation(index)}
+                          disabled={contractDraft.allocations.length === 1}
+                          className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                          aria-label={`Remove funding allocation ${index + 1}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-xs">
+                  <span className="font-semibold text-[#53685c]">Funding allocation total</span>
+                  <span className="font-black tabular-nums">
+                    {formatMnt(
+                      contractDraft.allocations.reduce(
+                        (total, allocation) =>
+                          total + Number(allocation.amountMnt.replace(/,/g, "") || 0),
+                        0,
+                      ),
+                    )}
                   </span>
-                )}
-              </label>
+                </div>
+              </section>
               <label className="block sm:col-span-2">
                 <span className="mb-1.5 block text-sm font-bold">
                   Terms of Reference (ToR) name
@@ -10232,10 +10912,18 @@ export default function Home() {
                       amountMnt: "",
                       foreignAmount: "",
                       exchangeRateMnt: "",
+                      allocations: current.allocations.map((allocation) => ({
+                        ...allocation,
+                        amountMnt: "",
+                      })),
                       payments: current.payments.map((payment) => ({
                         ...payment,
                         amountMnt: "",
                         foreignAmount: "",
+                        allocations: payment.allocations.map((allocation) => ({
+                          ...allocation,
+                          amountMnt: "",
+                        })),
                       })),
                     }));
                   }}
@@ -10403,6 +11091,68 @@ export default function Home() {
                           </span>
                         )}
                       </label>
+                    </div>
+                    <div className="mt-3 rounded-lg border border-[#dfe7dc] bg-[#f6f9f4] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black text-[#315845]">Payment funding split</p>
+                          <p className="mt-0.5 text-[11px] text-[#718178]">
+                            Assign this payment across the contract funding lines.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => applyProportionalPaymentSplit(index)}
+                          disabled={payment.paid || !contractDraft.allocations.length}
+                          className="h-8 px-2.5 text-xs"
+                        >
+                          Use proportional split
+                        </Button>
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-2">
+                        {payment.allocations.map((allocation, allocationIndex) => {
+                          const target = contractTargets.find(
+                            (item) => item.key === allocation.activityKey,
+                          );
+                          return (
+                            <label
+                              key={`${contractFundingDraftKey(allocation)}-${allocationIndex}`}
+                              className="block rounded-md bg-white p-2"
+                            >
+                              <span className="mb-1 block truncate text-[11px] font-bold text-[#53685c]">
+                                {target?.code ?? "Choose funding line"} · {target ? localizedTargetLabel(target, allActivities, language) : "Unassigned"}
+                              </span>
+                              <Input
+                                value={allocation.amountMnt}
+                                inputMode="numeric"
+                                onChange={(event) =>
+                                  updatePaymentFundingSplit(
+                                    index,
+                                    allocationIndex,
+                                    event.target.value,
+                                  )
+                                }
+                                disabled={payment.paid}
+                                className="h-9 border-[#cbd6cc] bg-white"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span className="font-semibold text-[#718178]">Split total</span>
+                        <span className="font-black tabular-nums">
+                          {formatMnt(
+                            payment.allocations.reduce(
+                              (total, allocation) =>
+                                total + Number(allocation.amountMnt.replace(/,/g, "") || 0),
+                              0,
+                            ),
+                          )}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}

@@ -4,6 +4,8 @@ import { getDb } from "@/db";
 import {
   activityUpdates,
   auditLogs,
+  contractFundingAllocations,
+  contractPaymentAllocations,
   contractPayments,
   contracts,
   financeEntries,
@@ -54,8 +56,18 @@ async function currentSnapshot(resource: string, data: unknown) {
     const id = String(contractData?.id ?? "");
     const [contract] = await db.select().from(contracts).where(eq(contracts.id, id)).limit(1);
     if (!contract) return null;
-    const payments = await db.select().from(contractPayments).where(eq(contractPayments.contractId, id));
-    return snapshot("contract", { contract, payments });
+    const [payments, allocations, paymentAllocations] = await Promise.all([
+      db.select().from(contractPayments).where(eq(contractPayments.contractId, id)),
+      db
+        .select()
+        .from(contractFundingAllocations)
+        .where(eq(contractFundingAllocations.contractId, id)),
+      db
+        .select()
+        .from(contractPaymentAllocations)
+        .where(eq(contractPaymentAllocations.contractId, id)),
+    ]);
+    return snapshot("contract", { contract, allocations, payments, paymentAllocations });
   }
   return null;
 }
@@ -98,14 +110,47 @@ async function restoreSnapshot(value: ReturnType<typeof parseAuditSnapshot>) {
   }
   if (value.resource === "contract") {
     const contract = data?.contract as typeof contracts.$inferInsert | undefined;
-    const payments = (data?.payments ?? []) as Array<typeof contractPayments.$inferInsert>;
+    const rawPayments = (data?.payments ?? []) as Array<
+      typeof contractPayments.$inferInsert & {
+        allocations?: Array<typeof contractPaymentAllocations.$inferInsert>;
+      }
+    >;
+    const payments = rawPayments.map(({ allocations: _allocations, ...payment }) => {
+      void _allocations;
+      return payment;
+    });
+    const allocations = (data?.allocations ?? []) as Array<
+      typeof contractFundingAllocations.$inferInsert
+    >;
+    const paymentAllocations = (
+      (data?.paymentAllocations as Array<typeof contractPaymentAllocations.$inferInsert>) ??
+      rawPayments.flatMap((payment) => payment.allocations ?? [])
+    ).map((allocation) => ({
+      id: allocation.id,
+      contractId: allocation.contractId,
+      paymentId: allocation.paymentId,
+      fundingAllocationId: allocation.fundingAllocationId,
+      amountMnt: allocation.amountMnt,
+      createdAt: allocation.createdAt,
+      updatedAt: allocation.updatedAt,
+    }));
     if (!contract?.id) return;
     await db.insert(contracts).values(contract).onConflictDoUpdate({
       target: contracts.id,
       set: contract,
     });
+    await db
+      .delete(contractPaymentAllocations)
+      .where(eq(contractPaymentAllocations.contractId, contract.id));
+    await db
+      .delete(contractFundingAllocations)
+      .where(eq(contractFundingAllocations.contractId, contract.id));
     await db.delete(contractPayments).where(eq(contractPayments.contractId, contract.id));
     if (payments.length) await db.insert(contractPayments).values(payments);
+    if (allocations.length) await db.insert(contractFundingAllocations).values(allocations);
+    if (paymentAllocations.length) {
+      await db.insert(contractPaymentAllocations).values(paymentAllocations);
+    }
   }
 }
 
@@ -124,6 +169,12 @@ async function removeResource(value: ReturnType<typeof parseAuditSnapshot>) {
   } else if (value.resource === "contract") {
     const contract = data?.contract as Record<string, unknown> | undefined;
     const id = String(contract?.id ?? "");
+    await db
+      .delete(contractPaymentAllocations)
+      .where(eq(contractPaymentAllocations.contractId, id));
+    await db
+      .delete(contractFundingAllocations)
+      .where(eq(contractFundingAllocations.contractId, id));
     await db.delete(contractPayments).where(eq(contractPayments.contractId, id));
     await db.delete(contracts).where(eq(contracts.id, id));
   }
