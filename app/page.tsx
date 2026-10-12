@@ -7697,7 +7697,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="grid gap-3 bg-[#f7f9f5] p-3 sm:p-4 lg:grid-cols-2">
+              <div className="space-y-3 bg-[#f7f9f5] p-3 sm:p-4">
                 {filteredContracts.map((contract) => {
                   const fundingDetails = (contract.allocations ?? []).map((allocation) => ({
                     allocation,
@@ -7728,7 +7728,7 @@ export default function Home() {
                           void loadContractDocuments(contract.id);
                         }
                       }}
-                      className="group cursor-pointer overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)] transition hover:-translate-y-0.5 hover:border-[#7ea18d] hover:shadow-[0_12px_28px_rgba(20,36,27,0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
+                      className="cursor-pointer overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)] transition-colors hover:border-[#9bb3a3] hover:bg-[#fbfdfb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
                     >
                       <div className="p-3 sm:p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -7827,7 +7827,7 @@ export default function Home() {
                             setContractDetailId(contract.id);
                             void loadContractDocuments(contract.id);
                           }}
-                          className="mt-3 h-8 px-2.5 text-xs group-hover:border-[#7ea18d]"
+                          className="mt-3 h-8 px-2.5 text-xs"
                         >
                           Open contract <ChevronRight className="h-4 w-4" />
                         </Button>
@@ -7996,7 +7996,7 @@ export default function Home() {
                 })}
 
                 {contractState === "ready" && filteredContracts.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center lg:col-span-2">
+                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center">
                     <ReceiptText className="mx-auto h-7 w-7 text-[#779083]" />
                     <p className="mt-3 font-black">
                       {contracts.length ? "No contracts match these filters" : "No contracts yet"}
