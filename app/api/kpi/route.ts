@@ -343,3 +343,69 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await requireAppSession(request);
+    if (session instanceof Response) return session;
+    const payload = (await request.json()) as Record<string, unknown>;
+    const id = text(payload.id, 180);
+    if (!id) {
+      return Response.json({ error: "Choose a valid KPI assessment." }, { status: 400 });
+    }
+
+    const db = getDb();
+    const [review] = await db
+      .select()
+      .from(staffKpiReviews)
+      .where(eq(staffKpiReviews.id, id))
+      .limit(1);
+    if (!review) {
+      return Response.json({ error: "KPI assessment not found." }, { status: 404 });
+    }
+
+    const access = await kpiAccess(review.memberId, session.memberId);
+    const mayDeleteOwnSubmission =
+      access.isSelf && ["draft", "submitted"].includes(review.workflowStatus);
+    const mayDeleteReviewedAssessment =
+      access.isReviewer && review.workflowStatus === "reviewed";
+    if (!session.isAdmin && !mayDeleteOwnSubmission && !mayDeleteReviewedAssessment) {
+      const message = review.workflowStatus === "approved"
+        ? "Only an administrator can delete an approved KPI assessment."
+        : review.workflowStatus === "reviewed"
+          ? "Only the assigned Supervisor or an administrator can delete a reviewed KPI assessment."
+          : "Only the staff member or an administrator can delete this KPI assessment.";
+      return Response.json({ error: message }, { status: 403 });
+    }
+
+    const now = new Date().toISOString();
+    await db.insert(staffKpiHistory).values({
+      id: `kpi-history-${crypto.randomUUID()}`,
+      reviewId: review.id,
+      snapshot: JSON.stringify({
+        ...review,
+        deletion: {
+          deleted: true,
+          deletedAt: now,
+          deletedBy: session.email,
+          previousStatus: review.workflowStatus,
+        },
+      }),
+      changedAt: now,
+      changedBy: session.email,
+    });
+    await db.delete(staffKpiReviews).where(eq(staffKpiReviews.id, review.id));
+
+    return Response.json({
+      deletedId: review.id,
+      period: review.period,
+      previousStatus: review.workflowStatus,
+    });
+  } catch (error) {
+    console.error("Unable to delete staff KPI review", error);
+    return Response.json(
+      { error: "The KPI assessment could not be deleted." },
+      { status: 503 },
+    );
+  }
+}

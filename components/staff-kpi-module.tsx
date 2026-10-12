@@ -18,6 +18,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -342,6 +352,8 @@ export function StaffKpiModule({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<KpiHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<KpiReview | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const activeMemberId = accessibleMembers.some((member) => member.id === memberId)
     ? memberId
     : accessibleMembers.some((member) => member.id === session?.memberId)
@@ -502,6 +514,36 @@ export function StaffKpiModule({
     }
   }
 
+  function canDeleteReview(review: KpiReview) {
+    if (session?.isAdmin) return true;
+    if (isOwnReview && ["draft", "submitted"].includes(review.workflowStatus)) return true;
+    return canReview && review.workflowStatus === "reviewed";
+  }
+
+  async function deleteReview() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const response = await fetch("/api/kpi", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: deleteTarget.id }),
+      });
+      const result = (await response.json()) as { deletedId?: string; error?: string };
+      if (!response.ok || !result.deletedId) {
+        throw new Error(result.error || "KPI assessment could not be deleted.");
+      }
+      setReviews((current) => current.filter((review) => review.id !== result.deletedId));
+      if (editingId === result.deletedId) setDialogOpen(false);
+      toast.success(`${deleteTarget.period} KPI assessment deleted`);
+      setDeleteTarget(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "KPI assessment could not be deleted.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!session || !accessibleMembers.length) {
     return (
       <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-white px-6 py-12 text-center text-sm text-[#718178]">
@@ -564,6 +606,7 @@ export function StaffKpiModule({
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" onClick={() => openReview(period)} className="h-8 flex-1 bg-[#0c3b2d] px-2 text-xs text-white hover:bg-[#174d3a]"><PencilLine className="h-3.5 w-3.5" /> {review ? "Open" : "Create"}</Button>
                   {review && <Button size="sm" variant="outline" onClick={() => void openHistory(review)} className="h-8 px-2 text-xs"><History className="h-3.5 w-3.5" /><span className="sr-only">History</span></Button>}
+                  {review && canDeleteReview(review) && <Button size="sm" variant="outline" onClick={() => setDeleteTarget(review)} className="h-8 border-rose-200 px-2 text-xs text-rose-700 hover:bg-rose-50 hover:text-rose-800" aria-label={`Delete ${period} KPI assessment`} title="Delete KPI assessment"><Trash2 className="h-3.5 w-3.5" /></Button>}
                 </div>
               </article>
             );
@@ -634,6 +677,35 @@ export function StaffKpiModule({
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl"><DialogHeader><DialogTitle>KPI change history</DialogTitle><DialogDescription>Every saved version is retained with the editor and time.</DialogDescription></DialogHeader>{historyLoading ? <p className="py-8 text-center text-sm text-[#718178]">Loading history…</p> : <div className="space-y-2">{history.map((item, index) => <article key={item.id} className="rounded-xl border border-[#d7ded5] p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm font-black">Version {history.length - index}</p><span className="text-xs text-[#718178]">{formatDate(item.changedAt)}</span></div><p className="mt-1 text-xs text-[#718178]">Changed by {item.changedBy}</p>{item.snapshot && <div className="mt-2 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-[#edf3ec] px-2 py-1">{item.snapshot.workflowStatus}</span><span className="rounded-full bg-[#edf3ec] px-2 py-1">Score {finalScore(item.snapshot)}%</span><span className="rounded-full bg-[#edf3ec] px-2 py-1">{parseKeys(item.snapshot.linkedActivityKeys).length} activities</span></div>}</article>)}{!history.length && <p className="py-8 text-center text-sm text-[#718178]">No saved history yet.</p>}</div>}</DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{`Delete ${deleteTarget?.period ?? ""} KPI assessment?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the submitted assessment from the KPI screen. A deletion record, including the previous assessment and who deleted it, will remain in the audit history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteTarget?.workflowStatus === "approved" && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+              This assessment is approved. Administrator access is required to delete it.
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteReview();
+              }}
+              className="bg-rose-700 text-white hover:bg-rose-800"
+            >
+              {deleting ? "Deleting…" : "Delete KPI"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
