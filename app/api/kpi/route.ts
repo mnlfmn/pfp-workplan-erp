@@ -67,6 +67,7 @@ function assessmentDetails(value: unknown) {
           activityKey: text(row.activityKey, 180),
           selfScore: optionalBoundedScore(row.selfScore),
           reviewScore: optionalBoundedScore(row.reviewScore),
+          note: text(row.note, 3000),
         };
       }).filter((item) => item.activityKey)
     : [];

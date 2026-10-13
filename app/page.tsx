@@ -5955,53 +5955,53 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="order-3 w-full min-w-0 basis-full pb-1 2xl:order-2 2xl:w-auto 2xl:basis-auto 2xl:flex-1 2xl:border-l 2xl:border-white/15 2xl:pl-5 2xl:pb-0">
-            <TabsList className="flex h-auto w-full flex-wrap items-center gap-1 bg-transparent p-0">
+          <div className="order-3 min-h-[84px] w-full min-w-0 basis-full pb-1 min-[900px]:min-h-0 min-[1400px]:order-2 min-[1400px]:w-auto min-[1400px]:basis-auto min-[1400px]:flex-1 min-[1400px]:border-l min-[1400px]:border-white/15 min-[1400px]:pl-4 min-[1400px]:pb-0">
+            <TabsList className="grid h-auto! w-full grid-cols-3 items-center gap-1 bg-transparent p-0 min-[900px]:flex min-[900px]:flex-nowrap">
               <TabsTrigger
                 value="dashboard"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <LayoutDashboard className="h-4 w-4" />
                 Dashboard
               </TabsTrigger>
               <TabsTrigger
                 value="workplan"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <ListChecks className="h-4 w-4" />
-                Workplan
+                Plans
               </TabsTrigger>
               <TabsTrigger
                 value="contracts"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <ReceiptText className="h-4 w-4" />
                 Contracts
               </TabsTrigger>
               <TabsTrigger
                 value="team"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <Users className="h-4 w-4" />
                 {currentSession?.isAdmin ? "Team Performance" : "My Performance"}
               </TabsTrigger>
               <TabsTrigger
                 value="reports"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <BarChart3 className="h-4 w-4" />
                 MEL
               </TabsTrigger>
               <TabsTrigger
                 value="access"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
+                className="h-10 w-full flex-none rounded-lg border-0! px-3 text-[13px] font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! min-[900px]:w-auto min-[1680px]:px-4 min-[1680px]:text-sm"
               >
                 <ShieldCheck className="h-4 w-4" />
                 Admin Control
               </TabsTrigger>
             </TabsList>
           </div>
-          <div className="order-2 ml-auto flex shrink-0 items-center gap-2 2xl:order-3 2xl:ml-0">
+          <div className="order-2 ml-auto flex shrink-0 items-center gap-2 min-[1400px]:order-3 min-[1400px]:ml-0">
             <div className="flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 pl-2 text-white/80">
               <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
               <NativeSelect
@@ -6470,7 +6470,7 @@ export default function Home() {
           <TabsContent value="workplan" className="space-y-6">
 
         <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
-            <button type="button" onClick={() => setWorkplanSection("finance")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "finance" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><Banknote className="h-4 w-4" /> Finance</button>
+            <button type="button" onClick={() => setWorkplanSection("finance")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "finance" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><Banknote className="h-4 w-4" /> Financial Plan</button>
             <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ListChecks className="h-4 w-4" /> Work Plan</button>
             <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
         </div>
@@ -7119,7 +7119,7 @@ export default function Home() {
             <nav className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Finance breadcrumb">
               <button type="button" onClick={() => setWorkplanSection("activities")} className="hover:text-[#174734]">Work Plan</button>
               <ChevronRight className="h-4 w-4" />
-              <button type="button" onClick={() => setSelectedBudgetKey(null)} className="hover:text-[#174734]">Finance</button>
+              <button type="button" onClick={() => setSelectedBudgetKey(null)} className="hover:text-[#174734]">Financial Plan</button>
               {selectedBudgetKey && (
                 <>
                   <ChevronRight className="h-4 w-4" />
