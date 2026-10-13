@@ -178,6 +178,7 @@ export async function POST(request: Request) {
       entryDate?: string;
       description?: string;
       vendor?: string;
+      overBudgetConfirmed?: boolean;
     };
     const budgetKey = payload.budgetKey?.trim() ?? "";
     const activityKey = payload.activityKey?.trim() ?? "";
@@ -223,7 +224,9 @@ export async function POST(request: Request) {
     await writeAuditLog({
       entityType: "finance",
       entityKey: String(entry.id),
-      action: "created",
+      action: payload.overBudgetConfirmed
+        ? "created with over-budget confirmation"
+        : "created",
       previousValue: null,
       newValue: snapshot("finance_entry", entry),
       changedBy: session.email,
@@ -252,6 +255,7 @@ export async function PUT(request: Request) {
       entryDate?: string;
       description?: string;
       vendor?: string;
+      overBudgetConfirmed?: boolean;
     };
     const id = Number(payload.id);
     const budgetKey = payload.budgetKey?.trim() ?? "";
@@ -308,7 +312,9 @@ export async function PUT(request: Request) {
     await writeAuditLog({
       entityType: "finance",
       entityKey: String(entry.id),
-      action: "updated",
+      action: payload.overBudgetConfirmed
+        ? "updated with over-budget confirmation"
+        : "updated",
       previousValue: snapshot("finance_entry", existing),
       newValue: snapshot("finance_entry", entry),
       changedBy: session.email,

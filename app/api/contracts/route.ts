@@ -65,6 +65,7 @@ type ContractPayload = {
   exchangeRateMnt?: number;
   allocations?: FundingAllocationPayload[];
   payments?: PaymentPayload[];
+  allowOverBudget?: boolean;
 };
 
 function fundingTargetKey(budgetKey: string, activityKey: string) {
@@ -496,15 +497,19 @@ async function validateFundingCapacity(
     }
   }
 
+  const warnings = new Set<string>();
   for (const allocation of proposedAllocations) {
     const budgetKey = allocation.budgetKey!.trim();
     const approved = approvedBudgets.get(budgetKey) ?? 0;
     const used = usedByBudget.get(budgetKey) ?? 0;
     if (approved <= 0) {
-      return "Enter an approved budget for every selected funding line before using it in a contract.";
-    }
-    if (used > approved) {
-      return `Funding for this contract would exceed the approved budget by ${(used - approved).toLocaleString("en-US")} MNT.`;
+      warnings.add(
+        "A selected funding line has no approved budget. Continuing will show its full used amount as a negative remaining balance.",
+      );
+    } else if (used > approved) {
+      warnings.add(
+        `This contract would exceed an approved budget by ${(used - approved).toLocaleString("en-US")} MNT. The remaining balance will be shown as negative.`,
+      );
     }
 
     const targetKey = fundingTargetKey(budgetKey, allocation.activityKey!.trim());
@@ -512,10 +517,12 @@ async function validateFundingCapacity(
       (item) => fundingTargetKey(item.budgetKey, item.activityKey) === targetKey,
     );
     if (targetBudget && (usedByTarget.get(targetKey) ?? 0) > targetBudget.amountMnt) {
-      return `Contract funding for this workplan item cannot exceed its ${targetBudget.amountMnt.toLocaleString("en-US")} MNT allocation.`;
+      warnings.add(
+        `Contract funding for a workplan item would exceed its ${targetBudget.amountMnt.toLocaleString("en-US")} MNT allocation. Its remaining balance will be shown as negative.`,
+      );
     }
   }
-  return "";
+  return Array.from(warnings).join(" ");
 }
 
 async function nestedContracts(planYear: number) {
@@ -624,9 +631,16 @@ export async function POST(request: Request) {
       return Response.json({ error: validationError }, { status: 400 });
     }
     const planYear = Number(payload.planYear);
-    const capacityError = await validateFundingCapacity(payload);
-    if (capacityError) {
-      return Response.json({ error: capacityError }, { status: 400 });
+    const capacityWarning = await validateFundingCapacity(payload);
+    if (capacityWarning && !payload.allowOverBudget) {
+      return Response.json(
+        {
+          error: capacityWarning,
+          warning: capacityWarning,
+          requiresConfirmation: true,
+        },
+        { status: 409 },
+      );
     }
     const normalizedAllocations = normalizedFundingAllocations(payload);
     const primaryAllocation = normalizedAllocations[0];
@@ -717,7 +731,9 @@ export async function POST(request: Request) {
     await writeAuditLog({
       entityType: "contract",
       entityKey: id,
-      action: "created",
+      action: capacityWarning
+        ? "created with over-budget confirmation"
+        : "created",
       previousValue: null,
       newValue: snapshot("contract", {
         contract: { ...contract, payments: undefined, allocations: undefined },
@@ -834,9 +850,16 @@ export async function PUT(request: Request) {
         );
       }
     }
-    const capacityError = await validateFundingCapacity(payload, id);
-    if (capacityError) {
-      return Response.json({ error: capacityError }, { status: 400 });
+    const capacityWarning = await validateFundingCapacity(payload, id);
+    if (capacityWarning && !payload.allowOverBudget) {
+      return Response.json(
+        {
+          error: capacityWarning,
+          warning: capacityWarning,
+          requiresConfirmation: true,
+        },
+        { status: 409 },
+      );
     }
     const now = new Date().toISOString();
     const updatedBy = session.email;
@@ -947,7 +970,9 @@ export async function PUT(request: Request) {
     await writeAuditLog({
       entityType: "contract",
       entityKey: id,
-      action: "updated",
+      action: capacityWarning
+        ? "updated with over-budget confirmation"
+        : "updated",
       previousValue: snapshot("contract", {
         contract: existing,
         allocations: existingFunding,
@@ -978,6 +1003,7 @@ export async function PATCH(request: Request) {
       paymentId?: string;
       paid?: boolean;
       paidAt?: string;
+      allowOverBudget?: boolean;
     };
     const db = getDb();
     const now = new Date().toISOString();
@@ -1035,6 +1061,35 @@ export async function PATCH(request: Request) {
           { status: 400 },
         );
       }
+      let capacityWarning = "";
+      if (payload.paid) {
+        const [currentContract] = (await nestedContracts(parent.planYear)).filter(
+          (item) => item.id === parent.id,
+        );
+        if (currentContract) {
+          capacityWarning = await validateFundingCapacity(
+            {
+              ...currentContract,
+              payments: currentContract.payments.map((item) =>
+                item.id === payment.id
+                  ? { ...item, paid: true, paidAt }
+                  : { ...item, paid: Boolean(item.paid) },
+              ),
+            },
+            parent.id,
+          );
+        }
+        if (capacityWarning && !payload.allowOverBudget) {
+          return Response.json(
+            {
+              error: capacityWarning,
+              warning: capacityWarning,
+              requiresConfirmation: true,
+            },
+            { status: 409 },
+          );
+        }
+      }
       await db
         .update(contractPayments)
         .set({ paid: payload.paid ? 1 : 0, paidAt, updatedAt: now })
@@ -1048,7 +1103,11 @@ export async function PATCH(request: Request) {
       await writeAuditLog({
         entityType: "contract",
         entityKey: parent.id,
-        action: payload.paid ? "marked payment paid" : "marked payment unpaid",
+        action: payload.paid
+          ? capacityWarning
+            ? "marked payment paid with over-budget confirmation"
+            : "marked payment paid"
+          : "marked payment unpaid",
         previousValue: snapshot("contract", { contract: parent, payments: beforePayments }),
         newValue: snapshot("contract", {
           contract: { ...contract, payments: undefined },

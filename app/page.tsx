@@ -418,6 +418,22 @@ type ContractDraft = {
   payments: ContractPaymentDraft[];
 };
 
+type FinanceBudgetWarning = {
+  budgetLabel: string;
+  entryType: FinanceDraft["entryType"];
+  budgetMnt: number;
+  commitmentMnt: number;
+  expenditureMnt: number;
+  entryAmountMnt: number;
+  projectedRemainingMnt: number;
+};
+
+type PaymentBudgetWarning = {
+  contract: ContractRecord;
+  payment: ContractPayment;
+  warning: string;
+};
+
 type PaymentDocument = {
   id: string;
   contractId: string;
@@ -833,9 +849,11 @@ function quarterlyNoteCount(raw: string, year: number) {
 }
 
 function formatMnt(amountMnt: number) {
-  return `₮${new Intl.NumberFormat("en-US", {
+  const rounded = Math.round(amountMnt);
+  const formatted = new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
-  }).format(Math.round(amountMnt))}`;
+  }).format(Math.abs(rounded));
+  return rounded < 0 ? `−₮${formatted}` : `₮${formatted}`;
 }
 
 function formatUsd(amountMinor: number) {
@@ -1551,6 +1569,8 @@ export default function Home() {
     description: "",
     vendor: "",
   });
+  const [financeBudgetWarning, setFinanceBudgetWarning] =
+    useState<FinanceBudgetWarning | null>(null);
   const [contracts, setContracts] = useState<ContractRecord[]>([]);
   const [contractState, setContractState] = useState<
     "loading" | "ready" | "unavailable"
@@ -1562,6 +1582,9 @@ export default function Home() {
     useState<ContractRecord | null>(null);
   const [contractToDelete, setContractToDelete] =
     useState<ContractRecord | null>(null);
+  const [contractBudgetWarning, setContractBudgetWarning] = useState("");
+  const [paymentBudgetWarning, setPaymentBudgetWarning] =
+    useState<PaymentBudgetWarning | null>(null);
   const [paymentTransferDates, setPaymentTransferDates] = useState<Record<string, string>>({});
   const [contractQuery, setContractQuery] = useState("");
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
@@ -2334,6 +2357,7 @@ export default function Home() {
       entryDate: string;
       description?: string;
       vendor?: string;
+      overBudgetConfirmed?: boolean;
     }, id?: number) => {
       const response = await fetch("/api/finance", {
         method: id ? "PUT" : "POST",
@@ -2360,12 +2384,55 @@ export default function Home() {
     [],
   );
 
-  async function saveFinanceEntry() {
+  async function saveFinanceEntry(allowOverBudget = false) {
     const amountMnt = Number(financeDraft.amountMnt.replace(/[,\s]/g, ""));
     if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
       toast.error("Enter a whole tugrik amount greater than zero.");
       return;
     }
+    const budgetLine = allBudgetLines.find(
+      (item) => item.id === financeDraft.budgetKey,
+    );
+    const budgetMnt = Math.round(
+      Number(budgetLine?.budgetMntMillion ?? 0) * 1_000_000,
+    );
+    const currentTotals = budgetLine
+      ? summarizeFinance([budgetLine], financeEntries, contracts)
+      : { commitmentMnt: 0, expenditureMnt: 0 };
+    let commitmentMnt = currentTotals.commitmentMnt;
+    let expenditureMnt = currentTotals.expenditureMnt;
+    const existingEntry = editingFinanceId
+      ? financeEntries.find((entry) => entry.id === editingFinanceId)
+      : null;
+    if (existingEntry?.budgetKey === financeDraft.budgetKey) {
+      if (existingEntry.entryType === "commitment") {
+        commitmentMnt -= existingEntry.amountMnt;
+      } else {
+        expenditureMnt -= existingEntry.amountMnt;
+      }
+    }
+    if (financeDraft.entryType === "commitment") {
+      commitmentMnt += amountMnt;
+    } else {
+      expenditureMnt += amountMnt;
+    }
+    const projectedRemainingMnt =
+      budgetMnt - commitmentMnt - expenditureMnt;
+    if (!allowOverBudget && projectedRemainingMnt < 0) {
+      setFinanceBudgetWarning({
+        budgetLabel: budgetLine
+          ? `${budgetLine.code} · ${budgetLine.title}`
+          : "Selected budget line",
+        entryType: financeDraft.entryType,
+        budgetMnt,
+        commitmentMnt,
+        expenditureMnt,
+        entryAmountMnt: amountMnt,
+        projectedRemainingMnt,
+      });
+      return;
+    }
+    setFinanceBudgetWarning(null);
     setFinanceSaving(true);
     try {
       const entry = await persistFinanceEntry(
@@ -2377,6 +2444,7 @@ export default function Home() {
           entryDate: financeDraft.entryDate,
           description: financeDraft.description,
           vendor: financeDraft.vendor,
+          overBudgetConfirmed: allowOverBudget,
         },
         editingFinanceId ?? undefined,
       );
@@ -2853,7 +2921,7 @@ export default function Home() {
     });
   }
 
-  async function saveContract() {
+  async function saveContract(allowOverBudget = false) {
     const amountMnt = Number(contractDraft.amountMnt.replace(/[\s,]/g, ""));
     const foreignAmountMinor = dollarsToMinor(contractDraft.foreignAmount);
     const exchangeRateMnt = Number(
@@ -2992,15 +3060,27 @@ export default function Home() {
           exchangeRateMnt,
           allocations: fundingAllocations,
           payments,
+          allowOverBudget,
         }),
       });
       const result = (await response.json()) as {
         contract?: ContractRecord;
         error?: string;
+        warning?: string;
+        requiresConfirmation?: boolean;
       };
+      if (
+        response.status === 409 &&
+        result.requiresConfirmation &&
+        result.warning
+      ) {
+        setContractBudgetWarning(result.warning);
+        return;
+      }
       if (!response.ok || !result.contract) {
         throw new Error(result.error || "The contract could not be saved.");
       }
+      setContractBudgetWarning("");
       setContracts((current) =>
         editingContractId
           ? current.map((contract) =>
@@ -3028,6 +3108,7 @@ export default function Home() {
     contract: ContractRecord,
     payment: ContractPayment,
     paid: boolean,
+    allowOverBudget = false,
   ) {
     const transferDate = paymentTransferDates[payment.id] || payment.paidAt;
     if (paid && !/^\d{4}-\d{2}-\d{2}$/.test(transferDate)) {
@@ -3044,15 +3125,27 @@ export default function Home() {
           paymentId: payment.id,
           paid,
           paidAt: paid ? transferDate : "",
+          allowOverBudget,
         }),
       });
       const result = (await response.json()) as {
         contract?: ContractRecord;
         error?: string;
+        warning?: string;
+        requiresConfirmation?: boolean;
       };
+      if (
+        response.status === 409 &&
+        result.requiresConfirmation &&
+        result.warning
+      ) {
+        setPaymentBudgetWarning({ contract, payment, warning: result.warning });
+        return;
+      }
       if (!response.ok || !result.contract) {
         throw new Error(result.error || "Payment status could not be changed.");
       }
+      setPaymentBudgetWarning(null);
       setContracts((current) =>
         current.map((item) =>
           item.id === contract.id ? result.contract! : item,
@@ -10668,7 +10761,7 @@ export default function Home() {
                 Cancel
               </Button>
               <Button
-                onClick={saveFinanceEntry}
+                onClick={() => void saveFinanceEntry()}
                 disabled={financeSaving || financeState === "loading"}
                 className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
               >
@@ -10682,6 +10775,62 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(financeBudgetWarning)}
+        onOpenChange={(open) => {
+          if (!open) setFinanceBudgetWarning(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-5 w-5" /> Budget will be exceeded
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {financeBudgetWarning?.entryType === "expenditure"
+                ? "This expenditure entry can still be saved, but the remaining budget will become negative."
+                : "This commitment entry can still be saved, but the remaining budget will become negative."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {financeBudgetWarning && (
+            <div className="space-y-3">
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">
+                {financeBudgetWarning.budgetLabel}
+              </p>
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                {[
+                  ["Approved budget", financeBudgetWarning.budgetMnt],
+                  ["Projected commitments", financeBudgetWarning.commitmentMnt],
+                  ["Projected expenditure", financeBudgetWarning.expenditureMnt],
+                  ["New entry", financeBudgetWarning.entryAmountMnt],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-lg border border-[#dfe5dc] bg-[#f7f9f5] px-3 py-2">
+                    <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
+                    <dd className="mt-1 font-black tabular-nums">{formatMnt(Number(value))}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-rose-700">Projected remaining</p>
+                <p className="mt-1 text-xl font-black tabular-nums text-rose-800">
+                  {formatMnt(financeBudgetWarning.projectedRemainingMnt)}
+                </p>
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={financeSaving}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void saveFinanceEntry(true)}
+              disabled={financeSaving}
+              className="bg-amber-700 text-white hover:bg-amber-800"
+            >
+              {financeSaving ? "Saving…" : "Proceed anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(financeDeleteEntry)}
@@ -11429,7 +11578,7 @@ export default function Home() {
               Cancel
             </Button>
             <Button
-              onClick={saveContract}
+              onClick={() => void saveContract()}
               disabled={contractSaving}
               className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
             >
@@ -11438,6 +11587,85 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(contractBudgetWarning)}
+        onOpenChange={(open) => {
+          if (!open) setContractBudgetWarning("");
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-5 w-5" /> Contract funding exceeds budget
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The contract can still be saved. Its affected Financial Plan balances will be shown as negative.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+            {contractBudgetWarning}
+          </p>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={contractSaving}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setContractBudgetWarning("");
+                void saveContract(true);
+              }}
+              disabled={contractSaving}
+              className="bg-amber-700 text-white hover:bg-amber-800"
+            >
+              {contractSaving ? "Saving…" : "Proceed anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(paymentBudgetWarning)}
+        onOpenChange={(open) => {
+          if (!open) setPaymentBudgetWarning(null);
+        }}
+      >
+        <AlertDialogContent className="bg-white text-[#14241b]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-5 w-5" /> Payment is on an over-budget line
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              You can continue and record the payment. The negative remaining balance will stay visible in the Financial Plan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {paymentBudgetWarning && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f5] px-4 py-3">
+                <p className="font-black">{paymentBudgetWarning.contract.contractNumber} · {paymentBudgetWarning.payment.label}</p>
+                <p className="mt-1 text-sm font-bold tabular-nums text-[#315845]">{formatMnt(paymentBudgetWarning.payment.amountMnt)}</p>
+              </div>
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                {paymentBudgetWarning.warning}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={contractSaving}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const pending = paymentBudgetWarning;
+                setPaymentBudgetWarning(null);
+                if (pending) {
+                  void setPaymentPaid(pending.contract, pending.payment, true, true);
+                }
+              }}
+              disabled={contractSaving}
+              className="bg-amber-700 text-white hover:bg-amber-800"
+            >
+              {contractSaving ? "Saving…" : "Record payment anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(contractToClose)}
