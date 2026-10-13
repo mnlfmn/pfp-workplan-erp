@@ -253,7 +253,7 @@ async function validateContract(payload: ContractPayload) {
   }
   if (!payload.contractNumber?.trim()) return "Enter the contract number.";
   if (!validStatuses.has(status)) return "Choose a valid contract status.";
-  if (!allocations.length) return "Add at least one workplan funding allocation.";
+  if (!allocations.length) return "Add at least one budget line allocation.";
   if (!payload.torName?.trim()) return "Enter the Terms of Reference name.";
   if (!payload.serviceProviderName?.trim()) return "Enter the service provider name.";
   if (!(await validProviderType(payload.serviceProviderType?.trim() ?? ""))) {
@@ -285,13 +285,13 @@ async function validateContract(payload: ContractPayload) {
     const allocationAmount = Number(allocation.amountMnt);
     const key = fundingTargetKey(budgetKey, activityKey);
     if (!budgetKey || !activityKey) {
-      return "Choose a workplan activity for every funding allocation.";
+      return "Choose a budget line and workplan activity for every allocation.";
     }
     if (fundingTargets.has(key)) {
-      return "Each workplan funding line can be used only once per contract.";
+      return "Each budget line and workplan activity combination can be used only once per contract.";
     }
     if (!Number.isSafeInteger(allocationAmount) || allocationAmount <= 0) {
-      return "Each funding allocation needs a whole tugrik amount greater than zero.";
+      return "Each budget line allocation needs a whole tugrik amount greater than zero.";
     }
     if (!(await validateTarget(planYear, budgetKey, activityKey))) {
       return "Choose activities that belong to their selected budget lines.";
@@ -300,7 +300,7 @@ async function validateContract(payload: ContractPayload) {
     allocationTotal += allocationAmount;
   }
   if (allocationTotal !== amountMnt) {
-    return "Funding allocations must add up exactly to the total contract amount.";
+    return "Budget line allocations must add up exactly to the total contract amount.";
   }
 
   let amountTotal = 0;
@@ -331,7 +331,7 @@ async function validateContract(payload: ContractPayload) {
 
     const paymentAllocations = normalizedPaymentAllocations(payment, allocations);
     if (!paymentAllocations.length) {
-      return "Split every payment across the contract funding lines.";
+      return "Split every payment across the contract budget lines.";
     }
     const paymentTargets = new Set<string>();
     let paymentAllocationTotal = 0;
@@ -342,10 +342,10 @@ async function validateContract(payload: ContractPayload) {
       );
       const allocationAmount = Number(allocation.amountMnt);
       if (!fundingTargets.has(key) || paymentTargets.has(key)) {
-        return "Each payment split must use a unique funding line from this contract.";
+        return "Each payment split must use a unique budget line and workplan activity combination from this contract.";
       }
       if (!Number.isSafeInteger(allocationAmount) || allocationAmount <= 0) {
-        return "Each payment funding split needs a whole tugrik amount greater than zero.";
+        return "Each payment budget line split needs a whole tugrik amount greater than zero.";
       }
       paymentTargets.add(key);
       paymentAllocationTotal += allocationAmount;
@@ -355,7 +355,7 @@ async function validateContract(payload: ContractPayload) {
       );
     }
     if (paymentAllocationTotal !== paymentAmount) {
-      return "Each payment funding split must add up exactly to that payment amount.";
+      return "Each payment budget line split must add up exactly to that payment amount.";
     }
   }
   if (amountTotal !== amountMnt) {
@@ -373,7 +373,7 @@ async function validateContract(payload: ContractPayload) {
       allocation.activityKey?.trim() ?? "",
     );
     if ((scheduledByFundingTarget.get(key) ?? 0) !== Number(allocation.amountMnt)) {
-      return "Payment funding splits must fully distribute every contract funding allocation.";
+      return "Payment budget line splits must fully distribute every contract budget line allocation.";
     }
   }
   return "";
@@ -512,7 +512,7 @@ async function validateFundingCapacity(
     const used = usedByBudget.get(budgetKey) ?? 0;
     if (approved <= 0) {
       warnings.add(
-        "A selected funding line has no approved budget. Continuing will show its full used amount as a negative remaining balance.",
+        "A selected budget line has no approved budget. Continuing will show its full used amount as a negative remaining balance.",
       );
     } else if (used > approved) {
       warnings.add(
@@ -853,7 +853,7 @@ export async function PUT(request: Request) {
         JSON.stringify(previousSplits) !== JSON.stringify(incomingSplits)
       ) {
         return Response.json(
-          { error: "Paid payment funding splits are locked. Mark the payment unpaid before changing them." },
+          { error: "Paid payment budget line splits are locked. Mark the payment unpaid before changing them." },
           { status: 400 },
         );
       }

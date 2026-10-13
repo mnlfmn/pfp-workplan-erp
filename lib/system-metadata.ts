@@ -3,7 +3,6 @@ export const metadataCategories = [
   "service_provider_type",
   "member_type",
   "status",
-  "initial_status",
   "goal",
   "workstream",
   "section",
@@ -63,7 +62,6 @@ export const defaultMetadata: Record<MetadataCategory, MetadataOption[]> = {
     ["Workplan", "Additional workplan member"],
   ]),
   status: options("status", statusOptions),
-  initial_status: options("initial_status", statusOptions),
   goal: options("goal", [
     ["All goals", "Cross-goal"],
     ["Goal 1", "Goal 1"],
@@ -92,7 +90,6 @@ export const metadataCategoryLabels: Record<MetadataCategory, string> = {
   service_provider_type: "Type of service provider",
   member_type: "Member types",
   status: "Status",
-  initial_status: "Initial status",
   goal: "Goals",
   workstream: "Workstreams",
   section: "Sections",

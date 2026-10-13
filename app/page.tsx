@@ -2952,7 +2952,7 @@ export default function Home() {
           allocation.amountMnt <= 0,
       )
     ) {
-      toast.error("Choose a workplan item and amount for every funding allocation.");
+      toast.error("Choose a budget line, workplan item, and amount for every allocation.");
       return;
     }
     if (!Number.isSafeInteger(amountMnt) || amountMnt <= 0) {
@@ -2987,11 +2987,11 @@ export default function Home() {
       fundingAllocations.map((allocation) => contractFundingDraftKey(allocation)),
     );
     if (fundingKeys.size !== fundingAllocations.length) {
-      toast.error("Each workplan funding line can be selected only once.");
+      toast.error("Each budget line and workplan item combination can be selected only once.");
       return;
     }
     if (fundingTotal !== amountMnt) {
-      toast.error("Funding allocations must total the contract amount.");
+      toast.error("Budget line allocations must total the contract amount.");
       return;
     }
     const paymentAmountTotal = payments.reduce(
@@ -3021,7 +3021,7 @@ export default function Home() {
             allocation.amountMnt <= 0,
         )
       ) {
-        toast.error("Each payment funding split must total that payment amount.");
+        toast.error("Each payment budget line split must total that payment amount.");
         return;
       }
       for (const allocation of payment.allocations) {
@@ -3039,7 +3039,7 @@ export default function Home() {
           allocation.amountMnt,
       )
     ) {
-      toast.error("Payment splits must fully distribute every funding allocation.");
+      toast.error("Payment splits must fully distribute every budget line allocation.");
       return;
     }
     setContractSaving(true);
@@ -3640,7 +3640,7 @@ export default function Home() {
     setSubactivityPlanDraft({
       ...emptySubactivityDraft,
       procurementType: metadata.procurement_type[0]?.value ?? "Not applicable",
-      status: metadata.initial_status[0]?.value ?? "not_started",
+      status: "not_started",
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-12-31`,
     });
@@ -4534,7 +4534,6 @@ export default function Home() {
 
   const sectionOptions = metadata.section;
   const statusOptions = metadata.status;
-  const initialStatusOptions = metadata.initial_status;
   const procurementTypeOptions = metadata.procurement_type;
   const serviceProviderTypeOptions = metadata.service_provider_type;
   const statusKeys = useMemo(
@@ -7841,20 +7840,7 @@ export default function Home() {
                   return (
                     <article
                       key={contract.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setContractDetailId(contract.id);
-                        void loadContractDocuments(contract.id);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setContractDetailId(contract.id);
-                          void loadContractDocuments(contract.id);
-                        }
-                      }}
-                      className="cursor-pointer overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)] transition-colors hover:border-[#9bb3a3] hover:bg-[#fbfdfb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
+                      className="overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)]"
                     >
                       <div className="p-3 sm:p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -7879,7 +7865,7 @@ export default function Home() {
                               {contract.serviceProviderName} · {contract.serviceProviderType}
                             </p>
                             <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
-                              {fundingDetails.length} funding line{fundingDetails.length === 1 ? "" : "s"} · {fundingDetails.map(({ line, target }) => `${line?.code ?? "Budget"} / ${target?.code ?? "Workplan"}`).join(" · ")}
+                              {fundingDetails.length} budget line{fundingDetails.length === 1 ? "" : "s"} · {fundingDetails.map(({ line, target }) => `${line?.code ?? "Budget"} / ${target?.code ?? "Workplan"}`).join(" · ")}
                             </p>
                             <p className="mt-1 text-xs text-[#718178]">
                               {formatDate(contract.startDate, language)} – {formatDate(contract.endDate, language)}
@@ -7964,8 +7950,8 @@ export default function Home() {
                           <section className="mb-4 rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3">
                             <div className="mb-2 flex items-center justify-between gap-3">
                               <div>
-                                <p className="text-sm font-black">Funding allocation</p>
-                                <p className="text-xs text-[#718178]">Contract value distributed across connected workplan lines.</p>
+                                <p className="text-sm font-black">Budget line allocation</p>
+                                <p className="text-xs text-[#718178]">Contract value distributed across connected budget lines.</p>
                               </div>
                               <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#315845]">
                                 {fundingDetails.length} line{fundingDetails.length === 1 ? "" : "s"}
@@ -8069,7 +8055,7 @@ export default function Home() {
                                   </p>
                                 )}
                                 <div className="rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs lg:col-span-7">
-                                  <span className="font-bold text-[#53685c]">Funding split: </span>
+                                  <span className="font-bold text-[#53685c]">Budget line split: </span>
                                   {(payment.allocations ?? []).map((allocation) => {
                                     const target = contractTargets.find(
                                       (item) => item.key === allocation.activityKey,
@@ -9497,25 +9483,6 @@ export default function Home() {
                     </NativeSelect>
                   </label>
                   <label className="block">
-                    <span className="mb-1.5 block text-sm font-bold">Initial status</span>
-                    <NativeSelect
-                      value={subactivityPlanDraft.status}
-                      onChange={(event) =>
-                        setSubactivityPlanDraft((current) => ({
-                          ...current,
-                          status: event.target.value as StatusKey,
-                        }))
-                      }
-                      className="h-11 w-full border-[#cbd6cc] bg-white"
-                    >
-                      {initialStatusOptions.map((item) => (
-                        <NativeSelectOption key={item.value} value={item.value}>
-                          {item.label}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </label>
-                  <label className="block">
                     <span className="mb-1.5 block text-sm font-bold">Start date</span>
                     <Input
                       type="date"
@@ -10834,16 +10801,17 @@ export default function Home() {
           if (!open) setContractDetailId("");
         }}
       >
-        <DialogContent className="max-h-[94vh] w-[96vw] overflow-y-auto bg-[#f7f9f5] text-[#14241b] sm:max-w-6xl!">
+        <DialogContent className="h-[92vh] max-h-[94vh] w-[97vw] overflow-hidden bg-[#f7f9f5] p-0 text-[#14241b] sm:max-w-[97vw]! 2xl:max-w-[1840px]!">
           {selectedContract && (
             <>
               <DialogHeader className="sr-only">
                 <DialogTitle>{selectedContract.contractNumber}</DialogTitle>
-                <DialogDescription>Contract details, funding allocations and payment structure.</DialogDescription>
+                <DialogDescription>Contract details, budget line allocations and payment structure.</DialogDescription>
               </DialogHeader>
 
-              <section className="rounded-2xl border border-[#b9cabb] bg-white p-4 shadow-sm sm:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="grid h-full min-h-0 overflow-y-auto lg:grid-cols-[minmax(340px,0.82fr)_minmax(620px,1.35fr)] lg:overflow-hidden">
+              <section className="border-b border-[#b9cabb] bg-white p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0 lg:p-6">
+                <div className="flex flex-col gap-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
@@ -10890,7 +10858,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                <dl className="mt-5 grid grid-cols-2 gap-2">
                   {[
                     ["Contract amount", selectedContract.currency === "USD" ? `${formatUsd(selectedContract.foreignAmountMinor)} · ${formatMnt(selectedContract.amountMnt)}` : formatMnt(selectedContract.amountMnt)],
                     ["Outstanding commitment", formatMnt(contractCommitmentMnt(selectedContract))],
@@ -10907,14 +10875,14 @@ export default function Home() {
                 <div className="mt-4 rounded-xl border border-[#d7e0d5] bg-[#f8faf7] p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black">Funding allocation</p>
-                      <p className="text-xs text-[#718178]">Contract amount by connected workplan line.</p>
+                      <p className="text-sm font-black">Budget line allocation</p>
+                      <p className="text-xs text-[#718178]">Contract amount by connected budget line.</p>
                     </div>
                     <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#315845]">
                       {selectedContractFundingDetails.length} line{selectedContractFundingDetails.length === 1 ? "" : "s"}
                     </span>
                   </div>
-                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <div className="mt-3 grid gap-2">
                     {selectedContractFundingDetails.map(({ allocation, line, target }) => {
                       const paid = selectedContract.payments
                         .filter((payment) => Boolean(payment.paid))
@@ -10939,8 +10907,8 @@ export default function Home() {
                 </div>
               </section>
 
-              <section className="mx-auto w-full max-w-4xl">
-                <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <section className="bg-[#f7f9f5] p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:p-6">
+                <div className="mb-3 flex items-center justify-between gap-3 px-1">
                   <div>
                     <h3 className="font-black text-[#183529]">Payment structure</h3>
                     <p className="text-xs text-[#718178]">Deliverables and payment records.</p>
@@ -10954,7 +10922,7 @@ export default function Home() {
                     <article key={payment.id} className="rounded-xl border border-[#d7ded5] bg-white p-3 shadow-sm">
                       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_210px]">
                         <div className="min-w-0">
-                          <div className="grid gap-3 md:grid-cols-[1fr_115px_minmax(180px,1.6fr)_65px_135px] md:items-start">
+                          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-[1fr_115px_minmax(180px,1.6fr)_65px_135px] 2xl:items-start">
                             <div><p className="text-[11px] font-semibold text-[#718178]">Payment</p><p className="mt-0.5 text-sm font-black">{payment.label}</p></div>
                             <div><p className="text-[11px] font-semibold text-[#718178]">Due date</p><p className="mt-0.5 text-xs font-bold">{formatDate(payment.dueDate, language)}</p></div>
                             <div className="min-w-0"><p className="text-[11px] font-semibold text-[#718178]">Deliverable</p><p className="mt-0.5 break-words text-xs font-semibold leading-5">{payment.deliverable}</p></div>
@@ -10962,7 +10930,7 @@ export default function Home() {
                             <div><p className="text-[11px] font-semibold text-[#718178]">Amount</p><p className="mt-0.5 text-sm font-black tabular-nums">{selectedContract.currency === "USD" && payment.foreignAmountMinor ? `${formatUsd(payment.foreignAmountMinor)} · ` : ""}{formatMnt(payment.amountMnt)}</p></div>
                           </div>
                           <div className="mt-3 rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs">
-                            <span className="font-bold text-[#53685c]">Funding split: </span>
+                            <span className="font-bold text-[#53685c]">Budget line split: </span>
                             {(payment.allocations ?? []).map((allocation) => {
                               const target = contractTargets.find((item) => item.key === allocation.activityKey);
                               return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
@@ -11001,6 +10969,7 @@ export default function Home() {
                   ))}
                 </div>
               </section>
+              </div>
             </>
           )}
         </DialogContent>
@@ -11069,13 +11038,13 @@ export default function Home() {
               <section className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3 sm:col-span-2">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-black">Funding allocation</h3>
+                    <h3 className="text-sm font-black">Budget line allocation</h3>
                     <p className="mt-0.5 text-xs text-[#718178]">
-                      Connect one contract to one or more workplan lines. Allocations must equal the contract total.
+                      Connect one contract to one or more budget lines and workplan items. Allocations must equal the contract total.
                     </p>
                   </div>
                   <Button variant="outline" size="sm" onClick={addContractFundingAllocation}>
-                    <Plus className="h-4 w-4" /> Add workplan line
+                    <Plus className="h-4 w-4" /> Add budget line allocation
                   </Button>
                 </div>
                 <div className="mt-3 space-y-2">
@@ -11140,7 +11109,7 @@ export default function Home() {
                           onClick={() => removeContractFundingAllocation(index)}
                           disabled={contractDraft.allocations.length === 1}
                           className="border-rose-200 text-rose-700 hover:bg-rose-50"
-                          aria-label={`Remove funding allocation ${index + 1}`}
+                          aria-label={`Remove budget line allocation ${index + 1}`}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -11149,7 +11118,7 @@ export default function Home() {
                   })}
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-xs">
-                  <span className="font-semibold text-[#53685c]">Funding allocation total</span>
+                  <span className="font-semibold text-[#53685c]">Budget line allocation total</span>
                   <span className="font-black tabular-nums">
                     {formatMnt(
                       contractDraft.allocations.reduce(
@@ -11441,9 +11410,9 @@ export default function Home() {
                     <div className="mt-3 rounded-lg border border-[#dfe7dc] bg-[#f6f9f4] p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-xs font-black text-[#315845]">Payment funding split</p>
+                          <p className="text-xs font-black text-[#315845]">Payment budget line split</p>
                           <p className="mt-0.5 text-[11px] text-[#718178]">
-                            Assign this payment across the contract funding lines.
+                            Assign this payment across the contract budget lines.
                           </p>
                         </div>
                         <Button
@@ -11468,7 +11437,7 @@ export default function Home() {
                               className="block rounded-md bg-white p-2"
                             >
                               <span className="mb-1 block truncate text-[11px] font-bold text-[#53685c]">
-                                {target?.code ?? "Choose funding line"} · {target ? localizedTargetLabel(target, allActivities, language) : "Unassigned"}
+                                {target?.code ?? "Choose budget line"} · {target ? localizedTargetLabel(target, allActivities, language) : "Unassigned"}
                               </span>
                               <Input
                                 value={allocation.amountMnt}
