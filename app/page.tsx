@@ -20,8 +20,6 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
-  Maximize2,
-  Minimize2,
   PencilLine,
   Plus,
   ReceiptText,
@@ -1427,8 +1425,6 @@ function summarizeFinance(
 
 export default function Home() {
   const [language, setLanguage] = useState<UiLanguage>("en");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const appRootRef = useRef<HTMLElement | null>(null);
   const textSourcesRef = useRef(new WeakMap<Text, string>());
   const attributeSourcesRef = useRef(
     new WeakMap<Element, Map<string, string>>(),
@@ -1470,7 +1466,7 @@ export default function Home() {
     "compact" | "comfortable"
   >("compact");
   const [workplanSection, setWorkplanSection] = useState<
-    "activities" | "procurement"
+    "finance" | "activities" | "procurement"
   >("activities");
   const [procurementQuery, setProcurementQuery] = useState("");
   const [procurementTypeFilter, setProcurementTypeFilter] = useState("all");
@@ -1645,17 +1641,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const syncFullscreenState = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    syncFullscreenState();
-    document.addEventListener("fullscreenchange", syncFullscreenState);
-    return () =>
-      document.removeEventListener("fullscreenchange", syncFullscreenState);
-  }, []);
-
-  useEffect(() => {
-    if (!appRootRef.current) return;
     const root = document.body;
     document.documentElement.lang = language === "mn" ? "mn" : "en";
     document.title =
@@ -1746,20 +1731,6 @@ export default function Home() {
   function changeLanguage(next: UiLanguage) {
     setLanguage(next);
     window.localStorage.setItem("pfp-interface-language", next);
-  }
-
-  async function toggleFullscreen() {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await document.documentElement.requestFullscreen();
-      }
-    } catch {
-      toast.error("Full screen could not be opened.", {
-        description: "Open the ERP system directly in Chrome and try again.",
-      });
-    }
   }
 
   async function openAuditHistory(target: AuditTarget) {
@@ -5965,7 +5936,7 @@ export default function Home() {
   }
 
   return (
-    <main ref={appRootRef} className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
+    <main className="min-h-screen bg-[#f3f6f1] text-[#14241b]">
       <Toaster position="top-right" richColors />
       <Tabs
         value={activeView}
@@ -5973,8 +5944,8 @@ export default function Home() {
         onValueChange={setActiveView}
       >
       <header className="border-b border-[#d7ded5] bg-[#0c3b2d] text-white">
-        <div className="flex w-full flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8">
-          <div className="flex shrink-0 items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8 2xl:gap-6">
+          <div className="order-1 flex shrink-0 items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#dbf081] text-sm font-black tracking-tight text-[#153829]">
               PFP
             </div>
@@ -5984,8 +5955,8 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="min-w-0 flex-1 overflow-x-auto pb-1 lg:border-l lg:border-white/15 lg:pl-5 lg:pb-0">
-            <TabsList className="flex h-auto min-w-max items-center gap-1 bg-transparent p-0">
+          <div className="order-3 w-full min-w-0 basis-full pb-1 2xl:order-2 2xl:w-auto 2xl:basis-auto 2xl:flex-1 2xl:border-l 2xl:border-white/15 2xl:pl-5 2xl:pb-0">
+            <TabsList className="flex h-auto w-full flex-wrap items-center gap-1 bg-transparent p-0">
               <TabsTrigger
                 value="dashboard"
                 className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
@@ -5999,13 +5970,6 @@ export default function Home() {
               >
                 <ListChecks className="h-4 w-4" />
                 Workplan
-              </TabsTrigger>
-              <TabsTrigger
-                value="finance"
-                className="h-10 flex-none rounded-lg border-0! px-3.5 text-sm font-bold text-white/65 shadow-none! hover:bg-white/10 hover:text-white data-[state=active]:bg-[#dbf081]! data-[state=active]:text-[#153829]! data-[state=active]:shadow-[0_5px_14px_rgba(4,28,20,0.2)]! xl:px-4"
-              >
-                <Banknote className="h-4 w-4" />
-                Finance
               </TabsTrigger>
               <TabsTrigger
                 value="contracts"
@@ -6037,7 +6001,7 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="order-2 ml-auto flex shrink-0 items-center gap-2 2xl:order-3 2xl:ml-0">
             <div className="flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 pl-2 text-white/80">
               <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
               <NativeSelect
@@ -6055,19 +6019,6 @@ export default function Home() {
                 ))}
               </NativeSelect>
             </div>
-            <button
-              type="button"
-              onClick={() => void toggleFullscreen()}
-              aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
-              title={isFullscreen ? "Exit full screen" : "Enter full screen"}
-              className="grid h-10 w-10 place-items-center rounded-lg border border-white/25 bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbf081]"
-            >
-              {isFullscreen ? (
-                <Minimize2 className="h-4.5 w-4.5" />
-              ) : (
-                <Maximize2 className="h-4.5 w-4.5" />
-              )}
-            </button>
             <div
               data-no-translate
               className="flex items-center rounded-lg border border-white/25 bg-white/10 p-1"
@@ -6227,7 +6178,10 @@ export default function Home() {
                     <button
                       type="button"
                       key={row.label}
-                      onClick={() => setActiveView("finance")}
+                      onClick={() => {
+                        setWorkplanSection("finance");
+                        setActiveView("workplan");
+                      }}
                       className="block w-full rounded-lg p-1 text-left transition hover:bg-[#f6f9f4]"
                     >
                       <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
@@ -6516,8 +6470,9 @@ export default function Home() {
           <TabsContent value="workplan" className="space-y-6">
 
         <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
+            <button type="button" onClick={() => setWorkplanSection("finance")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "finance" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><Banknote className="h-4 w-4" /> Finance</button>
             <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ListChecks className="h-4 w-4" /> Work Plan</button>
-            <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
+            <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
         </div>
 
         {workplanSection === "activities" ? (
@@ -7112,7 +7067,7 @@ export default function Home() {
             </aside>
           </div>
         </section>
-        ) : (
+        ) : workplanSection === "procurement" ? (
           <div className="space-y-4">
             <section className="overflow-hidden rounded-2xl border border-[#bfd0c2] bg-gradient-to-br from-[#0c3b2d] to-[#246348] text-white shadow-[0_12px_30px_rgba(12,59,45,0.14)]">
               <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -7157,11 +7112,13 @@ export default function Home() {
               </div>
             </section>
           </div>
-        )}
-          </TabsContent>
+        ) : null}
 
-          <TabsContent value="finance" className="space-y-6">
+        {workplanSection === "finance" && (
+          <div className="space-y-6">
             <nav className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Finance breadcrumb">
+              <button type="button" onClick={() => setWorkplanSection("activities")} className="hover:text-[#174734]">Work Plan</button>
+              <ChevronRight className="h-4 w-4" />
               <button type="button" onClick={() => setSelectedBudgetKey(null)} className="hover:text-[#174734]">Finance</button>
               {selectedBudgetKey && (
                 <>
@@ -7665,6 +7622,8 @@ export default function Home() {
                 </div>
               )}
             </section>
+          </div>
+        )}
           </TabsContent>
 
           <TabsContent value="contracts" className="space-y-6">

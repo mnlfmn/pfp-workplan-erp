@@ -2,9 +2,6 @@ export type UiLanguage = "en" | "mn";
 
 const mn: Record<string, string> = {
   "ERP System": "ERP систем",
-  "Enter full screen": "Бүтэн дэлгэцээр харах",
-  "Exit full screen": "Бүтэн дэлгэцээс гарах",
-  "Full screen could not be opened.": "Бүтэн дэлгэцийн горимыг нээж чадсангүй.",
   "Open the ERP system directly in Chrome and try again.": "ERP системийг Chrome дээр шууд нээгээд дахин оролдоно уу.",
   "Eternal Mongolia": "Eternal Mongolia",
   Dashboard: "Хяналтын самбар",
