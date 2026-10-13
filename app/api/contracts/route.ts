@@ -199,7 +199,15 @@ async function validateTarget(
           ),
         )
         .limit(1);
-      activityCode = String(parent ? safePayload(parent.payload).code ?? "" : "");
+      const baseParent =
+        planYear === 2026
+          ? workplan.activities.find((activity) => activity.id === record.parentKey)
+          : undefined;
+      activityCode = String(
+        parent
+          ? safePayload(parent.payload).code ?? ""
+          : baseParent?.code ?? "",
+      );
     }
   }
 
