@@ -11941,7 +11941,7 @@ export default function Home() {
 
               <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.6fr)] lg:overflow-hidden">
                 <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-4 lg:overflow-y-auto lg:border-r lg:border-b-0">
-                  <div className="lg:sticky lg:top-0 lg:z-10 lg:bg-[#eef4eb] lg:pb-3">
+                  <div className="pb-3">
                   <section className="rounded-2xl border-2 border-[#082d22] bg-[#0d4635] p-4 text-white shadow-[0_12px_28px_rgba(12,59,45,0.2)]">
                     <div className="flex items-start justify-between gap-3">
                       <div>
