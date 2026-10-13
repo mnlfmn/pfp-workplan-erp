@@ -11,6 +11,7 @@ import {
   CircleCheck,
   CopyPlus,
   Download,
+  Ellipsis,
   FileSpreadsheet,
   FileText,
   FileUp,
@@ -1474,6 +1475,7 @@ export default function Home() {
   const [status, setStatus] = useState("all");
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activityTitleExpanded, setActivityTitleExpanded] = useState(false);
   const [workplanPreview, setWorkplanPreview] =
     useState<WorkplanPreview | null>(null);
   const [expandedWorkplanIds, setExpandedWorkplanIds] =
@@ -1809,6 +1811,11 @@ export default function Home() {
     () => allActivities.find((item) => item.id === selectedId) ?? null,
     [allActivities, selectedId],
   );
+  const selectedDisplayTitle = selected
+    ? language === "mn" && selected.titleMn?.trim()
+      ? selected.titleMn
+      : selected.title
+    : "";
 
   const workplanPreviewActivity = useMemo(
     () =>
@@ -1877,9 +1884,11 @@ export default function Home() {
   const openActivity = useCallback(
     (activity: Activity) => {
       setSelectedId(activity.id);
-      loadTarget(targetForActivity(activity, updates));
+      setEditKey("");
+      setFormDirty(false);
+      setActivityTitleExpanded(false);
     },
-    [loadTarget, updates],
+    [],
   );
 
   useEffect(() => {
@@ -11896,31 +11905,44 @@ export default function Home() {
         onOpenChange={(open) => {
           if (!open && changeFormDialog(false, () => setSelectedId(null))) {
             setEditKey("");
+            setActivityTitleExpanded(false);
           }
         }}
       >
         <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-none! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:max-w-[96vw]! 2xl:max-w-[1640px]!">
           {selected && (
             <>
-              <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-4 pr-14 text-left sm:px-6">
-                <div className="flex flex-col gap-1">
-                  <p className="font-mono text-sm font-black text-[#2f634c]">
-                    {selected.code || selected.uid}
-                  </p>
-                  <DialogTitle className="text-xl font-black leading-tight tracking-[-0.025em] sm:text-2xl">
-                    {language === "mn" && selected.titleMn?.trim()
-                      ? selected.titleMn
-                      : selected.title}
+              <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-3 pr-14 text-left sm:px-6">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <p className="font-mono text-xs font-black text-[#2f634c]">
+                      {selected.code || selected.uid}
+                    </p>
+                    <DialogDescription className="text-xs text-[#718178]">
+                      {metadataLabel("workstream", selected.workstream) || "Programme management"}
+                    </DialogDescription>
+                  </div>
+                  <DialogTitle
+                    className={`mt-1.5 text-lg font-black leading-6 tracking-[-0.02em] sm:text-xl ${activityTitleExpanded ? "" : "line-clamp-2"}`}
+                  >
+                    {selectedDisplayTitle}
                   </DialogTitle>
-                  <DialogDescription className="text-[#718178]">
-                    {metadataLabel("workstream", selected.workstream) || "Programme management"}
-                  </DialogDescription>
+                  {selectedDisplayTitle.length > 130 && (
+                    <button
+                      type="button"
+                      onClick={() => setActivityTitleExpanded((current) => !current)}
+                      className="mt-1 text-xs font-bold text-[#2f634c] underline-offset-2 hover:underline"
+                    >
+                      {activityTitleExpanded ? "Show less" : "Show full title"}
+                    </button>
+                  )}
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(350px,0.95fr)_minmax(0,1.45fr)] lg:overflow-hidden">
-                <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-5 lg:overflow-y-auto lg:border-r lg:border-b-0">
-                  <section className="rounded-3xl border-2 border-[#082d22] bg-[#0d4635] p-5 text-white shadow-[0_14px_34px_rgba(12,59,45,0.22)]">
+              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.6fr)] lg:overflow-hidden">
+                <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-4 lg:overflow-y-auto lg:border-r lg:border-b-0">
+                  <div className="lg:sticky lg:top-0 lg:z-10 lg:bg-[#eef4eb] lg:pb-3">
+                  <section className="rounded-2xl border-2 border-[#082d22] bg-[#0d4635] p-4 text-white shadow-[0_12px_28px_rgba(12,59,45,0.2)]">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-100/70">
@@ -11933,11 +11955,11 @@ export default function Home() {
                       <StatusPill status={deriveActivityStatus(selected, updates)} label={metadataLabel("status", deriveActivityStatus(selected, updates))} />
                     </div>
 
-                    <div className="mt-5">
+                    <div className="mt-4">
                       <div className="flex items-end justify-between gap-3">
                         <div>
                           <p className="text-xs text-emerald-100/70">Overall progress</p>
-                          <p className="mt-1 text-3xl font-black">
+                          <p className="mt-1 text-2xl font-black">
                             {deriveActivityProgress(selected, updates)}%
                           </p>
                         </div>
@@ -11947,11 +11969,11 @@ export default function Home() {
                       </div>
                       <Progress
                         value={deriveActivityProgress(selected, updates)}
-                        className="mt-3 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
+                        className="mt-2.5 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
                       />
                     </div>
 
-                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm">
+                    <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2.5 border-t border-white/15 pt-3.5 text-sm">
                       <div>
                         <p className="text-emerald-100/65">Start</p>
                         <p className="mt-1 font-bold">{formatDate(selected.startDate, language)}</p>
@@ -11973,42 +11995,50 @@ export default function Home() {
                       </div>
                       <div className="col-span-2">
                         <p className="text-emerald-100/65">Allocated budget</p>
-                        <p className="mt-1 text-lg font-black text-[#dbf081]">
+                        <p className="mt-1 text-base font-black text-[#dbf081]">
                           {formatMnt(selectedAllocatedMnt)}
                         </p>
                       </div>
                     </div>
                   </section>
 
-                  <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+                  <div className="mt-3 flex gap-2">
                     <Button
                       size="sm"
                       onClick={() =>
                         openUpdateEditor(targetForActivity(selected, updates))
                       }
-                      className="h-8 rounded-lg bg-[#0c3b2d] px-2.5 text-xs text-white hover:bg-[#174d3a]"
+                      className="h-9 flex-1 rounded-lg bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
                     >
                       <PencilLine className="h-3.5 w-3.5" />
                       Update activity
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openEditActivity(selected)}
-                      className="h-8 rounded-lg border-[#b9cabb] bg-white px-2.5 text-xs"
-                    >
-                      <PencilLine className="h-3.5 w-3.5" />
-                      Edit details
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
-                      className="h-8 rounded-lg border-[#b9cabb] bg-white px-2.5 text-xs"
-                    >
-                      <History className="h-3.5 w-3.5" />
-                      History
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 rounded-lg border-[#b9cabb] bg-white px-3 text-xs"
+                          aria-label="More main activity actions"
+                        >
+                          <Ellipsis className="h-4 w-4" />
+                          More
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => openEditActivity(selected)}>
+                          <PencilLine className="h-4 w-4" />
+                          Edit details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
+                        >
+                          <History className="h-4 w-4" />
+                          View history
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   </div>
 
                   {renderInlineUpdateEditor(
@@ -12056,8 +12086,8 @@ export default function Home() {
                   </details>
                 </aside>
 
-                <section className="bg-white p-3.5 lg:overflow-y-auto sm:p-4">
-                  <div className="mb-2.5 flex flex-col gap-2 border-b border-[#e0e6de] pb-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <section className="bg-white lg:overflow-y-auto">
+                  <div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-[#e0e6de] bg-white/95 px-3.5 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-4">
                     <div>
                       <h3 className="text-lg font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
@@ -12068,14 +12098,14 @@ export default function Home() {
                       variant="outline"
                       size="sm"
                       onClick={() => openAddSubactivity(selected)}
-                      className="border-[#b9cabb] bg-white"
+                      className="h-8 border-[#b9cabb] bg-white px-2.5 text-xs"
                     >
                       <Plus className="h-4 w-4" />
                       Add sub-activity
                     </Button>
                   </div>
 
-                  <div className="grid gap-2.5 xl:grid-cols-2">
+                  <div className="grid gap-2.5 p-3.5 sm:p-4 2xl:grid-cols-2">
                     {selected.subactivities.map((sub, index) => {
                       const currentStatus = recordStatus(
                         sub.id,
@@ -12099,8 +12129,8 @@ export default function Home() {
                           key={sub.id}
                           className={
                             isEditing
-                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-3 shadow-[0_8px_22px_rgba(35,91,67,0.1)] xl:col-span-2"
-                              : "rounded-xl border border-[#dbe3d9] bg-white p-3"
+                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-2.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] 2xl:col-span-2"
+                              : "rounded-xl border border-[#dbe3d9] bg-white p-2.5"
                           }
                         >
                           <div className="flex items-start justify-between gap-2">
@@ -12112,12 +12142,38 @@ export default function Home() {
                                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[#6b7c72]">
                                   Sub-activity {index + 1}
                                 </p>
-                                <p className="mt-0.5 text-sm font-black leading-5">
+                                <p className={`mt-0.5 text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-3"}`}>
                                   {sub.title}
                                 </p>
                               </div>
                             </div>
-                            <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
+                            <div className="flex shrink-0 items-center gap-1">
+                              <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-lg text-[#53685c] hover:bg-[#edf3eb]"
+                                    aria-label={`More actions for sub-activity ${index + 1}`}
+                                  >
+                                    <Ellipsis className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-44">
+                                  <DropdownMenuItem onClick={() => openEditSubactivity(selected, sub)}>
+                                    <PencilLine className="h-4 w-4" />
+                                    Edit details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}
+                                  >
+                                    <History className="h-4 w-4" />
+                                    View history
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
 
                           <div className="mt-2.5 flex items-center gap-2">
@@ -12130,59 +12186,37 @@ export default function Home() {
                             </span>
                           </div>
 
-                          <div className="mt-2.5 grid gap-2 border-t border-[#e4e9e2] pt-2.5 sm:grid-cols-[1fr_auto] sm:items-center">
-                            <div className="min-w-0">
-                              <p
+                          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[#e4e9e2] pt-2.5 text-xs">
+                            <p
+                              className={
+                                currentOwner
+                                  ? "flex min-w-0 items-center gap-1.5 font-semibold text-[#315845]"
+                                  : "flex min-w-0 items-center gap-1.5 font-semibold text-rose-700"
+                              }
+                            >
+                              <span
                                 className={
                                   currentOwner
-                                    ? "flex min-w-0 items-center gap-2 text-sm font-semibold text-[#315845]"
-                                    : "flex min-w-0 items-center gap-2 text-sm font-semibold text-rose-700"
+                                    ? "h-2 w-2 shrink-0 rounded-full bg-emerald-600"
+                                    : "h-2 w-2 shrink-0 rounded-full bg-rose-600"
                                 }
-                              >
-                                <span
-                                  className={
-                                    currentOwner
-                                      ? "h-2 w-2 shrink-0 rounded-full bg-emerald-600"
-                                      : "h-2 w-2 shrink-0 rounded-full bg-rose-600"
-                                  }
-                                />
-                                {currentOwner || "Owner required"}
+                              />
+                              {currentOwner || "Owner required"}
+                            </p>
+                            {currentResponsibility.supporting.length > 0 && (
+                              <p className="text-[#718178]">
+                                Supporting: {currentResponsibility.supporting.join(", ")}
                               </p>
-                              <p className="mt-1 text-xs text-[#718178]">
-                                Type of procurement: {procurementTypeForSubactivity(sub)}
-                              </p>
-                            </div>
-                            <div className="sm:text-right">
-                              {currentResponsibility.supporting.length > 0 && (
-                                <p className="text-xs text-[#718178]">
-                                  Supporting: {currentResponsibility.supporting.join(", ")}
-                                </p>
-                              )}
-                              <p className="mt-1 text-sm font-bold text-[#315845]">
-                                Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
-                              </p>
-                            </div>
+                            )}
+                            <p className="text-[#718178]">
+                              Procurement: {procurementTypeForSubactivity(sub)}
+                            </p>
+                            <p className="ml-auto font-bold text-[#315845]">
+                              Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
+                            </p>
                           </div>
 
-                          <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}
-                              className="h-8 rounded-lg border-[#c7d2c7] bg-white px-2.5 text-xs"
-                            >
-                              <History className="h-3.5 w-3.5" />
-                              History
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditSubactivity(selected, sub)}
-                              className="h-8 rounded-lg border-[#c7d2c7] bg-white px-2.5 text-xs"
-                            >
-                              <PencilLine className="h-3.5 w-3.5" />
-                              Edit details
-                            </Button>
+                          <div className="mt-2 flex justify-end">
                             <Button
                               size="sm"
                               onClick={() =>
@@ -12191,7 +12225,7 @@ export default function Home() {
                               className="h-8 rounded-lg bg-[#0c3b2d] px-2.5 text-xs text-white hover:bg-[#174d3a]"
                             >
                               <PencilLine className="h-3.5 w-3.5" />
-                              {isEditing ? "Editing update" : "Edit update"}
+                              {isEditing ? "Editing" : "Update"}
                             </Button>
                           </div>
 
@@ -12201,7 +12235,7 @@ export default function Home() {
                     })}
 
                     {selected.subactivities.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center xl:col-span-2">
+                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center 2xl:col-span-2">
                         <ListChecks className="mx-auto h-7 w-7 text-[#6b7c72]" />
                         <p className="mt-3 font-bold">No sub-activities yet</p>
                         <p className="mt-1 text-sm text-[#718178]">
