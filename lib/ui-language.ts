@@ -138,6 +138,8 @@ const mn: Record<string, string> = {
   "Meta data control": "Мета өгөгдлийн удирдлага",
   "Workplan administration": "Ажлын төлөвлөгөөний удирдлага",
   "Year and planning controls": "Жил ба төлөвлөлтийн удирдлага",
+  "Select workplan year": "Ажлын төлөвлөгөөний жил сонгох",
+  "Use the year selector in the header to view any saved plan. Creating and deleting years remains restricted to administrators.": "Хадгалсан төлөвлөгөөний жилийг дээд хэсгийн сонголтоор солино. Жил үүсгэх болон устгах эрх зөвхөн администраторт байна.",
   "System dropdown options": "Системийн сонголтын утгууд",
   "Manage users, workplan years, and the shared dropdown options used across the ERP system.": "ERP системд ашиглах хэрэглэгч, ажлын төлөвлөгөөний жил болон нэгдсэн сонголтын утгуудыг удирдана.",
   "Select the active planning year here. Year controls are restricted to administrators.": "Идэвхтэй төлөвлөлтийн жилийг энд сонгоно. Жилийн удирдлагыг зөвхөн администратор ашиглана.",

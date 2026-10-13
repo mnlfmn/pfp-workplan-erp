@@ -6,6 +6,7 @@ import {
   BarChart3,
   Banknote,
   Bell,
+  CalendarDays,
   ChevronRight,
   CircleCheck,
   CopyPlus,
@@ -216,6 +217,29 @@ type WorkplanYear = {
   reportingDate: string;
   isEmpty?: boolean;
 };
+
+const BASE_WORKPLAN_YEAR = 2026;
+
+function calendarWorkplanYear() {
+  const mongoliaYear = Number(
+    new Intl.DateTimeFormat("en", {
+      year: "numeric",
+      timeZone: "Asia/Ulaanbaatar",
+    }).format(new Date()),
+  );
+  return Math.max(BASE_WORKPLAN_YEAR, mongoliaYear);
+}
+
+function preferredAvailableWorkplanYear(years: WorkplanYear[]) {
+  const currentYear = calendarWorkplanYear();
+  if (years.some((item) => item.year === currentYear)) return currentYear;
+  const earlierYears = years
+    .map((item) => item.year)
+    .filter((year) => year <= currentYear)
+    .sort((a, b) => b - a);
+  if (earlierYears.length) return earlierYears[0];
+  return [...years].sort((a, b) => a.year - b.year)[0]?.year ?? BASE_WORKPLAN_YEAR;
+}
 
 type BudgetAllocation = {
   id: string;
@@ -1409,7 +1433,7 @@ export default function Home() {
   const attributeSourcesRef = useRef(
     new WeakMap<Element, Map<string, string>>(),
   );
-  const [selectedYear, setSelectedYear] = useState(2026);
+  const [selectedYear, setSelectedYear] = useState(() => calendarWorkplanYear());
   const [workplanYears, setWorkplanYears] = useState<WorkplanYear[]>([
     {
       year: 2026,
@@ -1907,9 +1931,18 @@ export default function Home() {
       })
       .then((result) => {
         if (!active) return;
+        if (result.years?.length) {
+          setWorkplanYears(result.years);
+          if (!result.years.some((item) => item.year === selectedYear)) {
+            const fallbackYear = preferredAvailableWorkplanYear(result.years);
+            if (fallbackYear !== selectedYear) {
+              setSelectedYear(fallbackYear);
+              return;
+            }
+          }
+        }
         setAllActivities(result.activities ?? []);
         setAllBudgetLines(result.budgetLines ?? []);
-        if (result.years) setWorkplanYears(result.years);
         setSelectedId(null);
         setPlanState("ready");
       })
@@ -6005,6 +6038,23 @@ export default function Home() {
             </TabsList>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 pl-2 text-white/80">
+              <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <NativeSelect
+                value={String(selectedYear)}
+                onChange={(event) => setSelectedYear(Number(event.target.value))}
+                className="h-9 min-w-[128px] border-0 bg-transparent pl-1 pr-8 text-xs font-black text-white shadow-none focus-visible:ring-0"
+                aria-label="Select workplan year"
+              >
+                {workplanYears.map((item) => (
+                  <NativeSelectOption key={item.year} value={String(item.year)}>
+                    {language === "mn"
+                      ? `${item.year} оны төлөвлөгөө`
+                      : `${item.year} workplan`}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
@@ -8488,22 +8538,13 @@ export default function Home() {
                       <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Workplan administration</p>
                       <h3 className="mt-1 text-lg font-black">Year and planning controls</h3>
                       <p className="mt-1 text-sm text-[#718178]">
-                        Select the active planning year here. Year controls are restricted to administrators.
+                        Use the year selector in the header to view any saved plan. Creating and deleting years remains restricted to administrators.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <NativeSelect
-                        value={String(selectedYear)}
-                        onChange={(event) => setSelectedYear(Number(event.target.value))}
-                        className="h-10 min-w-40 border-[#cbd6cc] bg-white font-bold"
-                        aria-label="Select workplan year"
-                      >
-                        {workplanYears.map((item) => (
-                          <NativeSelectOption key={item.year} value={String(item.year)}>
-                            {item.year} workplan · {item.status}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
+                      <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#cbd6cc] bg-[#f7faf5] px-3 text-sm font-black text-[#315845]">
+                        <CalendarDays className="h-4 w-4" /> {language === "mn" ? `${selectedYear} оны төлөвлөгөө` : `${selectedYear} workplan`}
+                      </span>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
