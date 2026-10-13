@@ -66,6 +66,7 @@ function assessmentDetails(value: unknown) {
         return {
           activityKey: text(row.activityKey, 180),
           selfScore: optionalBoundedScore(row.selfScore),
+          reviewScore: optionalBoundedScore(row.reviewScore),
         };
       }).filter((item) => item.activityKey)
     : [];
@@ -78,6 +79,7 @@ function assessmentDetails(value: unknown) {
           outcome: text(row.outcome, 3000),
           completionDate: text(row.completionDate, 20),
           selfScore: optionalBoundedScore(row.selfScore),
+          reviewScore: optionalBoundedScore(row.reviewScore),
         };
       }).filter((item) => item.title || item.outcome)
     : [];
@@ -88,6 +90,7 @@ function assessmentDetails(value: unknown) {
           key: text(row.key, 80),
           note: text(row.note, 2000),
           selfScore: optionalBoundedScore(row.selfScore),
+          reviewScore: optionalBoundedScore(row.reviewScore),
         };
       }).filter((item) => competencyKeys.has(item.key))
     : [];
@@ -100,12 +103,56 @@ function assessmentDetails(value: unknown) {
     development: {
       note: text(development.note, 3000),
       selfScore: optionalBoundedScore(development.selfScore),
+      reviewScore: optionalBoundedScore(development.reviewScore),
     },
     culture: {
       note: text(culture.note, 3000),
       selfScore: optionalBoundedScore(culture.selfScore, 5),
+      reviewScore: optionalBoundedScore(culture.reviewScore, 5),
     },
     staffComment: text(input.staffComment, 5000),
+  };
+}
+
+type AssessmentDetails = ReturnType<typeof assessmentDetails>;
+
+function preserveReviewerScores(incoming: AssessmentDetails, existing: AssessmentDetails) {
+  return {
+    ...incoming,
+    activityScores: incoming.activityScores.map((item) => ({
+      ...item,
+      reviewScore: existing.activityScores.find((row) => row.activityKey === item.activityKey)?.reviewScore ?? null,
+    })),
+    additionalWorks: incoming.additionalWorks.map((item) => ({
+      ...item,
+      reviewScore: existing.additionalWorks.find((row) => row.id === item.id)?.reviewScore ?? null,
+    })),
+    competencies: incoming.competencies.map((item) => ({
+      ...item,
+      reviewScore: existing.competencies.find((row) => row.key === item.key)?.reviewScore ?? null,
+    })),
+    development: { ...incoming.development, reviewScore: existing.development.reviewScore },
+    culture: { ...incoming.culture, reviewScore: existing.culture.reviewScore },
+  };
+}
+
+function applyReviewerScores(existing: AssessmentDetails, incoming: AssessmentDetails) {
+  return {
+    ...existing,
+    activityScores: existing.activityScores.map((item) => {
+      const reviewed = incoming.activityScores.find((row) => row.activityKey === item.activityKey);
+      return { ...item, reviewScore: reviewed ? reviewed.reviewScore : item.reviewScore };
+    }),
+    additionalWorks: existing.additionalWorks.map((item) => {
+      const reviewed = incoming.additionalWorks.find((row) => row.id === item.id);
+      return { ...item, reviewScore: reviewed ? reviewed.reviewScore : item.reviewScore };
+    }),
+    competencies: existing.competencies.map((item) => {
+      const reviewed = incoming.competencies.find((row) => row.key === item.key);
+      return { ...item, reviewScore: reviewed ? reviewed.reviewScore : item.reviewScore };
+    }),
+    development: { ...existing.development, reviewScore: incoming.development.reviewScore },
+    culture: { ...existing.culture, reviewScore: incoming.culture.reviewScore },
   };
 }
 
@@ -258,6 +305,15 @@ export async function POST(request: Request) {
     const submitted = workflowStatus === "submitted" || workflowStatus === "reviewed" || workflowStatus === "approved";
     const reviewed = workflowStatus === "reviewed" || workflowStatus === "approved";
     const approved = workflowStatus === "approved";
+    const incomingDetails = assessmentDetails(payload.assessmentDetails);
+    const existingDetails = assessmentDetails(existing?.assessmentDetails);
+    const mergedDetails = session.isAdmin
+      ? incomingDetails
+      : access.isSelf
+        ? preserveReviewerScores(incomingDetails, existingDetails)
+        : access.isReviewer
+          ? applyReviewerScores(existingDetails, incomingDetails)
+          : existingDetails;
     const values = {
       id,
       memberId,
@@ -267,10 +323,7 @@ export async function POST(request: Request) {
         session.isAdmin || access.isSelf
           ? JSON.stringify(activityKeys(payload.linkedActivityKeys))
           : existing?.linkedActivityKeys ?? "[]",
-      assessmentDetails:
-        session.isAdmin || access.isSelf
-          ? JSON.stringify(assessmentDetails(payload.assessmentDetails))
-          : existing?.assessmentDetails ?? "{}",
+      assessmentDetails: JSON.stringify(mergedDetails),
       achievementNote:
         session.isAdmin || access.isSelf
           ? text(payload.achievementNote, 8000)

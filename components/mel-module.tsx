@@ -238,6 +238,7 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
   const [reportingStatus, setReportingStatus] = useState("all");
   const [indicatorDialogOpen, setIndicatorDialogOpen] = useState(false);
   const [indicatorForm, setIndicatorForm] = useState<IndicatorDraft>(emptyIndicator());
+  const [indicatorStep, setIndicatorStep] = useState(0);
   const [activityLinkQuery, setActivityLinkQuery] = useState("");
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [resultIndicator, setResultIndicator] = useState<MelIndicator | null>(null);
@@ -360,6 +361,7 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
 
   function openIndicator(item?: MelIndicator) {
     setIndicatorForm(item ? indicatorDraft(item) : emptyIndicator());
+    setIndicatorStep(0);
     setActivityLinkQuery("");
     setIndicatorDialogOpen(true);
   }
@@ -695,12 +697,19 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
       </section>
 
       <Dialog open={indicatorDialogOpen} onOpenChange={setIndicatorDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader><DialogTitle>{indicatorForm.id ? "Edit indicator" : "Add indicator"}</DialogTitle><DialogDescription>Define the indicator, responsibility, links, baseline, and reporting targets.</DialogDescription></DialogHeader>
-          <div className="grid gap-5 py-2 lg:grid-cols-2">
-            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4"><div><p className="font-black">1. Indicator definition</p><p className="text-xs text-[#718178]">Required identification and measurement rules.</p></div><div className="grid gap-3 sm:grid-cols-[150px_1fr]"><label className="space-y-1"><span className="text-xs font-bold">Indicator code *</span><Input value={indicatorForm.code} onChange={(event) => setIndicatorForm((form) => ({ ...form, code: event.target.value }))} placeholder="IND-01" /></label><label className="space-y-1"><span className="text-xs font-bold">Indicator name *</span><Input value={indicatorForm.name} onChange={(event) => setIndicatorForm((form) => ({ ...form, name: event.target.value }))} /></label></div><label className="block space-y-1"><span className="text-xs font-bold">Definition</span><Textarea value={indicatorForm.definition} onChange={(event) => setIndicatorForm((form) => ({ ...form, definition: event.target.value }))} className="min-h-24" /></label><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1"><span className="text-xs font-bold">Unit *</span><Input value={indicatorForm.unit} onChange={(event) => setIndicatorForm((form) => ({ ...form, unit: event.target.value }))} placeholder="%, people, hectares" /></label><label className="space-y-1"><span className="text-xs font-bold">Level *</span><NativeSelect value={indicatorForm.level} onChange={(event) => setIndicatorForm((form) => ({ ...form, level: event.target.value as MelIndicator["level"] }))}><NativeSelectOption value="output">Output</NativeSelectOption><NativeSelectOption value="outcome">Outcome</NativeSelectOption><NativeSelectOption value="impact">Impact</NativeSelectOption></NativeSelect></label><label className="space-y-1"><span className="text-xs font-bold">Frequency *</span><NativeSelect value={indicatorForm.reportingFrequency} onChange={(event) => setIndicatorForm((form) => ({ ...form, reportingFrequency: event.target.value as MelIndicator["reportingFrequency"] }))}><NativeSelectOption value="quarterly">Quarterly</NativeSelectOption><NativeSelectOption value="annual">Annual</NativeSelectOption></NativeSelect></label></div><label className="block space-y-1"><span className="text-xs font-bold">Data source</span><Input value={indicatorForm.dataSource} onChange={(event) => setIndicatorForm((form) => ({ ...form, dataSource: event.target.value }))} placeholder="Survey, administrative record, report…" /></label></section>
-            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4">
-              <div><p className="font-black">2. Responsibility and workplan links</p><p className="text-xs text-[#718178]">Connect one indicator to any number of main activity lines.</p></div>
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-[#edf3ec] p-1">
+            {["Definition", "Responsibility & links", "Baseline & targets"].map((label, index) => (
+              <button key={label} type="button" onClick={() => setIndicatorStep(index)} className={`rounded-lg px-2 py-2 text-xs font-black transition ${indicatorStep === index ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-white"}`}>
+                {index + 1}. {label}
+              </button>
+            ))}
+          </div>
+          <div className="py-2">
+            {indicatorStep === 0 && <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4"><div><p className="font-black">Indicator definition</p><p className="text-xs text-[#718178]">Required identification and measurement rules.</p></div><div className="grid gap-3 sm:grid-cols-[150px_1fr]"><label className="space-y-1"><span className="text-xs font-bold">Indicator code *</span><Input value={indicatorForm.code} onChange={(event) => setIndicatorForm((form) => ({ ...form, code: event.target.value }))} placeholder="IND-01" /></label><label className="space-y-1"><span className="text-xs font-bold">Indicator name *</span><Input value={indicatorForm.name} onChange={(event) => setIndicatorForm((form) => ({ ...form, name: event.target.value }))} /></label></div><label className="block space-y-1"><span className="text-xs font-bold">Definition</span><Textarea value={indicatorForm.definition} onChange={(event) => setIndicatorForm((form) => ({ ...form, definition: event.target.value }))} className="min-h-24" /></label><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1"><span className="text-xs font-bold">Unit *</span><Input value={indicatorForm.unit} onChange={(event) => setIndicatorForm((form) => ({ ...form, unit: event.target.value }))} placeholder="%, people, hectares" /></label><label className="space-y-1"><span className="text-xs font-bold">Level *</span><NativeSelect value={indicatorForm.level} onChange={(event) => setIndicatorForm((form) => ({ ...form, level: event.target.value as MelIndicator["level"] }))}><NativeSelectOption value="output">Output</NativeSelectOption><NativeSelectOption value="outcome">Outcome</NativeSelectOption><NativeSelectOption value="impact">Impact</NativeSelectOption></NativeSelect></label><label className="space-y-1"><span className="text-xs font-bold">Frequency *</span><NativeSelect value={indicatorForm.reportingFrequency} onChange={(event) => setIndicatorForm((form) => ({ ...form, reportingFrequency: event.target.value as MelIndicator["reportingFrequency"] }))}><NativeSelectOption value="quarterly">Quarterly</NativeSelectOption><NativeSelectOption value="annual">Annual</NativeSelectOption></NativeSelect></label></div><label className="block space-y-1"><span className="text-xs font-bold">Data source</span><Input value={indicatorForm.dataSource} onChange={(event) => setIndicatorForm((form) => ({ ...form, dataSource: event.target.value }))} placeholder="Survey, administrative record, report…" /></label></section>}
+            {indicatorStep === 1 && <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4">
+              <div><p className="font-black">Responsibility and workplan links</p><p className="text-xs text-[#718178]">Connect one indicator to any number of main activity lines.</p></div>
               <label className="block space-y-1"><span className="text-xs font-bold">Responsible person</span><NativeSelect value={indicatorForm.responsibleMemberId} onChange={(event) => setIndicatorForm((form) => ({ ...form, responsibleMemberId: event.target.value }))}><NativeSelectOption value="">Not assigned</NativeSelectOption>{teamMembers.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></label>
               <label className="block space-y-1"><span className="text-xs font-bold">Goal</span><NativeSelect value={indicatorForm.goal} onChange={(event) => setIndicatorForm((form) => ({ ...form, goal: event.target.value }))}><NativeSelectOption value="">Not linked</NativeSelectOption>{goals.map((item) => <NativeSelectOption key={item} value={item}>{item === "All goals" ? "Cross-goal" : item}</NativeSelectOption>)}</NativeSelect></label>
               <div className="space-y-1">
@@ -714,13 +723,16 @@ export function MelModule({ year, activities, teamMembers, session }: Props) {
                 </div>
               </div>
               <label className="flex items-center gap-2 rounded-xl border border-[#d9e1d8] bg-white p-3 text-sm font-semibold"><Checkbox checked={indicatorForm.active} onCheckedChange={(checked) => setIndicatorForm((form) => ({ ...form, active: checked === true }))} /> Active indicator</label>
-            </section>
-            <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4 lg:col-span-2">
-              <div><p className="font-black">3. Baseline and annual target</p><p className="text-xs text-[#718178]">Quarterly results are measured against the annual target.</p></div>
+            </section>}
+            {indicatorStep === 2 && <section className="space-y-3 rounded-2xl bg-[#f5f8f3] p-4">
+              <div><p className="font-black">Baseline and annual target</p><p className="text-xs text-[#718178]">Quarterly results are measured against the annual target.</p></div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="space-y-1"><span className="text-xs font-bold">Baseline value</span><Input type="number" step="any" value={indicatorForm.baselineValue} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineValue: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Baseline year</span><Input type="number" value={indicatorForm.baselineYear} onChange={(event) => setIndicatorForm((form) => ({ ...form, baselineYear: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">Annual target</span><Input type="number" step="any" value={indicatorForm.annualTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, annualTarget: event.target.value }))} /></label><label className="space-y-1"><span className="text-xs font-bold">End target</span><Input type="number" step="any" value={indicatorForm.endTarget} onChange={(event) => setIndicatorForm((form) => ({ ...form, endTarget: event.target.value }))} /></label></div>
-            </section>
+            </section>}
           </div>
-          <DialogFooter className="sm:justify-between">{indicatorForm.id && <Button variant="outline" onClick={() => { setIndicatorDialogOpen(false); setDeleteIndicator(indicators.find((item) => item.id === indicatorForm.id) ?? null); }} className="border-rose-200 text-rose-700"><Trash2 className="h-4 w-4" /> Remove</Button>}<div className="flex gap-2"><Button variant="outline" onClick={() => setIndicatorDialogOpen(false)}>Cancel</Button><Button onClick={() => void saveIndicator()} disabled={saving} className="bg-[#0c3b2d] text-white">{saving ? "Saving…" : "Save indicator"}</Button></div></DialogFooter>
+          <DialogFooter className="sm:justify-between">
+            <div>{indicatorForm.id && <Button variant="outline" onClick={() => { setIndicatorDialogOpen(false); setDeleteIndicator(indicators.find((item) => item.id === indicatorForm.id) ?? null); }} className="border-rose-200 text-rose-700"><Trash2 className="h-4 w-4" /> Remove</Button>}</div>
+            <div className="flex gap-2"><Button variant="outline" onClick={() => setIndicatorDialogOpen(false)}>Cancel</Button>{indicatorStep > 0 && <Button variant="outline" onClick={() => setIndicatorStep((step) => Math.max(0, step - 1))}>Back</Button>}{indicatorStep < 2 ? <Button onClick={() => setIndicatorStep((step) => Math.min(2, step + 1))} className="bg-[#0c3b2d] text-white">Continue</Button> : <Button onClick={() => void saveIndicator()} disabled={saving} className="bg-[#0c3b2d] text-white">{saving ? "Saving…" : "Save indicator"}</Button>}</div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -106,6 +106,7 @@ type KpiDraft = {
 type ActivityAssessment = {
   activityKey: string;
   selfScore: number | null;
+  reviewScore: number | null;
 };
 
 type AdditionalWork = {
@@ -114,20 +115,22 @@ type AdditionalWork = {
   outcome: string;
   completionDate: string;
   selfScore: number | null;
+  reviewScore: number | null;
 };
 
 type CompetencyAssessment = {
   key: string;
   note: string;
   selfScore: number | null;
+  reviewScore: number | null;
 };
 
 type KpiAssessmentDetails = {
   activityScores: ActivityAssessment[];
   additionalWorks: AdditionalWork[];
   competencies: CompetencyAssessment[];
-  development: { note: string; selfScore: number | null };
-  culture: { note: string; selfScore: number | null };
+  development: { note: string; selfScore: number | null; reviewScore: number | null };
+  culture: { note: string; selfScore: number | null; reviewScore: number | null };
   staffComment: string;
 };
 
@@ -159,11 +162,11 @@ function parseKeys(value: string) {
 
 function defaultAssessmentDetails(activityKeys: string[] = []): KpiAssessmentDetails {
   return {
-    activityScores: activityKeys.map((activityKey) => ({ activityKey, selfScore: null })),
+    activityScores: activityKeys.map((activityKey) => ({ activityKey, selfScore: null, reviewScore: null })),
     additionalWorks: [],
-    competencies: competencyQuestions.map(({ key }) => ({ key, note: "", selfScore: null })),
-    development: { note: "", selfScore: null },
-    culture: { note: "", selfScore: null },
+    competencies: competencyQuestions.map(({ key }) => ({ key, note: "", selfScore: null, reviewScore: null })),
+    development: { note: "", selfScore: null, reviewScore: null },
+    culture: { note: "", selfScore: null, reviewScore: null },
     staffComment: "",
   };
 }
@@ -183,7 +186,7 @@ function parseAssessmentDetails(value: string, activityKeys: string[]): KpiAsses
     return {
       activityScores: activityKeys.map((activityKey) => {
         const saved = savedActivityScores.find((item) => item?.activityKey === activityKey);
-        return { activityKey, selfScore: nullableScore(saved?.selfScore) };
+        return { activityKey, selfScore: nullableScore(saved?.selfScore), reviewScore: nullableScore(saved?.reviewScore) };
       }),
       additionalWorks: Array.isArray(parsed.additionalWorks)
         ? parsed.additionalWorks.map((item) => ({
@@ -192,19 +195,22 @@ function parseAssessmentDetails(value: string, activityKeys: string[]): KpiAsses
             outcome: String(item?.outcome ?? ""),
             completionDate: String(item?.completionDate ?? ""),
             selfScore: nullableScore(item?.selfScore),
+            reviewScore: nullableScore(item?.reviewScore),
           }))
         : [],
       competencies: competencyQuestions.map(({ key }) => {
         const saved = savedCompetencies.find((item) => item?.key === key);
-        return { key, note: String(saved?.note ?? ""), selfScore: nullableScore(saved?.selfScore) };
+        return { key, note: String(saved?.note ?? ""), selfScore: nullableScore(saved?.selfScore), reviewScore: nullableScore(saved?.reviewScore) };
       }),
       development: {
         note: String(parsed.development?.note ?? ""),
         selfScore: nullableScore(parsed.development?.selfScore),
+        reviewScore: nullableScore(parsed.development?.reviewScore),
       },
       culture: {
         note: String(parsed.culture?.note ?? ""),
         selfScore: nullableScore(parsed.culture?.selfScore, 5),
+        reviewScore: nullableScore(parsed.culture?.reviewScore, 5),
       },
       staffComment: String(parsed.staffComment ?? ""),
     };
@@ -228,6 +234,25 @@ function selfSectionScores(details: KpiAssessmentDetails, fallback: { performanc
     attendance: averageScores(details.competencies.map((item) => item.selfScore), fallback.attendance),
     development: details.development.selfScore ?? fallback.development,
     bonus: details.culture.selfScore ?? 0,
+  };
+}
+
+function reviewerSectionScores(
+  details: KpiAssessmentDetails,
+  fallback: { performance: number; attendance: number; development: number; bonus: number },
+) {
+  const performanceItems = [...details.activityScores, ...details.additionalWorks];
+  const hasPerformanceScores = performanceItems.some((item) => item.reviewScore !== null);
+  const hasAttendanceScores = details.competencies.some((item) => item.reviewScore !== null);
+  return {
+    performance: hasPerformanceScores
+      ? averageScores(performanceItems.map((item) => item.reviewScore ?? item.selfScore), fallback.performance)
+      : fallback.performance,
+    attendance: hasAttendanceScores
+      ? averageScores(details.competencies.map((item) => item.reviewScore ?? item.selfScore), fallback.attendance)
+      : fallback.attendance,
+    development: details.development.reviewScore ?? fallback.development,
+    bonus: details.culture.reviewScore ?? fallback.bonus,
   };
 }
 
@@ -291,14 +316,13 @@ function finalScore(review: KpiReview) {
     attendance: review.selfAttendanceScore,
     development: review.selfDevelopmentScore,
   });
-  return weightedTotal({
-    performance: review.reviewPerformanceScore ?? review.selfPerformanceScore,
-    attendance: review.reviewAttendanceScore ?? review.selfAttendanceScore,
-    development: review.reviewDevelopmentScore ?? review.selfDevelopmentScore,
-    bonus: ["reviewed", "approved"].includes(review.workflowStatus)
-      ? review.cultureBonus
-      : selfScores.bonus,
+  const reviewerScores = reviewerSectionScores(details, {
+    performance: review.reviewPerformanceScore ?? selfScores.performance,
+    attendance: review.reviewAttendanceScore ?? selfScores.attendance,
+    development: review.reviewDevelopmentScore ?? selfScores.development,
+    bonus: ["reviewed", "approved"].includes(review.workflowStatus) ? review.cultureBonus : selfScores.bonus,
   });
+  return weightedTotal(reviewerScores);
 }
 
 function scoreTone(value: number) {
@@ -435,14 +459,17 @@ export function StaffKpiModule({
     attendance: numeric(draft.selfAttendanceScore),
     development: numeric(draft.selfDevelopmentScore),
   });
-  const draftTotal = weightedTotal({
+  const draftReviewerScores = reviewerSectionScores(draft.assessmentDetails, {
     performance: numeric(draft.reviewPerformanceScore || String(draftSelfScores.performance)),
     attendance: numeric(draft.reviewAttendanceScore || String(draftSelfScores.attendance)),
     development: numeric(draft.reviewDevelopmentScore || String(draftSelfScores.development)),
-    bonus: ["reviewed", "approved"].includes(draft.workflowStatus)
-      ? numeric(draft.cultureBonus)
-      : draftSelfScores.bonus,
+    bonus: numeric(draft.cultureBonus || String(draftSelfScores.bonus)),
   });
+  const draftTotal = weightedTotal(
+    ["reviewed", "approved"].includes(draft.workflowStatus)
+      ? draftReviewerScores
+      : { ...draftSelfScores, bonus: draftSelfScores.bonus },
+  );
 
   function openReview(period: KpiPeriod) {
     const review = reviewByPeriod.get(period);
@@ -468,6 +495,12 @@ export function StaffKpiModule({
       attendance: numeric(draft.selfAttendanceScore),
       development: numeric(draft.selfDevelopmentScore),
     });
+    const computedReviewerScores = reviewerSectionScores(draft.assessmentDetails, {
+      performance: numeric(draft.reviewPerformanceScore || String(computedSelfScores.performance)),
+      attendance: numeric(draft.reviewAttendanceScore || String(computedSelfScores.attendance)),
+      development: numeric(draft.reviewDevelopmentScore || String(computedSelfScores.development)),
+      bonus: numeric(draft.cultureBonus || String(computedSelfScores.bonus)),
+    });
     setSaving(true);
     try {
       const response = await fetch("/api/kpi", {
@@ -480,10 +513,10 @@ export function StaffKpiModule({
           selfPerformanceScore: computedSelfScores.performance,
           selfAttendanceScore: computedSelfScores.attendance,
           selfDevelopmentScore: computedSelfScores.development,
-          reviewPerformanceScore: draft.reviewPerformanceScore === "" ? null : numeric(draft.reviewPerformanceScore),
-          reviewAttendanceScore: draft.reviewAttendanceScore === "" ? null : numeric(draft.reviewAttendanceScore),
-          reviewDevelopmentScore: draft.reviewDevelopmentScore === "" ? null : numeric(draft.reviewDevelopmentScore),
-          cultureBonus: numeric(draft.cultureBonus),
+          reviewPerformanceScore: computedReviewerScores.performance,
+          reviewAttendanceScore: computedReviewerScores.attendance,
+          reviewDevelopmentScore: computedReviewerScores.development,
+          cultureBonus: computedReviewerScores.bonus,
         }),
       });
       const result = (await response.json()) as { review?: KpiReview; error?: string };
@@ -628,15 +661,31 @@ export function StaffKpiModule({
               <label className="block text-sm font-bold">Review period<NativeSelect value={draft.period} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as KpiPeriod }))} disabled={Boolean(editingId) || !canEditSelf} className="mt-1"><NativeSelectOption value="Q1">Q1</NativeSelectOption><NativeSelectOption value="Q2">Q2</NativeSelectOption><NativeSelectOption value="Q3">Q3</NativeSelectOption><NativeSelectOption value="Q4">Q4</NativeSelectOption><NativeSelectOption value="Annual">Annual</NativeSelectOption></NativeSelect></label>
               <div>
                 <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold">Responsible activities</p><p className="text-xs text-[#718178]">Assigned activities are linked automatically. Give each activity a self-assessment score from 0 to 100.</p></div><span className="text-xs font-black text-[#2f634c]">{draft.linkedActivityKeys.length} activities</span></div>
-                {canEditSelf && <details className="mt-2 rounded-xl border border-[#d7ded5] bg-[#f8faf7]"><summary className="cursor-pointer px-3 py-2 text-xs font-black text-[#315845]">Add or remove activity links</summary><div className="border-t border-[#e1e7df] p-2"><div className="mb-2 flex items-center gap-2"><label className="relative block flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="h-9 pl-9" /></label><Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: assignedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null }) } }))} className="h-9 px-2 text-xs">Use assigned</Button></div><div className="max-h-48 space-y-1 overflow-y-auto">{selectableActivities.map((activity) => { const checked = draft.linkedActivityKeys.includes(activity.id); return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-white"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const linkedActivityKeys = value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id); return { ...current, linkedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: linkedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null }) } }; })} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>; })}</div></div></details>}
+                {canEditSelf && <details className="mt-2 rounded-xl border border-[#d7ded5] bg-[#f8faf7]"><summary className="cursor-pointer px-3 py-2 text-xs font-black text-[#315845]">Add or remove activity links</summary><div className="border-t border-[#e1e7df] p-2"><div className="mb-2 flex items-center gap-2"><label className="relative block flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search code or activity" className="h-9 pl-9" /></label><Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, linkedActivityKeys: assignedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: assignedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null, reviewScore: null }) } }))} className="h-9 px-2 text-xs">Use assigned</Button></div><div className="max-h-48 space-y-1 overflow-y-auto">{selectableActivities.map((activity) => { const checked = draft.linkedActivityKeys.includes(activity.id); return <label key={activity.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-white"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const linkedActivityKeys = value ? Array.from(new Set([...current.linkedActivityKeys, activity.id])) : current.linkedActivityKeys.filter((key) => key !== activity.id); return { ...current, linkedActivityKeys, assessmentDetails: { ...current.assessmentDetails, activityScores: linkedActivityKeys.map((activityKey) => current.assessmentDetails.activityScores.find((item) => item.activityKey === activityKey) ?? { activityKey, selfScore: null, reviewScore: null }) } }; })} /><span className="min-w-0 flex-1 text-xs leading-4"><strong className="text-[#315845]">{activity.code}</strong> · {activity.title}</span>{assignedActivityKeySet.has(activity.id) && <span className="shrink-0 rounded-full bg-[#e6f0e4] px-2 py-0.5 text-[10px] font-bold text-[#315845]">Assigned</span>}</label>; })}</div></div></details>}
               </div>
               <div className="space-y-2">
-                {linkedActivities.map((activity) => { const scoreRow = draft.assessmentDetails.activityScores.find((item) => item.activityKey === activity.id); const notes = activityQuarterNotes[activity.id]; const entries = draft.period === "Annual" ? (["Q1", "Q2", "Q3", "Q4"] as Quarter[]).map((quarter) => [quarter, notes?.[quarter] ?? ""] as const).filter(([, note]) => note.trim()) : [[draft.period, notes?.[draft.period as Quarter] ?? ""] as const]; return <article key={activity.id} className="rounded-xl border border-[#d7ded5] bg-white p-3"><div className="grid gap-3 sm:grid-cols-[1fr_115px] sm:items-start"><div className="min-w-0"><p className="font-mono text-xs font-black text-[#315845]">{activity.code}</p><p className="mt-1 text-sm font-bold leading-5 text-[#183529]">{activity.title}</p></div><label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={scoreRow?.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, activityScores: current.assessmentDetails.activityScores.map((item) => item.activityKey === activity.id ? { ...item, selfScore: nullableScore(event.target.value) } : item) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><details className="mt-2 rounded-lg bg-[#f3f7f1] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#53685c]">Work Plan progress note</summary><div className="mt-2 space-y-1">{entries.length ? entries.map(([quarter, note]) => <p key={quarter} className="text-xs leading-5 text-[#53685c]"><strong>{quarter}</strong> · {note || "No note submitted."}</p>) : <p className="text-xs text-[#718178]">No Work Plan quarterly note yet.</p>}</div></details></article>; })}
+                {linkedActivities.map((activity) => {
+                  const scoreRow = draft.assessmentDetails.activityScores.find((item) => item.activityKey === activity.id);
+                  const notes = activityQuarterNotes[activity.id];
+                  const entries = draft.period === "Annual"
+                    ? (["Q1", "Q2", "Q3", "Q4"] as Quarter[]).map((quarter) => [quarter, notes?.[quarter] ?? ""] as const).filter(([, note]) => note.trim())
+                    : [[draft.period, notes?.[draft.period as Quarter] ?? ""] as const];
+                  return (
+                    <article key={activity.id} className="rounded-xl border border-[#d7ded5] bg-white p-3">
+                      <div className={`grid gap-3 ${canReview || canApprove ? "sm:grid-cols-[1fr_105px_105px]" : "sm:grid-cols-[1fr_115px]"} sm:items-start`}>
+                        <div className="min-w-0"><p className="font-mono text-xs font-black text-[#315845]">{activity.code}</p><p className="mt-1 text-sm font-bold leading-5 text-[#183529]">{activity.title}</p></div>
+                        <label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={scoreRow?.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, activityScores: current.assessmentDetails.activityScores.map((item) => item.activityKey === activity.id ? { ...item, selfScore: nullableScore(event.target.value) } : item) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label>
+                        {(canReview || canApprove) && <label className="text-xs font-bold text-blue-800">Supervisor score<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} value={scoreRow?.reviewScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, activityScores: current.assessmentDetails.activityScores.map((item) => item.activityKey === activity.id ? { ...item, reviewScore: nullableScore(event.target.value) } : item) } }))} placeholder="0–100" className="mt-1 h-9 border-blue-200 bg-blue-50 text-right font-black" /></label>}
+                      </div>
+                      <details className="mt-2 rounded-lg bg-[#f3f7f1] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#53685c]">Work Plan progress note</summary><div className="mt-2 space-y-1">{entries.length ? entries.map(([quarter, note]) => <p key={quarter} className="text-xs leading-5 text-[#53685c]"><strong>{quarter}</strong> · {note || "No note submitted."}</p>) : <p className="text-xs text-[#718178]">No Work Plan quarterly note yet.</p>}</div></details>
+                    </article>
+                  );
+                })}
                 {!linkedActivities.length && <div className="rounded-xl border border-dashed border-[#cbd6cc] px-4 py-8 text-center text-xs text-[#718178]">No responsible activities are linked.</div>}
               </div>
               <section className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3">
-                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black">Additional work</p><p className="text-xs text-[#718178]">Add completed work that was not included in the Work Plan.</p></div>{canEditSelf && <Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: [...current.assessmentDetails.additionalWorks, { id: `additional-${crypto.randomUUID()}`, title: "", outcome: "", completionDate: "", selfScore: null }] } }))} className="h-8 px-2.5 text-xs"><Plus className="h-3.5 w-3.5" /> Add work</Button>}</div>
-                <div className="mt-3 space-y-2">{draft.assessmentDetails.additionalWorks.map((item, index) => <article key={item.id} className="rounded-lg border border-white bg-white p-3"><div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-[#315845]">Additional work {index + 1}</p>{canEditSelf && <Button type="button" variant="ghost" size="icon" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.filter((row) => row.id !== item.id) } }))} className="h-7 w-7 text-rose-700"><Trash2 className="h-3.5 w-3.5" /></Button>}</div><div className="grid gap-2 sm:grid-cols-[1.3fr_145px_105px]"><label className="text-xs font-bold">Work title<Input disabled={!canEditSelf} value={item.title} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, title: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Completion date<Input type="date" disabled={!canEditSelf} value={item.completionDate} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, completionDate: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><label className="mt-2 block text-xs font-bold">Result or evidence<Textarea disabled={!canEditSelf} value={item.outcome} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, outcome: event.target.value } : row) } }))} className="mt-1 min-h-16" /></label></article>)}{!draft.assessmentDetails.additionalWorks.length && <p className="rounded-lg bg-white px-3 py-4 text-center text-xs text-[#718178]">No additional work added.</p>}</div>
+                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black">Additional work</p><p className="text-xs text-[#718178]">Add completed work that was not included in the Work Plan.</p></div>{canEditSelf && <Button type="button" variant="outline" size="sm" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: [...current.assessmentDetails.additionalWorks, { id: `additional-${crypto.randomUUID()}`, title: "", outcome: "", completionDate: "", selfScore: null, reviewScore: null }] } }))} className="h-8 px-2.5 text-xs"><Plus className="h-3.5 w-3.5" /> Add work</Button>}</div>
+                <div className="mt-3 space-y-2">{draft.assessmentDetails.additionalWorks.map((item, index) => <article key={item.id} className="rounded-lg border border-white bg-white p-3"><div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-[#315845]">Additional work {index + 1}</p>{canEditSelf && <Button type="button" variant="ghost" size="icon" onClick={() => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.filter((row) => row.id !== item.id) } }))} className="h-7 w-7 text-rose-700"><Trash2 className="h-3.5 w-3.5" /></Button>}</div><div className={`grid gap-2 ${canReview || canApprove ? "sm:grid-cols-[1.3fr_145px_105px_105px]" : "sm:grid-cols-[1.3fr_145px_105px]"}`}><label className="text-xs font-bold">Work title<Input disabled={!canEditSelf} value={item.title} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, title: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Completion date<Input type="date" disabled={!canEditSelf} value={item.completionDate} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, completionDate: event.target.value } : row) } }))} className="mt-1 h-9" /></label><label className="text-xs font-bold">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label>{(canReview || canApprove) && <label className="text-xs font-bold text-blue-800">Supervisor score<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} value={item.reviewScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, reviewScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 border-blue-200 bg-blue-50 text-right font-black" /></label>}</div><label className="mt-2 block text-xs font-bold">Result or evidence<Textarea disabled={!canEditSelf} value={item.outcome} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, additionalWorks: current.assessmentDetails.additionalWorks.map((row) => row.id === item.id ? { ...row, outcome: event.target.value } : row) } }))} className="mt-1 min-h-16" /></label></article>)}{!draft.assessmentDetails.additionalWorks.length && <p className="rounded-lg bg-white px-3 py-4 text-center text-xs text-[#718178]">No additional work added.</p>}</div>
               </section>
             </div>
           )}
@@ -644,15 +693,15 @@ export function StaffKpiModule({
           {step === 1 && (
             <div className="space-y-4 py-2">
               <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4"><p className="text-sm font-black">Work attendance and participation</p><p className="mt-1 text-xs text-[#718178]">These six questions come from the KPI assessment sheet. Add a short example when useful and score each item from 0 to 100.</p></div>
-              <div className="grid gap-2 md:grid-cols-2">{competencyQuestions.map((question, index) => { const item = draft.assessmentDetails.competencies.find((row) => row.key === question.key) ?? { key: question.key, note: "", selfScore: null }; return <article key={question.key} className="rounded-xl border border-[#d7ded5] bg-white p-3"><div className="grid gap-2 sm:grid-cols-[1fr_105px]"><div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">Question {index + 1}</p><p className="mt-1 text-sm font-bold leading-5">{question.label}</p></div><label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label></div><Textarea disabled={!canEditSelf} value={item.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, note: event.target.value } : row) } }))} placeholder="Optional example or evidence" className="mt-2 min-h-16 text-xs" /></article>; })}</div>
+              <div className="grid gap-2 md:grid-cols-2">{competencyQuestions.map((question, index) => { const item = draft.assessmentDetails.competencies.find((row) => row.key === question.key) ?? { key: question.key, note: "", selfScore: null, reviewScore: null }; return <article key={question.key} className="rounded-xl border border-[#d7ded5] bg-white p-3"><div className={`grid gap-2 ${canReview || canApprove ? "sm:grid-cols-[1fr_95px_95px]" : "sm:grid-cols-[1fr_105px]"}`}><div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">Question {index + 1}</p><p className="mt-1 text-sm font-bold leading-5">{question.label}</p></div><label className="text-xs font-bold text-[#53685c]">Self score<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={item.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, selfScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 text-right font-black" /></label>{(canReview || canApprove) && <label className="text-xs font-bold text-blue-800">Supervisor score<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} value={item.reviewScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, reviewScore: nullableScore(event.target.value) } : row) } }))} placeholder="0–100" className="mt-1 h-9 border-blue-200 bg-blue-50 text-right font-black" /></label>}</div><Textarea disabled={!canEditSelf} value={item.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, competencies: current.assessmentDetails.competencies.map((row) => row.key === question.key ? { ...row, note: event.target.value } : row) } }))} placeholder="Optional example or evidence" className="mt-2 min-h-16 text-xs" /></article>; })}</div>
               <div className="rounded-xl bg-[#0c3b2d] p-4 text-white"><p className="text-xs font-bold uppercase tracking-[0.1em] text-emerald-100/75">Attendance and participation average</p><p className="mt-1 text-3xl font-black">{draftSelfScores.attendance}%</p></div>
             </div>
           )}
 
           {step === 2 && (
             <div className="space-y-4 py-2">
-              <article className="rounded-xl border border-[#d7ded5] bg-white p-4"><div className="flex items-start gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e6f0e4] text-[#315845]"><BookOpenCheck className="h-4 w-4" /></div><div><p className="font-black">Professional and personal development</p><p className="mt-1 text-xs leading-5 text-[#718178]">Include paid or free training, self-directed courses, professional meetings, reading or other development activities.</p></div></div><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.development.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, note: event.target.value } } }))} placeholder="Describe training, learning and how it supported your work." className="mt-3 min-h-24" /><label className="mt-3 block text-xs font-bold text-[#53685c]">Self score (0–100)<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.development.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, selfScore: nullableScore(event.target.value) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label></article>
-              <article className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-4"><p className="font-black">Positive contribution to team culture</p><p className="mt-1 text-xs leading-5 text-[#718178]">Optional bonus area from the KPI sheet. Describe a contribution that improved internal operations, productivity, culture, values or team goals.</p><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.culture.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, note: event.target.value } } }))} placeholder="Describe the contribution and result." className="mt-3 min-h-20 bg-white" /><label className="mt-3 block text-xs font-bold text-[#53685c]">Proposed bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.culture.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, selfScore: nullableScore(event.target.value, 5) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label></article>
+              <article className="rounded-xl border border-[#d7ded5] bg-white p-4"><div className="flex items-start gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e6f0e4] text-[#315845]"><BookOpenCheck className="h-4 w-4" /></div><div><p className="font-black">Professional and personal development</p><p className="mt-1 text-xs leading-5 text-[#718178]">Include paid or free training, self-directed courses, professional meetings, reading or other development activities.</p></div></div><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.development.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, note: event.target.value } } }))} placeholder="Describe training, learning and how it supported your work." className="mt-3 min-h-24" /><div className="mt-3 flex flex-wrap gap-3"><label className="block text-xs font-bold text-[#53685c]">Self score (0–100)<Input type="number" min="0" max="100" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.development.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, selfScore: nullableScore(event.target.value) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label>{(canReview || canApprove) && <label className="block text-xs font-bold text-blue-800">Supervisor score (0–100)<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} value={draft.assessmentDetails.development.reviewScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, development: { ...current.assessmentDetails.development, reviewScore: nullableScore(event.target.value) } } }))} className="mt-1 h-9 max-w-40 border-blue-200 bg-blue-50 text-right font-black" /></label>}</div></article>
+              <article className="rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-4"><p className="font-black">Positive contribution to team culture</p><p className="mt-1 text-xs leading-5 text-[#718178]">Optional bonus area from the KPI sheet. Describe a contribution that improved internal operations, productivity, culture, values or team goals.</p><Textarea disabled={!canEditSelf} value={draft.assessmentDetails.culture.note} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, note: event.target.value } } }))} placeholder="Describe the contribution and result." className="mt-3 min-h-20 bg-white" /><div className="mt-3 flex flex-wrap gap-3"><label className="block text-xs font-bold text-[#53685c]">Proposed bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canEditSelf} value={draft.assessmentDetails.culture.selfScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, selfScore: nullableScore(event.target.value, 5) } } }))} className="mt-1 h-9 max-w-40 text-right font-black" /></label>{(canReview || canApprove) && <label className="block text-xs font-bold text-blue-800">Supervisor bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canReview} value={draft.assessmentDetails.culture.reviewScore ?? ""} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, culture: { ...current.assessmentDetails.culture, reviewScore: nullableScore(event.target.value, 5) } } }))} className="mt-1 h-9 max-w-40 border-blue-200 bg-blue-50 text-right font-black" /></label>}</div></article>
               <div className="grid gap-2 sm:grid-cols-3">{[["Work performance", "75%", draftSelfScores.performance], ["Attendance & participation", "15%", draftSelfScores.attendance], ["Personal development", "10%", draftSelfScores.development]].map(([label, weight, value]) => <div key={String(label)} className="rounded-xl border border-[#d7ded5] bg-white p-3"><p className="text-xs font-semibold text-[#718178]">{label} · {weight}</p><p className="mt-1 text-2xl font-black text-[#183529]">{value}%</p></div>)}</div>
             </div>
           )}
@@ -661,7 +710,7 @@ export function StaffKpiModule({
             <div className="space-y-4 py-2">
               <label className="block text-sm font-bold">{draft.period === "Annual" ? "Overall annual KPI note" : "Overall quarterly KPI note"}<Textarea value={draft.achievementNote} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, achievementNote: event.target.value }))} placeholder="Add the overall result, key challenge and next priority. Activity notes are reused from the Work Plan." className="mt-1 min-h-24" /></label>
               <label className="block text-sm font-bold">Other issues, suggestions or requests<Textarea value={draft.assessmentDetails.staffComment} disabled={!canEditSelf} onChange={(event) => setDraft((current) => ({ ...current, assessmentDetails: { ...current.assessmentDetails, staffComment: event.target.value } }))} placeholder="Add any issue or suggestion you would like to discuss with your Supervisor or MNLF CEO." className="mt-1 min-h-20" /></label>
-              {(canReview || canApprove) ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm font-black text-blue-950">Supervisor assessment</p><p className="mt-1 text-xs text-blue-800">Section scores are optional. Blank fields continue to use the officer&apos;s self-assessment.</p><div className="mt-3 grid gap-2 sm:grid-cols-3">{[["Work performance", "reviewPerformanceScore"], ["Attendance & participation", "reviewAttendanceScore"], ["Personal development", "reviewDevelopmentScore"]].map(([label, key]) => <label key={key} className="text-xs font-bold text-blue-950">{label}<Input type="number" min="0" max="100" step="0.1" disabled={!canReview} placeholder="Use self score" value={draft[key as keyof KpiDraft] as string} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="mt-1 h-9 bg-white text-right font-black" /></label>)}</div><label className="mt-3 block text-xs font-bold text-blue-950">Team-culture bonus (0–5)<Input type="number" min="0" max="5" step="0.1" disabled={!canReview} value={draft.cultureBonus} onChange={(event) => setDraft((current) => ({ ...current, cultureBonus: event.target.value }))} className="mt-1 h-9 max-w-40 bg-white" /></label><label className="mt-3 block text-xs font-bold text-blue-950">Supervisor comment<Textarea value={draft.reviewComment} disabled={!canReview} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-20 bg-white" placeholder="Record feedback and follow-up." /></label></div> : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review the activities, questionnaire and overall KPI note before submitting to your Supervisor.</div>}
+              {(canReview || canApprove) ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm font-black text-blue-950">Supervisor assessment</p><p className="mt-1 text-xs text-blue-800">The Supervisor scores each item beside the officer&apos;s score in steps 1–3. Blank Supervisor scores use the officer&apos;s score.</p><div className="mt-3 grid gap-2 sm:grid-cols-4">{[["Work performance", draftReviewerScores.performance], ["Attendance & participation", draftReviewerScores.attendance], ["Personal development", draftReviewerScores.development], ["Team-culture bonus", draftReviewerScores.bonus]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-blue-100 bg-white px-3 py-2"><p className="text-[11px] font-bold text-blue-800">{label}</p><p className="mt-1 text-xl font-black text-blue-950">{value}{label === "Team-culture bonus" ? "" : "%"}</p></div>)}</div><label className="mt-3 block text-xs font-bold text-blue-950">Supervisor comment<Textarea value={draft.reviewComment} disabled={!canReview} onChange={(event) => setDraft((current) => ({ ...current, reviewComment: event.target.value }))} className="mt-1 min-h-20 bg-white" placeholder="Record feedback and follow-up." /></label></div> : <div className="rounded-xl border border-[#d9e3d5] bg-[#f5f8f3] p-4 text-sm text-[#315845]">Review the activities, questionnaire and overall KPI note before submitting to your Supervisor.</div>}
               {(canApprove || session.isAdmin) && <label className="block rounded-xl border border-[#d8cba5] bg-[#fff9e8] p-4 text-sm font-bold text-[#6e5411]">MNLF CEO comment<Textarea value={draft.approvalComment} disabled={!canApprove && !session.isAdmin} onChange={(event) => setDraft((current) => ({ ...current, approvalComment: event.target.value }))} className="mt-2 min-h-20 bg-white text-[#183529]" placeholder="Record the final approval comment." /></label>}
               <div className="grid gap-3 rounded-xl border border-[#cfdacf] bg-white p-4 sm:grid-cols-[1fr_180px] sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#718178]">Final weighted score</p><p className={`mt-1 text-4xl font-black ${scoreTone(draftTotal)}`}>{draftTotal}%</p><p className="mt-1 text-xs text-[#718178]">Performance 75% · attendance 15% · development 10% · bonus up to 5</p></div><label className="text-sm font-bold">Workflow status<NativeSelect value={draft.workflowStatus} onChange={(event) => setDraft((current) => ({ ...current, workflowStatus: event.target.value as KpiStatus }))} className="mt-1">{availableStatuses.map((status) => <NativeSelectOption key={status} value={status} disabled={status === draft.workflowStatus && !((session.isAdmin) || (isOwnReview && ["draft", "submitted"].includes(status)) || (canReview && ["submitted", "reviewed"].includes(status)) || (canApprove && ["reviewed", "approved"].includes(status)))}>{statusMeta[status].label}</NativeSelectOption>)}</NativeSelect></label></div>
             </div>

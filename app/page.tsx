@@ -1545,6 +1545,7 @@ export default function Home() {
   const [paymentTransferDates, setPaymentTransferDates] = useState<Record<string, string>>({});
   const [contractQuery, setContractQuery] = useState("");
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
+  const [contractStartYearFilter, setContractStartYearFilter] = useState("all");
   const [contractDetailId, setContractDetailId] = useState("");
   const [contractDraft, setContractDraft] = useState<ContractDraft>(() =>
     emptyContractDraft(2026),
@@ -2133,6 +2134,7 @@ export default function Home() {
         setFinanceDateTo(filters.financeDateTo ?? "");
         setContractQuery(filters.contractQuery ?? "");
         setContractStatusFilter(filters.contractStatusFilter ?? "all");
+        setContractStartYearFilter(filters.contractStartYearFilter ?? "all");
       } catch {
         window.localStorage.removeItem("pfp-erp-filters");
       }
@@ -2155,10 +2157,12 @@ export default function Home() {
         financeDateTo,
         contractQuery,
         contractStatusFilter,
+        contractStartYearFilter,
       }),
     );
   }, [
     contractQuery,
+    contractStartYearFilter,
     contractStatusFilter,
     financeCreatorFilter,
     financeDateFrom,
@@ -4720,6 +4724,18 @@ export default function Home() {
     [allActivities, allBudgetLines],
   );
 
+  const contractStartYears = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          contracts
+            .map((contract) => contract.startDate.slice(0, 4))
+            .filter((year) => /^\d{4}$/.test(year)),
+        ),
+      ).sort((a, b) => Number(b) - Number(a)),
+    [contracts],
+  );
+
   const filteredContracts = useMemo(() => {
     const normalized = contractQuery.trim().toLocaleLowerCase();
     return contracts.filter((contract) => {
@@ -4739,10 +4755,11 @@ export default function Home() {
         .toLocaleLowerCase();
       return (
         (contractStatusFilter === "all" || contract.status === contractStatusFilter) &&
+        (contractStartYearFilter === "all" || contract.startDate.startsWith(`${contractStartYearFilter}-`)) &&
         haystack.includes(normalized)
       );
     });
-  }, [allBudgetLines, contractQuery, contractStatusFilter, contractTargets, contracts]);
+  }, [allBudgetLines, contractQuery, contractStartYearFilter, contractStatusFilter, contractTargets, contracts]);
   const selectedContract = contracts.find((contract) => contract.id === contractDetailId) ?? null;
   const selectedContractFundingDetails = (selectedContract?.allocations ?? []).map((allocation) => ({
     allocation,
@@ -7602,11 +7619,17 @@ export default function Home() {
 
           <TabsContent value="contracts" className="space-y-6">
             <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
-              <button type="button" onClick={() => setContractStatusFilter("all")} className="hover:text-[#174734]">Contracts</button>
+              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
               {contractStatusFilter !== "all" && (
                 <>
                   <ChevronRight className="h-4 w-4" />
                   <span className="text-[#174734]">{contractStatusMeta[contractStatusFilter as ContractRecord["status"]]?.label}</span>
+                </>
+              )}
+              {contractStartYearFilter !== "all" && (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-[#174734]">Started {contractStartYearFilter}</span>
                 </>
               )}
             </nav>
@@ -7676,19 +7699,32 @@ export default function Home() {
                     className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
                   />
                 </div>
-                <NativeSelect
-                  value={contractStatusFilter}
-                  onChange={(event) => setContractStatusFilter(event.target.value)}
-                  className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter contracts by status"
-                >
-                  <NativeSelectOption value="all">All statuses</NativeSelectOption>
-                  {Object.entries(contractStatusMeta).map(([value, meta]) => (
-                    <NativeSelectOption key={value} value={value}>
-                      {meta.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <NativeSelect
+                    value={contractStatusFilter}
+                    onChange={(event) => setContractStatusFilter(event.target.value)}
+                    className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter contracts by status"
+                  >
+                    <NativeSelectOption value="all">All statuses</NativeSelectOption>
+                    {Object.entries(contractStatusMeta).map(([value, meta]) => (
+                      <NativeSelectOption key={value} value={value}>
+                        {meta.label}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <NativeSelect
+                    value={contractStartYearFilter}
+                    onChange={(event) => setContractStartYearFilter(event.target.value)}
+                    className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter contracts by starting year"
+                  >
+                    <NativeSelectOption value="all">All start years</NativeSelectOption>
+                    {contractStartYears.map((year) => (
+                      <NativeSelectOption key={year} value={year}>Started {year}</NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </div>
               </div>
 
               {contractState === "unavailable" && (
@@ -10797,59 +10833,50 @@ export default function Home() {
                 <div className="space-y-2">
                   {selectedContract.payments.map((payment) => (
                     <article key={payment.id} className="rounded-xl border border-[#d7ded5] bg-white p-3 shadow-sm">
-                      <div className="grid gap-3 md:grid-cols-[1fr_115px_minmax(180px,1.6fr)_65px_135px] md:items-start">
-                        <div><p className="text-[11px] font-semibold text-[#718178]">Payment</p><p className="mt-0.5 text-sm font-black">{payment.label}</p></div>
-                        <div><p className="text-[11px] font-semibold text-[#718178]">Due date</p><p className="mt-0.5 text-xs font-bold">{formatDate(payment.dueDate, language)}</p></div>
-                        <div className="min-w-0"><p className="text-[11px] font-semibold text-[#718178]">Deliverable</p><p className="mt-0.5 break-words text-xs font-semibold leading-5">{payment.deliverable}</p></div>
-                        <div><p className="text-[11px] font-semibold text-[#718178]">Share</p><p className="mt-0.5 text-sm font-black tabular-nums">{payment.percentage}%</p></div>
-                        <div><p className="text-[11px] font-semibold text-[#718178]">Amount</p><p className="mt-0.5 text-sm font-black tabular-nums">{selectedContract.currency === "USD" && payment.foreignAmountMinor ? `${formatUsd(payment.foreignAmountMinor)} · ` : ""}{formatMnt(payment.amountMnt)}</p></div>
-                      </div>
-                      <div className="mt-3 rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs">
-                        <span className="font-bold text-[#53685c]">Funding split: </span>
-                        {(payment.allocations ?? []).map((allocation) => {
-                          const target = contractTargets.find((item) => item.key === allocation.activityKey);
-                          return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
-                        }).join(" · ") || "Not assigned"}
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#e5eae4] pt-3">
-                        <label className="block w-40">
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_210px]">
+                        <div className="min-w-0">
+                          <div className="grid gap-3 md:grid-cols-[1fr_115px_minmax(180px,1.6fr)_65px_135px] md:items-start">
+                            <div><p className="text-[11px] font-semibold text-[#718178]">Payment</p><p className="mt-0.5 text-sm font-black">{payment.label}</p></div>
+                            <div><p className="text-[11px] font-semibold text-[#718178]">Due date</p><p className="mt-0.5 text-xs font-bold">{formatDate(payment.dueDate, language)}</p></div>
+                            <div className="min-w-0"><p className="text-[11px] font-semibold text-[#718178]">Deliverable</p><p className="mt-0.5 break-words text-xs font-semibold leading-5">{payment.deliverable}</p></div>
+                            <div><p className="text-[11px] font-semibold text-[#718178]">Share</p><p className="mt-0.5 text-sm font-black tabular-nums">{payment.percentage}%</p></div>
+                            <div><p className="text-[11px] font-semibold text-[#718178]">Amount</p><p className="mt-0.5 text-sm font-black tabular-nums">{selectedContract.currency === "USD" && payment.foreignAmountMinor ? `${formatUsd(payment.foreignAmountMinor)} · ` : ""}{formatMnt(payment.amountMnt)}</p></div>
+                          </div>
+                          <div className="mt-3 rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs">
+                            <span className="font-bold text-[#53685c]">Funding split: </span>
+                            {(payment.allocations ?? []).map((allocation) => {
+                              const target = contractTargets.find((item) => item.key === allocation.activityKey);
+                              return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
+                            }).join(" · ") || "Not assigned"}
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3">
+                            <label className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
+                              <FileUp className="h-4 w-4" />
+                              {documentUploadingId === payment.id ? "Uploading…" : "Upload document"}
+                              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx" className="sr-only" disabled={documentUploadingId === payment.id} onChange={(event) => { void uploadPaymentDocument(selectedContract, payment, event.target.files?.[0]); event.currentTarget.value = ""; }} />
+                            </label>
+                            {paymentDocuments.filter((document) => document.paymentId === payment.id).map((document) => (
+                              <a key={document.id} href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]">
+                                <FileText className="h-3.5 w-3.5" /> {document.fileName}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                        <aside className="rounded-lg border border-[#dce5da] bg-[#f7faf5] p-3 lg:self-stretch">
+                          <label className="block">
                           <span className="text-[11px] font-semibold text-[#718178]">Transfer date</span>
                           <Input
                             type="date"
                             value={paymentTransferDates[payment.id] ?? payment.paidAt ?? ""}
                             onChange={(event) => setPaymentTransferDates((current) => ({ ...current, [payment.id]: event.target.value }))}
                             disabled={Boolean(payment.paid) || selectedContract.status === "closed"}
-                            className="mt-1 h-8 border-[#cbd6cc] bg-white px-2 text-xs"
+                            className="mt-1 h-9 border-[#cbd6cc] bg-white px-2 text-xs"
                           />
-                        </label>
-                        <Button
-                          size="sm"
-                          variant={payment.paid ? "outline" : "default"}
-                          disabled={contractSaving || selectedContract.status === "closed"}
-                          onClick={() => setPaymentPaid(selectedContract, payment, !payment.paid)}
-                          className={`h-8 px-2.5 text-xs ${payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}`}
-                        >
-                          {payment.paid ? <><CircleCheck className="h-4 w-4" /> Paid</> : "Mark paid"}
-                        </Button>
-                        <label className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
-                          <FileUp className="h-4 w-4" />
-                          {documentUploadingId === payment.id ? "Uploading…" : "Upload document"}
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.xlsx"
-                            className="sr-only"
-                            disabled={documentUploadingId === payment.id}
-                            onChange={(event) => {
-                              void uploadPaymentDocument(selectedContract, payment, event.target.files?.[0]);
-                              event.currentTarget.value = "";
-                            }}
-                          />
-                        </label>
-                        {paymentDocuments.filter((document) => document.paymentId === payment.id).map((document) => (
-                          <a key={document.id} href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]">
-                            <FileText className="h-3.5 w-3.5" /> {document.fileName}
-                          </a>
-                        ))}
+                          </label>
+                          <Button size="sm" variant={payment.paid ? "outline" : "default"} disabled={contractSaving || selectedContract.status === "closed"} onClick={() => setPaymentPaid(selectedContract, payment, !payment.paid)} className={`mt-2 h-9 w-full px-2.5 text-xs ${payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}`}>
+                            {payment.paid ? <><CircleCheck className="h-4 w-4" /> Paid</> : "Mark paid"}
+                          </Button>
+                        </aside>
                       </div>
                     </article>
                   ))}
