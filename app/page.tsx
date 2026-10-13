@@ -264,7 +264,6 @@ type ActivityPlanDraft = {
   lead: string;
   support: string;
   owner: string;
-  actionPlan: string;
   baseline: string;
   target: string;
 };
@@ -549,7 +548,6 @@ const emptyActivityDraft: ActivityPlanDraft = {
   lead: "",
   support: "",
   owner: "",
-  actionPlan: "",
   baseline: "",
   target: "",
 };
@@ -3627,7 +3625,6 @@ export default function Home() {
       lead: activity.lead,
       support: supportPartnersForActivity(activity),
       owner: activityOwner(activity, updates),
-      actionPlan: String(activity.actionPlan ?? ""),
       baseline: activity.baseline,
       target: activity.target,
     });
@@ -4558,14 +4555,6 @@ export default function Home() {
         ]),
       ),
     [allActivities, metadata.status, updates],
-  );
-
-  const actionPlanReferences = useMemo(
-    () =>
-      Array.from(
-        new Set(allActivities.map((item) => String(item.actionPlan || "")).filter(Boolean)),
-      ).sort((left, right) => left.localeCompare(right, undefined, { numeric: true })),
-    [allActivities],
   );
 
   const memberActivities = useMemo(
@@ -5552,7 +5541,6 @@ export default function Home() {
           priority: activity.priority,
           goal: metadataLabel("goal", activity.goal),
           workstream: metadataLabel("workstream", activity.workstream),
-          actionPlan: String(activity.actionPlan ?? ""),
           meccLead: activity.lead ?? "",
           supportPartners: supportPartnersForActivity(activity),
         };
@@ -9309,24 +9297,6 @@ export default function Home() {
                       <NativeSelectOption value="High">High</NativeSelectOption>
                       <NativeSelectOption value="Medium">Medium</NativeSelectOption>
                       <NativeSelectOption value="Low">Low</NativeSelectOption>
-                    </NativeSelect>
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-bold">Action plan reference</span>
-                    <NativeSelect
-                      value={activityPlanDraft.actionPlan}
-                      onChange={(event) =>
-                        setActivityPlanDraft((current) => ({ ...current, actionPlan: event.target.value }))
-                      }
-                      className="h-11 w-full border-[#cbd6cc] bg-white"
-                    >
-                      <NativeSelectOption value="">Choose reference</NativeSelectOption>
-                      {activityPlanDraft.actionPlan && !actionPlanReferences.includes(activityPlanDraft.actionPlan) && (
-                        <NativeSelectOption value={activityPlanDraft.actionPlan}>{activityPlanDraft.actionPlan}</NativeSelectOption>
-                      )}
-                      {actionPlanReferences.map((value) => (
-                        <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>
-                      ))}
                     </NativeSelect>
                   </label>
                 </div>

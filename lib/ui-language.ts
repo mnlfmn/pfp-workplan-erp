@@ -380,7 +380,6 @@ const mn: Record<string, string> = {
   High: "Өндөр",
   Medium: "Дунд",
   Low: "Бага",
-  "Action plan reference": "Үйл ажиллагааны төлөвлөгөөний лавлагаа",
   "Start date": "Эхлэх огноо",
   "Due date": "Дуусах огноо",
   Lead: "Ахлагч",

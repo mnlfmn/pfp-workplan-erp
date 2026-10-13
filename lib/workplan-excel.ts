@@ -13,7 +13,6 @@ export type WorkplanExportItem = {
   priority: string;
   goal: string;
   workstream: string;
-  actionPlan: string;
   meccLead: string;
   accountableOwner: string;
   supportingOwners: string;
@@ -136,7 +135,6 @@ function makeDataRow(
     item.goal,
     item.priority,
     item.workstream,
-    item.actionPlan,
   ];
   leadingValues.forEach((value, index) => {
     cells.push(textCell(`${columnName(index + 1)}${rowNumber}`, value, textStyle));
@@ -144,8 +142,8 @@ function makeDataRow(
 
   const start = excelDate(item.startDate);
   const end = excelDate(item.endDate);
-  cells.push(start === null ? blankCell(`K${rowNumber}`, dateStyle) : numberCell(`K${rowNumber}`, start, dateStyle));
-  cells.push(end === null ? blankCell(`L${rowNumber}`, dateStyle) : numberCell(`L${rowNumber}`, end, dateStyle));
+  cells.push(start === null ? blankCell(`J${rowNumber}`, dateStyle) : numberCell(`J${rowNumber}`, start, dateStyle));
+  cells.push(end === null ? blankCell(`K${rowNumber}`, dateStyle) : numberCell(`K${rowNumber}`, end, dateStyle));
 
   [
     item.meccLead,
@@ -156,12 +154,12 @@ function makeDataRow(
     item.baseline,
     item.target,
   ].forEach((value, index) => {
-    cells.push(textCell(`${columnName(index + 13)}${rowNumber}`, value, textStyle));
+    cells.push(textCell(`${columnName(index + 12)}${rowNumber}`, value, textStyle));
   });
-  cells.push(textCell(`T${rowNumber}`, statusLabel(item.status), statusStyles[item.status] ?? 16));
-  cells.push(numberCell(`U${rowNumber}`, Math.max(0, Math.min(100, item.progress)) / 100, percentStyle));
+  cells.push(textCell(`S${rowNumber}`, statusLabel(item.status), statusStyles[item.status] ?? 16));
+  cells.push(numberCell(`T${rowNumber}`, Math.max(0, Math.min(100, item.progress)) / 100, percentStyle));
   quarters.forEach((quarter, index) => {
-    cells.push(textCell(`${columnName(index + 22)}${rowNumber}`, item.quarterlyUpdates[quarter], textStyle));
+    cells.push(textCell(`${columnName(index + 21)}${rowNumber}`, item.quarterlyUpdates[quarter], textStyle));
   });
 
   return `<row r="${rowNumber}" ht="${estimateRowHeight(item)}" customHeight="1"${isMain ? "" : ' outlineLevel="1"'}>${cells.join("")}</row>`;
@@ -183,7 +181,6 @@ function worksheetXml(options: WorkplanExportOptions) {
     "Goal",
     "Priority",
     "Workstream",
-    "Action plan reference",
     "Start date",
     "Due date",
     "MECC lead",
@@ -198,7 +195,7 @@ function worksheetXml(options: WorkplanExportOptions) {
     ...quarters.map((value) => `${value} update and notes`),
   ];
 
-  const columnCount = 21 + quarters.length;
+  const columnCount = 20 + quarters.length;
   const lastColumn = columnName(columnCount);
 
   const titleCells = Array.from({ length: columnCount }, (_, index) => {
@@ -231,16 +228,15 @@ function worksheetXml(options: WorkplanExportOptions) {
     <col min="6" max="6" width="10" customWidth="1"/>
     <col min="7" max="8" width="12" customWidth="1"/>
     <col min="9" max="9" width="24" customWidth="1"/>
-    <col min="10" max="10" width="18" customWidth="1"/>
-    <col min="11" max="12" width="14" customWidth="1"/>
-    <col min="13" max="14" width="22" customWidth="1"/>
-    <col min="15" max="15" width="26" customWidth="1"/>
-    <col min="16" max="16" width="32" customWidth="1"/>
-    <col min="17" max="17" width="22" customWidth="1"/>
-    <col min="18" max="19" width="38" customWidth="1"/>
-    <col min="20" max="20" width="19" customWidth="1"/>
-    <col min="21" max="21" width="12" customWidth="1"/>
-    <col min="22" max="${columnCount}" width="48" customWidth="1"/>
+    <col min="10" max="11" width="14" customWidth="1"/>
+    <col min="12" max="13" width="22" customWidth="1"/>
+    <col min="14" max="14" width="26" customWidth="1"/>
+    <col min="15" max="15" width="32" customWidth="1"/>
+    <col min="16" max="16" width="22" customWidth="1"/>
+    <col min="17" max="18" width="38" customWidth="1"/>
+    <col min="19" max="19" width="19" customWidth="1"/>
+    <col min="20" max="20" width="12" customWidth="1"/>
+    <col min="21" max="${columnCount}" width="48" customWidth="1"/>
   </cols>
   <sheetData>
     <row r="1" ht="28" customHeight="1">${titleCells}</row>
