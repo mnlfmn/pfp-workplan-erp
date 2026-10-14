@@ -13,6 +13,7 @@ import {
   Download,
   Ellipsis,
   FileSpreadsheet,
+  FileSearch,
   FileText,
   FileUp,
   Gauge,
@@ -40,6 +41,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConsultantSelectionModule } from "@/components/consultant-selection-module";
 import { MelModule } from "@/components/mel-module";
 import { StaffKpiModule } from "@/components/staff-kpi-module";
 import {
@@ -1484,7 +1486,7 @@ export default function Home() {
     "compact" | "comfortable"
   >("compact");
   const [workplanSection, setWorkplanSection] = useState<
-    "finance" | "activities" | "procurement"
+    "finance" | "activities" | "procurement" | "consultant-selection"
   >("activities");
   const [procurementQuery, setProcurementQuery] = useState("");
   const [procurementTypeFilter, setProcurementTypeFilter] = useState("all");
@@ -6562,6 +6564,7 @@ export default function Home() {
             <button type="button" onClick={() => setWorkplanSection("finance")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "finance" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><Banknote className="h-4 w-4" /> Financial Plan</button>
             <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ListChecks className="h-4 w-4" /> Work Plan</button>
             <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
+            <button type="button" onClick={() => setWorkplanSection("consultant-selection")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "consultant-selection" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><FileSearch className="h-4 w-4" /> Consultant Selection</button>
         </div>
 
         {workplanSection === "activities" ? (
@@ -7202,6 +7205,20 @@ export default function Home() {
             </section>
           </div>
         ) : null}
+
+        {workplanSection === "consultant-selection" && (
+          <ConsultantSelectionModule
+            year={selectedYear}
+            activities={allActivities.map((activity) => ({
+              key: activity.id,
+              code: activity.code || activity.uid,
+              title: language === "mn" && activity.titleMn ? activity.titleMn : activity.title,
+              kind: "activity" as const,
+            }))}
+            session={currentSession}
+            language={language}
+          />
+        )}
 
         {workplanSection === "finance" && (
           <div className="space-y-6">

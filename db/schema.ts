@@ -267,6 +267,27 @@ export const workplanRecords = sqliteTable(
   ],
 );
 
+export const consultantEvaluations = sqliteTable(
+  "consultant_evaluations",
+  {
+    id: text("id").primaryKey(),
+    planYear: integer("plan_year").notNull(),
+    activityKey: text("activity_key").notNull().default(""),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("draft"),
+    payload: text("payload").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdBy: text("created_by").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (table) => [
+    index("idx_consultant_evaluations_year").on(table.planYear),
+    index("idx_consultant_evaluations_activity").on(table.activityKey),
+    index("idx_consultant_evaluations_status").on(table.status),
+  ],
+);
+
 export const budgetAllocations = sqliteTable(
   "budget_allocations",
   {

@@ -106,6 +106,13 @@
       "when": 1791821522484,
       "tag": "0014_flimsy_mojo",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1791944237421,
+      "tag": "0015_thick_sentinel",
+      "breakpoints": true
     }
   ]
 }
