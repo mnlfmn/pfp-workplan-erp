@@ -11926,7 +11926,7 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-none! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:max-w-[96vw]! 2xl:max-w-[1640px]!">
+        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[94vw] max-w-[1420px]! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:w-[92vw] sm:max-w-[1420px]!">
           {selected && (
             <>
               <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-3 pr-14 text-left sm:px-6">
@@ -11956,7 +11956,7 @@ export default function Home() {
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.6fr)] lg:overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.45fr)] lg:overflow-hidden">
                 <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-4 lg:overflow-y-auto lg:border-r lg:border-b-0">
                   <div className="pb-3">
                   <section className="rounded-2xl border-2 border-[#082d22] bg-[#0d4635] p-4 text-white shadow-[0_12px_28px_rgba(12,59,45,0.2)]">
@@ -12122,7 +12122,7 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="grid gap-2.5 p-3.5 sm:p-4 2xl:grid-cols-2">
+                  <div className="grid gap-2.5 p-3.5 sm:p-4 xl:grid-cols-2">
                     {selected.subactivities.map((sub, index) => {
                       const currentStatus = recordStatus(
                         sub.id,
@@ -12146,7 +12146,7 @@ export default function Home() {
                           key={sub.id}
                           className={
                             isEditing
-                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-2.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] 2xl:col-span-2"
+                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-2.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] xl:col-span-2"
                               : "rounded-xl border border-[#dbe3d9] bg-white p-2.5"
                           }
                         >
@@ -12159,7 +12159,7 @@ export default function Home() {
                                 <p className="text-xs font-black uppercase tracking-[0.12em] text-[#6b7c72]">
                                   Sub-activity {index + 1}
                                 </p>
-                                <p className={`mt-0.5 text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-3"}`}>
+                                <p className={`mt-0.5 max-w-[48ch] text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-3"}`}>
                                   {sub.title}
                                 </p>
                               </div>
@@ -12252,7 +12252,7 @@ export default function Home() {
                     })}
 
                     {selected.subactivities.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center 2xl:col-span-2">
+                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center xl:col-span-2">
                         <ListChecks className="mx-auto h-7 w-7 text-[#6b7c72]" />
                         <p className="mt-3 font-bold">No sub-activities yet</p>
                         <p className="mt-1 text-sm text-[#718178]">
