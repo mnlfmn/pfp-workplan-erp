@@ -6093,12 +6093,15 @@ export default function Home() {
             </TabsList>
           </div>
           <div className="order-2 ml-auto flex shrink-0 items-center gap-2 min-[1400px]:order-3 min-[1400px]:ml-0">
-            <div className="flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 pl-2 text-white/80">
-              <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <div className="relative [&_[data-slot=native-select-icon]]:right-3 [&_[data-slot=native-select-icon]]:text-white/70 [&_[data-slot=native-select-icon]]:opacity-100">
+              <CalendarDays
+                className="pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2 text-[#dbf081]"
+                aria-hidden="true"
+              />
               <NativeSelect
                 value={String(selectedYear)}
                 onChange={(event) => setSelectedYear(Number(event.target.value))}
-                className="h-9 min-w-[128px] border-0 bg-transparent pl-1 pr-8 text-xs font-black text-white shadow-none focus-visible:ring-0"
+                className="h-10 min-w-[166px] rounded-lg border-white/30 bg-[#174d3a] pl-10 pr-9 text-[13px] font-bold text-white shadow-none transition-colors hover:border-white/45 hover:bg-[#1c5742] focus-visible:border-[#dbf081]/80 focus-visible:ring-[#dbf081]/20"
                 aria-label="Select workplan year"
               >
                 {workplanYears.map((item) => (
