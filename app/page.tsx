@@ -1253,6 +1253,35 @@ function localizedTargetLabel(
   return activity?.titleMn?.trim() || target.label;
 }
 
+function targetSelectLabel(
+  target: BudgetTarget,
+  activities: Activity[],
+  language: UiLanguage,
+) {
+  const label = localizedTargetLabel(target, activities, language);
+  return target.kind === "activity"
+    ? `MAIN · ${target.code} · ${label}`
+    : `\u00a0\u00a0↳ SUB-ACTIVITY · ${label}`;
+}
+
+function accountableOwnerForTarget(
+  target: BudgetTarget | undefined,
+  activities: Activity[],
+  updates: Record<string, UpdateRecord>,
+  members: TeamMember[],
+) {
+  if (!target) return "";
+  const activity = activities.find((item) => item.id === target.activityId);
+  if (!activity) return "";
+  const subactivity = activity.subactivities.find((item) => item.id === target.key);
+  const assignment = target.kind === "activity"
+    ? activityOwner(activity, updates)
+    : subactivity
+      ? subactivityOwner(subactivity, updates)
+      : "";
+  return responsibilityParts(assignment, members).accountable;
+}
+
 function codesShareBudgetLine(activityCode: string, budgetCode: string) {
   const normalize = (value: string) =>
     value.replace(/\s/g, "").replace(/\.+$/, "");
@@ -1562,6 +1591,7 @@ export default function Home() {
   const [financeCreatorFilter, setFinanceCreatorFilter] = useState("all");
   const [financeDateFrom, setFinanceDateFrom] = useState("");
   const [financeDateTo, setFinanceDateTo] = useState("");
+  const [financeEntriesExpanded, setFinanceEntriesExpanded] = useState(false);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
     activityKey: "",
@@ -1591,6 +1621,7 @@ export default function Home() {
   const [contractQuery, setContractQuery] = useState("");
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
   const [contractStartYearFilter, setContractStartYearFilter] = useState("all");
+  const [contractOwnerFilter, setContractOwnerFilter] = useState("all");
   const [contractDetailId, setContractDetailId] = useState("");
   const [contractDraft, setContractDraft] = useState<ContractDraft>(() =>
     emptyContractDraft(2026),
@@ -2171,6 +2202,7 @@ export default function Home() {
         setContractQuery(filters.contractQuery ?? "");
         setContractStatusFilter(filters.contractStatusFilter ?? "all");
         setContractStartYearFilter(filters.contractStartYearFilter ?? "all");
+        setContractOwnerFilter(filters.contractOwnerFilter ?? "all");
       } catch {
         window.localStorage.removeItem("pfp-erp-filters");
       }
@@ -2194,10 +2226,12 @@ export default function Home() {
         contractQuery,
         contractStatusFilter,
         contractStartYearFilter,
+        contractOwnerFilter,
       }),
     );
   }, [
     contractQuery,
+    contractOwnerFilter,
     contractStartYearFilter,
     contractStatusFilter,
     financeCreatorFilter,
@@ -4516,8 +4550,11 @@ export default function Home() {
   ]);
 
   const metadataLabel = useCallback(
-    (category: MetadataCategory, value: string) =>
-      metadata[category].find((item) => item.value === value)?.label || value,
+    (category: MetadataCategory, value: string) => {
+      const label = metadata[category].find((item) => item.value === value)?.label;
+      if (label) return label;
+      return /^custom_[a-z0-9]+$/i.test(value) ? "Custom option" : value;
+    },
     [metadata],
   );
 
@@ -4832,9 +4869,41 @@ export default function Home() {
     [contracts],
   );
 
+  const contractOwnerOptions = useMemo(() => {
+    const owners = new Set<string>();
+    let hasUnassigned = false;
+    for (const contract of contracts) {
+      for (const allocation of contract.allocations ?? []) {
+        const target = contractTargets.find(
+          (item) => item.key === allocation.activityKey,
+        );
+        const owner = accountableOwnerForTarget(
+          target,
+          allActivities,
+          updates,
+          teamMembers,
+        );
+        if (owner) owners.add(owner);
+        else hasUnassigned = true;
+      }
+    }
+    return {
+      names: [...owners].sort((a, b) => a.localeCompare(b)),
+      hasUnassigned,
+    };
+  }, [allActivities, contractTargets, contracts, teamMembers, updates]);
+
   const filteredContracts = useMemo(() => {
     const normalized = contractQuery.trim().toLocaleLowerCase();
     return contracts.filter((contract) => {
+      const accountableOwners = (contract.allocations ?? []).map((allocation) =>
+        accountableOwnerForTarget(
+          contractTargets.find((item) => item.key === allocation.activityKey),
+          allActivities,
+          updates,
+          teamMembers,
+        ),
+      );
       const linkedLabels = (contract.allocations ?? []).flatMap((allocation) => {
         const target = contractTargets.find((item) => item.key === allocation.activityKey);
         const line = allBudgetLines.find((item) => item.id === allocation.budgetKey);
@@ -4845,6 +4914,7 @@ export default function Home() {
         contract.torName,
         contract.serviceProviderName,
         contract.serviceProviderType,
+        ...accountableOwners,
         ...linkedLabels,
       ]
         .join(" ")
@@ -4852,10 +4922,25 @@ export default function Home() {
       return (
         (contractStatusFilter === "all" || contract.status === contractStatusFilter) &&
         (contractStartYearFilter === "all" || contract.startDate.startsWith(`${contractStartYearFilter}-`)) &&
+        (contractOwnerFilter === "all" ||
+          (contractOwnerFilter === "no_owner"
+            ? accountableOwners.some((owner) => !owner)
+            : accountableOwners.includes(contractOwnerFilter))) &&
         haystack.includes(normalized)
       );
     });
-  }, [allBudgetLines, contractQuery, contractStartYearFilter, contractStatusFilter, contractTargets, contracts]);
+  }, [
+    allActivities,
+    allBudgetLines,
+    contractOwnerFilter,
+    contractQuery,
+    contractStartYearFilter,
+    contractStatusFilter,
+    contractTargets,
+    contracts,
+    teamMembers,
+    updates,
+  ]);
   const selectedContract = contracts.find((contract) => contract.id === contractDetailId) ?? null;
   const selectedContractFundingDetails = (selectedContract?.allocations ?? []).map((allocation) => ({
     allocation,
@@ -7572,10 +7657,23 @@ export default function Home() {
                       Every manual entry shows the person who recorded it.
                     </p>
                   </div>
-                  <span className="text-sm font-semibold text-[#5d7467]">
-                    {visibleFinanceEntries.length} of {financeStats.relevantEntries.length} entries
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[#5d7467]">
+                      {visibleFinanceEntries.length} of {financeStats.relevantEntries.length} entries
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFinanceEntriesExpanded((current) => !current)}
+                      aria-expanded={financeEntriesExpanded}
+                      className="h-8 border-[#b9cabb] bg-white text-xs"
+                    >
+                      <ChevronRight className={`h-4 w-4 transition-transform ${financeEntriesExpanded ? "rotate-90" : ""}`} />
+                      {financeEntriesExpanded ? "Hide entries" : "View entries"}
+                    </Button>
+                  </div>
                 </div>
+                {financeEntriesExpanded && (
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
                   <NativeSelect
                     value={financeCreatorFilter}
@@ -7611,15 +7709,28 @@ export default function Home() {
                     />
                   </label>
                 </div>
+                )}
               </div>
+              {!financeEntriesExpanded && (
+                <button
+                  type="button"
+                  onClick={() => setFinanceEntriesExpanded(true)}
+                  className="flex w-full items-center justify-between gap-4 bg-[#f8faf7] px-5 py-4 text-left text-sm text-[#5d7467] transition-colors hover:bg-[#f1f6ee]"
+                >
+                  <span>Expand to filter and review the complete finance-entry history.</span>
+                  <span className="shrink-0 font-black text-[#285d45]">View full list</span>
+                </button>
+              )}
+              {financeEntriesExpanded && (
+              <>
               {financeState === "unavailable" && (
                 <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
                   Saved finance entries are temporarily unavailable. The approved budget remains visible.
                 </div>
               )}
-              <div className="overflow-x-auto">
+              <div className="max-h-[480px] overflow-auto">
                 <Table className="min-w-[980px]">
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 z-10 bg-[#f7f9f5] shadow-[0_1px_0_#e2e7e0]">
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
                       <TableHead className="pl-5">Date</TableHead>
                       <TableHead>Budget line</TableHead>
@@ -7631,7 +7742,7 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleFinanceEntries.slice(0, 50).map((entry) => {
+                    {visibleFinanceEntries.map((entry) => {
                       const line = allBudgetLines.find(
                         (item) => item.id === entry.budgetKey,
                       );
@@ -7730,6 +7841,8 @@ export default function Home() {
                   </p>
                 </div>
               )}
+              </>
+              )}
             </section>
           </div>
         )}
@@ -7737,7 +7850,7 @@ export default function Home() {
 
           <TabsContent value="contracts" className="space-y-6">
             <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
-              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
+              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); setContractOwnerFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
               {contractStatusFilter !== "all" && (
                 <>
                   <ChevronRight className="h-4 w-4" />
@@ -7748,6 +7861,16 @@ export default function Home() {
                 <>
                   <ChevronRight className="h-4 w-4" />
                   <span className="text-[#174734]">Started {contractStartYearFilter}</span>
+                </>
+              )}
+              {contractOwnerFilter !== "all" && (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-[#174734]">
+                    {contractOwnerFilter === "no_owner"
+                      ? "No accountable owner"
+                      : contractOwnerFilter}
+                  </span>
                 </>
               )}
             </nav>
@@ -7817,7 +7940,7 @@ export default function Home() {
                     className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
                   />
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <NativeSelect
                     value={contractStatusFilter}
                     onChange={(event) => setContractStatusFilter(event.target.value)}
@@ -7841,6 +7964,20 @@ export default function Home() {
                     {contractStartYears.map((year) => (
                       <NativeSelectOption key={year} value={year}>Started {year}</NativeSelectOption>
                     ))}
+                  </NativeSelect>
+                  <NativeSelect
+                    value={contractOwnerFilter}
+                    onChange={(event) => setContractOwnerFilter(event.target.value)}
+                    className="h-10 min-w-[190px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter contracts by accountable owner"
+                  >
+                    <NativeSelectOption value="all">All accountable owners</NativeSelectOption>
+                    {contractOwnerOptions.names.map((name) => (
+                      <NativeSelectOption key={name} value={name}>{name}</NativeSelectOption>
+                    ))}
+                    {contractOwnerOptions.hasUnassigned && (
+                      <NativeSelectOption value="no_owner">No accountable owner</NativeSelectOption>
+                    )}
                   </NativeSelect>
                 </div>
               </div>
@@ -10510,7 +10647,7 @@ export default function Home() {
               >
                 {allocationTargets.map((item) => (
                   <NativeSelectOption key={item.key} value={item.key}>
-                    {item.label}
+                    {targetSelectLabel(item, allActivities, language)}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
@@ -11107,7 +11244,7 @@ export default function Home() {
                                     itemIndex !== index && item.activityKey === target.key,
                                 )}
                               >
-                                {target.code} · {target.kind === "subactivity" ? "Sub-activity · " : ""}{localizedTargetLabel(target, allActivities, language)}
+                                {targetSelectLabel(target, allActivities, language)}
                               </NativeSelectOption>
                             ))}
                           </NativeSelect>
@@ -12229,7 +12366,7 @@ export default function Home() {
                               </p>
                             )}
                             <p className="text-[#718178]">
-                              Procurement: {procurementTypeForSubactivity(sub)}
+                              Procurement: {metadataLabel("procurement_type", procurementTypeForSubactivity(sub))}
                             </p>
                             <p className="ml-auto font-bold text-[#315845]">
                               Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
