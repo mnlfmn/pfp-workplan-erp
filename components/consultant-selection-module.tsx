@@ -5,8 +5,10 @@ import {
   Award,
   Calculator,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ClipboardCheck,
   FileCheck2,
   FileSearch,
@@ -221,6 +223,26 @@ function candidateTechnical(candidate: Candidate, committee: CommitteeMember[], 
   return evaluatorTotals.reduce<number>((sum, total) => sum + Number(total), 0) / evaluatorTotals.length;
 }
 
+function calculateEvaluationResults(payload: EvaluationPayload) {
+  const validOffers = payload.candidates
+    .map((candidate) => Number(candidate.financialProposalMnt))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const lowestOffer = validOffers.length ? Math.min(...validOffers) : null;
+  const rows = payload.candidates
+    .map((candidate) => {
+      const technical = candidateTechnical(candidate, payload.committee, payload.criteria);
+      const financial = lowestOffer && candidate.financialProposalMnt && candidate.financialProposalMnt > 0
+        ? (lowestOffer / candidate.financialProposalMnt) * 100
+        : null;
+      const total = technical === null || financial === null
+        ? null
+        : technical * (payload.technicalWeight / 100) + financial * (payload.financialWeight / 100);
+      return { candidate, technical, financial, total };
+    })
+    .sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
+  return { lowestOffer, rows };
+}
+
 function statusTone(status: ConsultantEvaluation["status"]) {
   if (status === "completed") return "bg-emerald-50 text-emerald-800 border-emerald-200";
   if (status === "evaluated") return "bg-blue-50 text-blue-800 border-blue-200";
@@ -239,6 +261,7 @@ export function ConsultantSelectionModule({ year, activities, session, language 
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ConsultantEvaluation | null>(null);
   const [activeCandidateId, setActiveCandidateId] = useState("");
+  const [expandedEvaluationIds, setExpandedEvaluationIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -291,22 +314,10 @@ export function ConsultantSelectionModule({ year, activities, session, language 
   const canEdit = !draft.id || Boolean(session?.isAdmin || session?.email === draft.createdBy);
   const selectedActivity = activities.find((option) => option.key === draft.activityKey);
   const criteriaTotal = draft.payload.criteria.reduce((sum, item) => sum + Number(item.maxScore || 0), 0);
-  const lowestOffer = useMemo(() => {
-    const values = draft.payload.candidates
-      .map((candidate) => Number(candidate.financialProposalMnt))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    return values.length ? Math.min(...values) : null;
-  }, [draft.payload.candidates]);
-  const results = useMemo(() => draft.payload.candidates.map((candidate) => {
-    const technical = candidateTechnical(candidate, draft.payload.committee, draft.payload.criteria);
-    const financial = lowestOffer && candidate.financialProposalMnt && candidate.financialProposalMnt > 0
-      ? (lowestOffer / candidate.financialProposalMnt) * 100
-      : null;
-    const total = technical === null || financial === null
-      ? null
-      : technical * (draft.payload.technicalWeight / 100) + financial * (draft.payload.financialWeight / 100);
-    return { candidate, technical, financial, total };
-  }).sort((a, b) => (b.total ?? -1) - (a.total ?? -1)), [draft.payload, lowestOffer]);
+  const { lowestOffer, rows: results } = useMemo(
+    () => calculateEvaluationResults(draft.payload),
+    [draft.payload],
+  );
 
   const setPayload = <K extends keyof EvaluationPayload>(key: K, value: EvaluationPayload[K]) => {
     setDraft((current) => ({ ...current, payload: { ...current.payload, [key]: value } }));
@@ -426,12 +437,30 @@ export function ConsultantSelectionModule({ year, activities, session, language 
             const payload = parsePayload(item.payload);
             const activity = activities.find((option) => option.key === item.activityKey);
             const mayDelete = Boolean(session?.isAdmin || session?.email === item.createdBy);
-            return <div key={item.id} className="grid gap-3 px-4 py-3.5 transition hover:bg-[#f8faf7] lg:grid-cols-[minmax(0,1fr)_170px_170px_auto] lg:items-center">
-              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-2 py-0.5 text-[11px] font-black capitalize ${statusTone(item.status)}`}>{item.status}</span><span className="font-mono text-xs font-black text-[#397054]">{activity?.code ?? t("Activity", "Үйл ажиллагаа")}</span></div><h3 className="mt-1 line-clamp-2 font-black text-[#183529]">{item.title}</h3><p className="mt-0.5 line-clamp-1 text-xs text-[#718178]">{activity?.title ?? t("Linked activity unavailable", "Холбосон үйл ажиллагаа олдсонгүй")}</p></div>
-              <div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Candidates", "Оролцогч")}</p><p className="mt-1 font-black">{payload.candidates.length}</p></div>
-              <div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Prepared by", "Бэлтгэсэн")}</p><p className="mt-1 truncate text-sm font-bold">{item.createdBy}</p></div>
-              <div className="flex items-center justify-end gap-2"><Button variant="outline" size="sm" onClick={() => openExisting(item)}>{mayDelete ? <PencilLine className="h-3.5 w-3.5" /> : <FileSearch className="h-3.5 w-3.5" />}{mayDelete ? t("Open", "Нээх") : t("View", "Харах")}</Button>{mayDelete && <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="h-8 w-8 text-rose-700 hover:bg-rose-50 hover:text-rose-800"><Trash2 className="h-4 w-4" /></Button>}</div>
-            </div>;
+            const summary = calculateEvaluationResults(payload);
+            const officialCandidate = payload.candidates.find((candidate) => candidate.id === payload.recommendedCandidateId);
+            const displayedCandidate = officialCandidate ?? summary.rows.find((result) => result.total !== null)?.candidate ?? null;
+            const displayedResult = summary.rows.find((result) => result.candidate.id === displayedCandidate?.id);
+            const expanded = expandedEvaluationIds.has(item.id);
+            return <article key={item.id} className="transition hover:bg-[#f8faf7]">
+              <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_90px_180px_160px_auto] lg:items-center">
+                <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-2 py-0.5 text-[11px] font-black capitalize ${statusTone(item.status)}`}>{item.status}</span><span className="font-mono text-xs font-black text-[#397054]">{activity?.code ?? t("Activity", "Үйл ажиллагаа")}</span></div><h3 className="mt-1 line-clamp-2 font-black text-[#183529]">{item.title}</h3><p className="mt-0.5 line-clamp-1 text-xs text-[#718178]">{activity?.title ?? t("Linked activity unavailable", "Холбосон үйл ажиллагаа олдсонгүй")}</p></div>
+                <div><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Candidates", "Оролцогч")}</p><p className="mt-1 font-black">{payload.candidates.length}</p></div>
+                <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{officialCandidate ? t("Recommended", "Санал болгосон") : t("Top result", "Тэргүүлэх үр дүн")}</p><p className={`mt-1 truncate text-sm font-black ${displayedCandidate ? "text-[#174734]" : "text-[#8a9890]"}`}>{displayedCandidate?.name || t("Results incomplete", "Үр дүн дутуу")}</p>{displayedResult?.total !== null && displayedResult?.total !== undefined && <p className="text-[11px] font-bold text-[#718178]">{displayedResult.total.toFixed(2)} / 100</p>}</div>
+                <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Prepared by", "Бэлтгэсэн")}</p><p className="mt-1 truncate text-sm font-bold">{item.createdBy}</p></div>
+                <div className="flex flex-wrap items-center justify-end gap-1.5"><Button variant="ghost" size="sm" onClick={() => setExpandedEvaluationIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} className="text-[#245f47]">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}{expanded ? t("Hide details", "Хураах") : t("See details", "Дэлгэрэнгүй")}</Button><Button variant="outline" size="sm" onClick={() => openExisting(item)}>{mayDelete ? <PencilLine className="h-3.5 w-3.5" /> : <FileSearch className="h-3.5 w-3.5" />}{mayDelete ? t("Open", "Нээх") : t("View", "Харах")}</Button>{mayDelete && <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)} className="h-8 w-8 text-rose-700 hover:bg-rose-50 hover:text-rose-800"><Trash2 className="h-4 w-4" /></Button>}</div>
+              </div>
+              {expanded && <div className="border-t border-[#e0e7de] bg-[#f5f8f3] px-4 py-4">
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-[#dbe4d8] bg-white p-3"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Recommended / top candidate", "Санал болгосон / тэргүүлэх оролцогч")}</p><p className="mt-1 font-black text-[#174734]">{displayedCandidate?.name || "—"}</p></div>
+                  <div className="rounded-xl border border-[#dbe4d8] bg-white p-3"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Combined score", "Нэгдсэн оноо")}</p><p className="mt-1 text-lg font-black text-[#174734]">{displayedResult?.total === null || displayedResult?.total === undefined ? "—" : `${displayedResult.total.toFixed(2)} / 100`}</p></div>
+                  <div className="rounded-xl border border-[#dbe4d8] bg-white p-3"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Lowest valid offer", "Хамгийн бага хүчинтэй санал")}</p><p className="mt-1 font-black text-[#174734]">{formatMnt(summary.lowestOffer)}</p></div>
+                  <div className="rounded-xl border border-[#dbe4d8] bg-white p-3"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Evaluation date", "Үнэлгээний огноо")}</p><p className="mt-1 font-black text-[#174734]">{payload.evaluationDate || "—"}</p></div>
+                </div>
+                <div className="mt-3 overflow-x-auto rounded-xl border border-[#dbe4d8] bg-white"><table className="w-full min-w-[700px] text-sm"><thead><tr className="bg-[#edf3e9] text-left text-[10px] font-black uppercase tracking-[0.07em] text-[#718178]"><th className="px-3 py-2.5">#</th><th className="px-3 py-2.5">{t("Candidate", "Оролцогч")}</th><th className="px-3 py-2.5 text-right">{t("Proposal", "Санал")}</th><th className="px-3 py-2.5 text-right">{t("Technical", "Техник")}</th><th className="px-3 py-2.5 text-right">{t("Financial", "Санхүү")}</th><th className="px-3 py-2.5 text-right">{t("Combined", "Нэгдсэн")}</th></tr></thead><tbody>{summary.rows.map((result, index) => <tr key={result.candidate.id} className={result.candidate.id === displayedCandidate?.id ? "bg-[#f7fae9]" : ""}><td className="border-t border-[#e7ece5] px-3 py-2.5 font-black">{result.total === null ? "—" : index + 1}</td><td className="border-t border-[#e7ece5] px-3 py-2.5 font-black">{result.candidate.name || t("Unnamed candidate", "Нэргүй оролцогч")}</td><td className="border-t border-[#e7ece5] px-3 py-2.5 text-right font-bold">{formatMnt(result.candidate.financialProposalMnt)}</td><td className="border-t border-[#e7ece5] px-3 py-2.5 text-right">{result.technical === null ? "—" : result.technical.toFixed(2)}</td><td className="border-t border-[#e7ece5] px-3 py-2.5 text-right">{result.financial === null ? "—" : result.financial.toFixed(2)}</td><td className="border-t border-[#e7ece5] px-3 py-2.5 text-right font-black text-[#174734]">{result.total === null ? "—" : result.total.toFixed(2)}</td></tr>)}</tbody></table></div>
+                {payload.recommendation.trim() && <div className="mt-3 rounded-xl border border-[#dbe4d8] bg-white p-3"><p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#819087]">{t("Recommendation", "Зөвлөмж")}</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#425a4d]">{payload.recommendation}</p></div>}
+              </div>}
+            </article>;
           })}
           {!loading && !visible.length && <div className="px-6 py-14 text-center"><FileCheck2 className="mx-auto h-8 w-8 text-[#7c9285]" /><p className="mt-3 font-black">{t("No consultant evaluations found", "Зөвлөхийн үнэлгээ олдсонгүй")}</p><p className="mt-1 text-sm text-[#718178]">{t("Create the first evaluation or change the filters.", "Эхний үнэлгээг үүсгэх эсвэл шүүлтүүрээ өөрчилнө үү.")}</p></div>}
         </div>
