@@ -6846,6 +6846,7 @@ export default function Home() {
                           <div
                             role="button"
                             tabIndex={0}
+                            aria-current={isSelected ? "true" : undefined}
                             onClick={() =>
                               setWorkplanPreview({ activityId: item.id })
                             }
@@ -6860,7 +6861,7 @@ export default function Home() {
                               "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-l-4 px-3 text-left transition",
                               rowSpacing,
                               isSelected
-                                ? "border-l-[#0c3b2d] bg-[#eaf3e6]"
+                                ? "relative z-[1] border-l-[#0c3b2d] bg-[#dceccf] shadow-[inset_0_0_0_2px_#2c795a]"
                                 : "border-l-[#7ca08d] bg-[#f5f9f2] hover:bg-[#edf5e9]",
                             ].join(" ")}
                           >
@@ -6896,18 +6897,25 @@ export default function Home() {
                               </span>
                             </div>
                             <div className="min-w-0">
-                              <p
-                                className={[
-                                  "font-black text-[#173228]",
-                                  workplanDensity === "compact"
-                                    ? "line-clamp-1 text-sm"
-                                    : "line-clamp-2 text-[15px] leading-5",
-                                ].join(" ")}
-                              >
-                                {language === "mn" && item.titleMn?.trim()
-                                  ? item.titleMn
-                                  : item.title}
-                              </p>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <p
+                                  className={[
+                                    "min-w-0 flex-1 font-black text-[#173228]",
+                                    workplanDensity === "compact"
+                                      ? "line-clamp-1 text-sm"
+                                      : "line-clamp-2 text-[15px] leading-5",
+                                  ].join(" ")}
+                                >
+                                  {language === "mn" && item.titleMn?.trim()
+                                    ? item.titleMn
+                                    : item.title}
+                                </p>
+                                {isSelected && (
+                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
+                                    <CircleCheck className="h-3 w-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
                               <p className="mt-0.5 truncate text-[11px] font-semibold text-[#718178]">
                                 Main activity · {item.subactivities.length} sub-activities
                               </p>
@@ -6966,6 +6974,7 @@ export default function Home() {
                                     key={subactivity.id}
                                     role="button"
                                     tabIndex={0}
+                                    aria-current={subSelected ? "true" : undefined}
                                     onClick={() =>
                                       setWorkplanPreview({
                                         activityId: item.id,
@@ -6986,7 +6995,7 @@ export default function Home() {
                                       "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-t border-[#edf0eb] border-l-4 px-3 text-left transition",
                                       workplanDensity === "compact" ? "py-2" : "py-3.5",
                                       subSelected
-                                        ? "border-l-[#2c795a] bg-[#f0f7ed]"
+                                        ? "relative z-[1] border-l-[#0c3b2d] bg-[#e1efcf] shadow-[inset_0_0_0_2px_#2c795a]"
                                         : "border-l-transparent hover:bg-[#f8faf7]",
                                     ].join(" ")}
                                   >
@@ -6997,16 +7006,23 @@ export default function Home() {
                                       </span>
                                     </div>
                                     <div className="min-w-0">
-                                      <p
-                                        className={[
-                                          "font-bold text-[#294438]",
-                                          workplanDensity === "compact"
-                                            ? "line-clamp-1 text-xs"
-                                            : "line-clamp-2 text-sm",
-                                        ].join(" ")}
-                                      >
-                                        {subactivity.title}
-                                      </p>
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <p
+                                          className={[
+                                            "min-w-0 flex-1 font-bold text-[#294438]",
+                                            workplanDensity === "compact"
+                                              ? "line-clamp-1 text-xs"
+                                              : "line-clamp-2 text-sm",
+                                          ].join(" ")}
+                                        >
+                                          {subactivity.title}
+                                        </p>
+                                        {subSelected && (
+                                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
+                                            <CircleCheck className="h-3 w-3" /> Selected
+                                          </span>
+                                        )}
+                                      </div>
                                       <p className="mt-0.5 text-[11px] text-[#819087]">
                                         {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
                                       </p>
