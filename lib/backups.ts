@@ -14,6 +14,7 @@ import {
   melIndicators,
   melResults,
   paymentDocuments,
+  quarterlyReportSubmissions,
   quarterlyUpdates,
   staffKpiHistory,
   staffKpiReviews,
@@ -31,6 +32,7 @@ export type BackupPayload = {
   tables: {
     activityUpdates: Array<typeof activityUpdates.$inferSelect>;
     quarterlyUpdates: Array<typeof quarterlyUpdates.$inferSelect>;
+    quarterlyReportSubmissions?: Array<typeof quarterlyReportSubmissions.$inferSelect>;
     financeEntries: Array<typeof financeEntries.$inferSelect>;
     melIndicators?: Array<typeof melIndicators.$inferSelect>;
     melResults?: Array<typeof melResults.$inferSelect>;
@@ -103,6 +105,7 @@ export async function createBackupSnapshot(
   const [
     activityRows,
     quarterlyRows,
+    quarterlySubmissionRows,
     financeRows,
     melIndicatorRows,
     melResultRows,
@@ -122,6 +125,7 @@ export async function createBackupSnapshot(
   ] = await Promise.all([
     db.select().from(activityUpdates),
     db.select().from(quarterlyUpdates),
+    db.select().from(quarterlyReportSubmissions),
     db.select().from(financeEntries),
     db.select().from(melIndicators),
     db.select().from(melResults),
@@ -147,6 +151,7 @@ export async function createBackupSnapshot(
     tables: {
       activityUpdates: activityRows,
       quarterlyUpdates: quarterlyRows,
+      quarterlyReportSubmissions: quarterlySubmissionRows,
       financeEntries: financeRows,
       melIndicators: melIndicatorRows,
       melResults: melResultRows,

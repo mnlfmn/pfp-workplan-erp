@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ChevronRight,
   CircleCheck,
+  ClipboardCheck,
   CopyPlus,
   Download,
   Ellipsis,
@@ -41,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConsultantSelectionModule } from "@/components/consultant-selection-module";
 import { MelModule } from "@/components/mel-module";
+import { QuarterlyReportingModule } from "@/components/quarterly-reporting-module";
 import { StaffKpiModule } from "@/components/staff-kpi-module";
 import {
   AlertDialog,
@@ -1528,7 +1530,7 @@ export default function Home() {
   const [adminControlSection, setAdminControlSection] = useState<
     "users" | "metadata"
   >("users");
-  const [melSection, setMelSection] = useState<"indicators" | "monitoring">(
+  const [melSection, setMelSection] = useState<"indicators" | "quarterly" | "monitoring">(
     "indicators",
   );
   const [teamPerformanceSection, setTeamPerformanceSection] = useState<
@@ -4518,6 +4520,45 @@ export default function Home() {
   const statusOptions = metadata.status;
   const procurementTypeOptions = metadata.procurement_type;
   const serviceProviderTypeOptions = metadata.service_provider_type;
+  const quarterlyReportingActivities = useMemo(
+    () =>
+      allActivities.map((activity) => {
+        const responsibility = responsibilityParts(
+          activityOwner(activity, updates),
+          teamMembers,
+        );
+        return {
+          key: activity.id,
+          code: activity.code || activity.uid,
+          title:
+            language === "mn" && activity.titleMn?.trim()
+              ? activity.titleMn
+              : activity.title,
+          accountableOwner: responsibility.accountable,
+          supportingOwners: responsibility.supporting,
+          status: deriveActivityStatus(activity, updates),
+          progress: deriveActivityProgress(activity, updates),
+          updatedAt: updates[activity.id]?.updatedAt ?? "",
+          note: updates[activity.id]?.note ?? "",
+          subactivities: activity.subactivities.map((subactivity) => ({
+            key: subactivity.id,
+            title: subactivity.title,
+            status: recordStatus(
+              subactivity.id,
+              subactivity.status as StatusKey,
+              updates,
+            ),
+            progress: recordProgress(
+              subactivity.id,
+              statusMetaFor(subactivity.status as StatusKey).weight,
+              updates,
+            ),
+            updatedAt: updates[subactivity.id]?.updatedAt ?? "",
+          })),
+        };
+      }),
+    [allActivities, language, teamMembers, updates],
+  );
   const statusKeys = useMemo(
     () =>
       Array.from(
@@ -8444,6 +8485,17 @@ export default function Home() {
                 >
                   <BarChart3 className="h-4 w-4" /> Programme Monitoring
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setMelSection("quarterly")}
+                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
+                    melSection === "quarterly"
+                      ? "bg-[#0c3b2d] text-white shadow-sm"
+                      : "text-[#53685c] hover:bg-white"
+                  }`}
+                >
+                  <ClipboardCheck className="h-4 w-4" /> Quarterly Reporting
+                </button>
               </div>
             </section>
 
@@ -8453,6 +8505,20 @@ export default function Home() {
                 activities={allActivities}
                 teamMembers={teamMembers}
                 session={currentSession}
+              />
+            ) : melSection === "quarterly" ? (
+              <QuarterlyReportingModule
+                year={selectedYear}
+                activities={quarterlyReportingActivities}
+                teamMembers={teamMembers}
+                session={currentSession}
+                statusOptions={statusOptions}
+                onUpdateSaved={(update) =>
+                  setUpdates((current) => ({
+                    ...current,
+                    [update.activityKey]: update,
+                  }))
+                }
               />
             ) : (
               <>

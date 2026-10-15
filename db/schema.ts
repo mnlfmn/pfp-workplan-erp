@@ -41,6 +41,31 @@ export const quarterlyUpdates = sqliteTable(
   ],
 );
 
+export const quarterlyReportSubmissions = sqliteTable(
+  "quarterly_report_submissions",
+  {
+    id: text("id").primaryKey(),
+    planYear: integer("plan_year").notNull(),
+    quarter: text("quarter").notNull(),
+    memberId: text("member_id").notNull(),
+    memberName: text("member_name").notNull().default(""),
+    status: text("status").notNull().default("submitted"),
+    activityCount: integer("activity_count").notNull().default(0),
+    snapshot: text("snapshot").notNull().default("[]"),
+    reviewComment: text("review_comment").notNull().default(""),
+    submittedAt: text("submitted_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    submittedBy: text("submitted_by").notNull().default(""),
+    returnedAt: text("returned_at").notNull().default(""),
+    returnedBy: text("returned_by").notNull().default(""),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_quarterly_reports_period").on(table.planYear, table.quarter),
+    index("idx_quarterly_reports_member").on(table.memberId, table.planYear),
+    index("idx_quarterly_reports_submitted_at").on(table.submittedAt),
+  ],
+);
+
 export const melIndicators = sqliteTable(
   "mel_indicators",
   {

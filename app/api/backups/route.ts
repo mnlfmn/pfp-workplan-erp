@@ -14,6 +14,7 @@ import {
   melIndicators,
   melResults,
   paymentDocuments,
+  quarterlyReportSubmissions,
   quarterlyUpdates,
   staffKpiHistory,
   staffKpiReviews,
@@ -98,6 +99,7 @@ export async function POST(request: Request) {
     await db.delete(workplanYears);
     await db.delete(financeEntries);
     await db.delete(quarterlyUpdates);
+    await db.delete(quarterlyReportSubmissions);
     await db.delete(activityUpdates);
     await db.delete(systemMetadata);
     await db.delete(staffKpiHistory);
@@ -126,6 +128,12 @@ export async function POST(request: Request) {
     }
     for (let index = 0; index < tables.quarterlyUpdates.length; index += 20) {
       await db.insert(quarterlyUpdates).values(tables.quarterlyUpdates.slice(index, index + 20));
+    }
+    const quarterlySubmissionRows = tables.quarterlyReportSubmissions ?? [];
+    for (let index = 0; index < quarterlySubmissionRows.length; index += 20) {
+      await db
+        .insert(quarterlyReportSubmissions)
+        .values(quarterlySubmissionRows.slice(index, index + 20));
     }
     for (let index = 0; index < tables.financeEntries.length; index += 20) {
       await db.insert(financeEntries).values(tables.financeEntries.slice(index, index + 20));
