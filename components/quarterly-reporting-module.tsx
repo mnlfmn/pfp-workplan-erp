@@ -106,6 +106,11 @@ type Props = {
 
 type DraftUpdate = { status: string; progress: number };
 
+type StatusProgressConfirmation = {
+  confirmedAt: string;
+  confirmedBy: string;
+};
+
 const quarters: QuarterlyReportingQuarter[] = ["Q1", "Q2", "Q3", "Q4"];
 
 function currentQuarter(): QuarterlyReportingQuarter {
@@ -116,11 +121,38 @@ function currentQuarter(): QuarterlyReportingQuarter {
 }
 
 function notesForYear(raw: string, year: number) {
-  const empty = { version: 1 as const, year, quarters: { Q1: "", Q2: "", Q3: "", Q4: "" }, legacy: "" };
+  const empty = {
+    version: 1 as const,
+    year,
+    quarters: { Q1: "", Q2: "", Q3: "", Q4: "" },
+    statusProgressConfirmations: {} as Partial<
+      Record<QuarterlyReportingQuarter, StatusProgressConfirmation>
+    >,
+    legacy: "",
+  };
   if (!raw.trim()) return empty;
   try {
-    const parsed = JSON.parse(raw) as { version?: number; year?: number; quarters?: Partial<Record<QuarterlyReportingQuarter, string>>; legacy?: string };
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      year?: number;
+      quarters?: Partial<Record<QuarterlyReportingQuarter, string>>;
+      statusProgressConfirmations?: Partial<
+        Record<QuarterlyReportingQuarter, Partial<StatusProgressConfirmation>>
+      >;
+      legacy?: string;
+    };
     if (parsed.version === 1 && parsed.quarters) {
+      const statusProgressConfirmations = Object.fromEntries(
+        quarters.flatMap((quarter) => {
+          const confirmation = parsed.statusProgressConfirmations?.[quarter];
+          return confirmation?.confirmedAt
+            ? [[quarter, {
+                confirmedAt: String(confirmation.confirmedAt),
+                confirmedBy: String(confirmation.confirmedBy ?? ""),
+              }]]
+            : [];
+        }),
+      ) as Partial<Record<QuarterlyReportingQuarter, StatusProgressConfirmation>>;
       return {
         version: 1 as const,
         year,
@@ -130,6 +162,7 @@ function notesForYear(raw: string, year: number) {
           Q3: String(parsed.quarters.Q3 ?? ""),
           Q4: String(parsed.quarters.Q4 ?? ""),
         },
+        statusProgressConfirmations,
         legacy: String(parsed.legacy ?? ""),
       };
     }
@@ -139,9 +172,19 @@ function notesForYear(raw: string, year: number) {
   return empty;
 }
 
-function noteWithQuarter(raw: string, year: number, quarter: QuarterlyReportingQuarter, value: string) {
+function noteWithQuarter(
+  raw: string,
+  year: number,
+  quarter: QuarterlyReportingQuarter,
+  value: string,
+  confirmedBy: string,
+) {
   const notes = notesForYear(raw, year);
   notes.quarters[quarter] = value;
+  notes.statusProgressConfirmations[quarter] = {
+    confirmedAt: new Date().toISOString(),
+    confirmedBy,
+  };
   return JSON.stringify(notes);
 }
 
@@ -153,10 +196,15 @@ function isUpdatedInQuarter(value: string, year: number, quarter: QuarterlyRepor
 }
 
 function activityReady(activity: QuarterlyReportingActivity, year: number, quarter: QuarterlyReportingQuarter) {
-  const progressReady = activity.subactivities.length
+  const notes = notesForYear(activity.note, year);
+  const explicitlyConfirmed = Boolean(
+    notes.statusProgressConfirmations[quarter]?.confirmedAt,
+  );
+  const legacyTimestampConfirmation = activity.subactivities.length
     ? activity.subactivities.every((item) => isUpdatedInQuarter(item.updatedAt, year, quarter))
     : isUpdatedInQuarter(activity.updatedAt, year, quarter);
-  const noteReady = Boolean(notesForYear(activity.note, year).quarters[quarter].trim());
+  const progressReady = explicitlyConfirmed || legacyTimestampConfirmation;
+  const noteReady = Boolean(notes.quarters[quarter].trim());
   return { progressReady, noteReady, ready: progressReady && noteReady };
 }
 
@@ -308,7 +356,13 @@ export function QuarterlyReportingModule({
         activityKey: editingActivity.key,
         status: mainStatus,
         progress: mainProgress,
-        note: noteWithQuarter(editingActivity.note, year, quarter, noteDraft.trim()),
+        note: noteWithQuarter(
+          editingActivity.note,
+          year,
+          quarter,
+          noteDraft.trim(),
+          session?.memberName || session?.email || "Unknown user",
+        ),
       });
       toast.success(`${editingActivity.code} reporting update saved`);
       setEditingKey("");
@@ -448,7 +502,7 @@ export function QuarterlyReportingModule({
 
       <Dialog open={Boolean(editingActivity)} onOpenChange={(open) => { if (!open && !saving) setEditingKey(""); }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto bg-white text-[#14241b] sm:max-w-3xl">
-          {editingActivity && <><DialogHeader><DialogTitle>{editingActivity.code} quarterly update</DialogTitle><DialogDescription>Update status and progress, then add one main-activity note for {quarter}.</DialogDescription></DialogHeader><div className="space-y-4"><div className="rounded-xl bg-[#f3f7f1] p-3"><p className="font-black">{editingActivity.title}</p><p className="mt-1 text-xs text-[#718178]">Accountable owner: {editingActivity.accountableOwner}</p></div><div className="space-y-2">{(editingActivity.subactivities.length ? editingActivity.subactivities : [{ key: editingActivity.key, title: editingActivity.title }]).map((item, index) => { const draft = drafts[item.key] ?? { status: editingActivity.status, progress: editingActivity.progress }; return <div key={item.key} className="grid gap-3 rounded-xl border border-[#dce4da] p-3 sm:grid-cols-[minmax(0,1fr)_180px_110px] sm:items-end"><div><p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]">{editingActivity.subactivities.length ? `Sub-activity ${index + 1}` : "Main activity"}</p><p className="mt-1 text-sm font-bold">{item.title}</p></div><label className="block"><span className="mb-1 block text-xs font-bold">Status</span><NativeSelect value={draft.status} onChange={(event) => setDrafts((current) => ({ ...current, [item.key]: { ...draft, status: event.target.value } }))} className="h-10 w-full border-[#cbd6cc] bg-white">{statusOptions.map((option) => <NativeSelectOption key={option.value} value={option.value}>{option.label}</NativeSelectOption>)}</NativeSelect></label><label className="block"><span className="mb-1 block text-xs font-bold">Progress</span><div className="flex items-center gap-1"><Input type="number" min="0" max="100" value={draft.progress} onChange={(event) => setDrafts((current) => ({ ...current, [item.key]: { ...draft, progress: Math.max(0, Math.min(100, Number(event.target.value) || 0)) } }))} className="h-10 border-[#cbd6cc] bg-white text-right font-black" /><span className="text-sm font-bold">%</span></div></label></div>; })}</div><label className="block"><span className="mb-1.5 block text-sm font-black">{quarter} main activity progress note *</span><Textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="What changed this quarter, what was achieved, any challenge, and what comes next?" className="min-h-32 border-[#cbd6cc] bg-white" /></label></div><DialogFooter><Button variant="outline" onClick={() => setEditingKey("")} disabled={saving}>Cancel</Button><Button onClick={() => void saveActivityUpdate()} disabled={saving || !noteDraft.trim()} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">{saving ? "Saving…" : "Save reporting update"}</Button></DialogFooter></>}
+          {editingActivity && <><DialogHeader><DialogTitle>{editingActivity.code} quarterly update</DialogTitle><DialogDescription>Review status and progress, then add one main-activity note for {quarter}. Saving confirms the displayed values even when they have not changed.</DialogDescription></DialogHeader><div className="space-y-4"><div className="rounded-xl bg-[#f3f7f1] p-3"><p className="font-black">{editingActivity.title}</p><p className="mt-1 text-xs text-[#718178]">Accountable owner: {editingActivity.accountableOwner}</p></div><div className="space-y-2">{(editingActivity.subactivities.length ? editingActivity.subactivities : [{ key: editingActivity.key, title: editingActivity.title }]).map((item, index) => { const draft = drafts[item.key] ?? { status: editingActivity.status, progress: editingActivity.progress }; return <div key={item.key} className="grid gap-3 rounded-xl border border-[#dce4da] p-3 sm:grid-cols-[minmax(0,1fr)_180px_110px] sm:items-end"><div><p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]">{editingActivity.subactivities.length ? `Sub-activity ${index + 1}` : "Main activity"}</p><p className="mt-1 text-sm font-bold">{item.title}</p></div><label className="block"><span className="mb-1 block text-xs font-bold">Status</span><NativeSelect value={draft.status} onChange={(event) => setDrafts((current) => ({ ...current, [item.key]: { ...draft, status: event.target.value } }))} className="h-10 w-full border-[#cbd6cc] bg-white">{statusOptions.map((option) => <NativeSelectOption key={option.value} value={option.value}>{option.label}</NativeSelectOption>)}</NativeSelect></label><label className="block"><span className="mb-1 block text-xs font-bold">Progress</span><div className="flex items-center gap-1"><Input type="number" min="0" max="100" value={draft.progress} onChange={(event) => setDrafts((current) => ({ ...current, [item.key]: { ...draft, progress: Math.max(0, Math.min(100, Number(event.target.value) || 0)) } }))} className="h-10 border-[#cbd6cc] bg-white text-right font-black" /><span className="text-sm font-bold">%</span></div></label></div>; })}</div><label className="block"><span className="mb-1.5 block text-sm font-black">{quarter} main activity progress note *</span><Textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="What changed this quarter, what was achieved, any challenge, and what comes next?" className="min-h-32 border-[#cbd6cc] bg-white" /></label></div><DialogFooter><Button variant="outline" onClick={() => setEditingKey("")} disabled={saving}>Cancel</Button><Button onClick={() => void saveActivityUpdate()} disabled={saving || !noteDraft.trim()} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">{saving ? "Saving…" : "Save reporting update"}</Button></DialogFooter></>}
         </DialogContent>
       </Dialog>
 

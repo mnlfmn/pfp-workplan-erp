@@ -151,6 +151,9 @@ type QuarterlyProgressNotes = {
   version: 1;
   year: number;
   quarters: Record<QuarterKey, string>;
+  statusProgressConfirmations: Partial<
+    Record<QuarterKey, { confirmedAt: string; confirmedBy: string }>
+  >;
   legacy: string;
 };
 
@@ -762,6 +765,7 @@ function emptyQuarterlyNotes(year: number): QuarterlyProgressNotes {
     version: 1,
     year,
     quarters: { Q1: "", Q2: "", Q3: "", Q4: "" },
+    statusProgressConfirmations: {},
     legacy: "",
   };
 }
@@ -780,6 +784,17 @@ function parseQuarterlyNotes(raw: string, year: number): QuarterlyProgressNotes 
           Q3: String(parsed.quarters.Q3 ?? ""),
           Q4: String(parsed.quarters.Q4 ?? ""),
         },
+        statusProgressConfirmations: Object.fromEntries(
+          quarterKeys.flatMap((quarter) => {
+            const confirmation = parsed.statusProgressConfirmations?.[quarter];
+            return confirmation?.confirmedAt
+              ? [[quarter, {
+                  confirmedAt: String(confirmation.confirmedAt),
+                  confirmedBy: String(confirmation.confirmedBy ?? ""),
+                }]]
+              : [];
+          }),
+        ),
         legacy: String(parsed.legacy ?? ""),
       };
     }
