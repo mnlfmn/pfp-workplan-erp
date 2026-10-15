@@ -1464,6 +1464,8 @@ function summarizeFinance(
       budgetMnt > 0 ? Math.round((commitmentMnt / budgetMnt) * 100) : 0,
     spentPercent:
       budgetMnt > 0 ? Math.round((expenditureMnt / budgetMnt) * 100) : 0,
+    remainingPercent:
+      budgetMnt > 0 ? Math.round((remainingMnt / budgetMnt) * 100) : 0,
     financeCoveragePercent:
       lines.length > 0 ? Math.round((linesWithEntries.size / lines.length) * 100) : 0,
     relevantEntries,
@@ -1676,6 +1678,7 @@ export default function Home() {
   const [documentUploadingId, setDocumentUploadingId] = useState("");
   const [backups, setBackups] = useState<BackupSnapshot[]>([]);
   const [backupSaving, setBackupSaving] = useState(false);
+  const [backupListExpanded, setBackupListExpanded] = useState(false);
   const [backupPreview, setBackupPreview] = useState<{
     backup: BackupSnapshot;
     counts: Record<string, number>;
@@ -5511,6 +5514,18 @@ export default function Home() {
             responsibilityParts(subactivityOwner(subactivity, updates), teamMembers).accountable === teamMember.name,
         ).length;
         const supportingSubactivityCount = subAssignments.length - accountableSubactivityCount;
+        const activeContractCount = contracts.filter(
+          (contract) =>
+            contract.status === "active" &&
+            (contract.allocations ?? []).some((allocation) =>
+              accountableOwnerForTarget(
+                contractTargets.find((target) => target.key === allocation.activityKey),
+                allActivities,
+                updates,
+                teamMembers,
+              ) === teamMember.name,
+            ),
+        ).length;
         return {
           ...teamMember,
           activityCount: mainAssignments.length,
@@ -5519,6 +5534,7 @@ export default function Home() {
           subactivityCount: subAssignments.length,
           accountableSubactivityCount,
           supportingSubactivityCount,
+          activeContractCount,
           statusCounts,
           progress: assignedRecords.length
             ? Math.round(
@@ -5533,6 +5549,7 @@ export default function Home() {
       allActivities,
       allBudgetLines,
       contracts,
+      contractTargets,
       financeEntries,
       statusKeys,
       teamMembers,
@@ -6309,7 +6326,7 @@ export default function Home() {
                 {
                   label: "Remaining",
                   value: formatMnt(dashboardFinance.remainingMnt),
-                  detail: "Budget less commitments and expenditure",
+                  detail: `${dashboardFinance.remainingPercent}% of budget remaining`,
                   icon: Banknote,
                   accent: "bg-[#0c3b2d] text-white",
                 },
@@ -8428,12 +8445,13 @@ export default function Home() {
                       </div>
 
                       <div className="p-4 sm:p-5">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                           {[
                             ["Accountable", item.accountableMainCount],
                             ["Supporting main", item.supportingMainCount],
                             ["Sub-activities", item.subactivityCount],
                             ["Supporting subs", item.supportingSubactivityCount],
+                            ["Active contracts", item.activeContractCount],
                           ].map(([label, value]) => (
                             <div key={String(label)} className="rounded-xl bg-[#f2f6f0] p-3">
                               <p className="text-[11px] font-semibold text-[#718178]">{label}</p>
@@ -9026,26 +9044,51 @@ export default function Home() {
                       Database snapshots are retained for 30 days. Preview is required before restore.
                     </p>
                   </div>
-                  <Button onClick={() => void createBackup()} disabled={backupSaving} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
-                    <ShieldCheck className="h-4 w-4" /> {backupSaving ? "Working…" : "Create backup now"}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-[#eef4eb] px-3 py-1.5 text-xs font-bold text-[#496356]">
+                      {backups.length} snapshots
+                    </span>
+                    <Button
+                      variant="outline"
+                      onClick={() => setBackupListExpanded((current) => !current)}
+                      aria-expanded={backupListExpanded}
+                    >
+                      <ChevronRight className={`h-4 w-4 transition-transform ${backupListExpanded ? "rotate-90" : ""}`} />
+                      {backupListExpanded ? "Hide backups" : "View backups"}
+                    </Button>
+                    <Button onClick={() => void createBackup()} disabled={backupSaving} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
+                      <ShieldCheck className="h-4 w-4" /> {backupSaving ? "Working…" : "Create backup now"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="divide-y divide-[#e8ece6]">
-                  {backups.slice(0, 12).map((backup) => (
-                    <div key={backup.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-bold">{formatUpdatedAt(backup.createdAt, language)}</p>
-                        <p className="mt-1 text-xs text-[#718178]">{backup.recordCount} records · {backup.source} · {backup.createdBy}</p>
+                {!backupListExpanded && (
+                  <button
+                    type="button"
+                    onClick={() => setBackupListExpanded(true)}
+                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sm text-[#5f7568] transition hover:bg-[#f8faf7]"
+                  >
+                    <span>Expand to review the complete backup and restore history.</span>
+                    <span className="shrink-0 font-bold text-[#245f47]">View full list</span>
+                  </button>
+                )}
+                {backupListExpanded && (
+                  <div className="max-h-[440px] overflow-y-auto divide-y divide-[#e8ece6]">
+                    {backups.map((backup) => (
+                      <div key={backup.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-bold">{formatUpdatedAt(backup.createdAt, language)}</p>
+                          <p className="mt-1 text-xs text-[#718178]">{backup.recordCount} records · {backup.source} · {backup.createdBy}</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => void previewBackup(backup)} disabled={backupSaving}>
+                          Preview restore
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => void previewBackup(backup)} disabled={backupSaving}>
-                        Preview restore
-                      </Button>
-                    </div>
-                  ))}
-                  {!backups.length && (
-                    <p className="px-5 py-8 text-center text-sm text-[#718178]">No backup snapshots yet.</p>
-                  )}
-                </div>
+                    ))}
+                    {!backups.length && (
+                      <p className="px-5 py-8 text-center text-sm text-[#718178]">No backup snapshots yet.</p>
+                    )}
+                  </div>
+                )}
               </section>
             )}
           </TabsContent>
