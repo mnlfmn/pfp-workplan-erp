@@ -14,8 +14,6 @@ import {
   Ellipsis,
   FileSpreadsheet,
   FileSearch,
-  FileText,
-  FileUp,
   Gauge,
   HandCoins,
   History,
@@ -434,17 +432,6 @@ type PaymentBudgetWarning = {
   contract: ContractRecord;
   payment: ContractPayment;
   warning: string;
-};
-
-type PaymentDocument = {
-  id: string;
-  contractId: string;
-  paymentId: string;
-  fileName: string;
-  contentType: string;
-  sizeBytes: number;
-  uploadedAt: string;
-  uploadedBy: string;
 };
 
 type BackupSnapshot = {
@@ -1674,8 +1661,6 @@ export default function Home() {
     useState<AuditEntry | null>(null);
   const [auditRestoring, setAuditRestoring] = useState(false);
   const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyUpdate[]>([]);
-  const [paymentDocuments, setPaymentDocuments] = useState<PaymentDocument[]>([]);
-  const [documentUploadingId, setDocumentUploadingId] = useState("");
   const [backups, setBackups] = useState<BackupSnapshot[]>([]);
   const [backupSaving, setBackupSaving] = useState(false);
   const [backupListExpanded, setBackupListExpanded] = useState(false);
@@ -3227,12 +3212,9 @@ export default function Home() {
         throw new Error(result.error || "The contract could not be deleted.");
       }
       setContracts((current) => current.filter((item) => item.id !== result.deletedId));
-      setPaymentDocuments((current) =>
-        current.filter((document) => document.contractId !== result.deletedId),
-      );
       setContractToDelete(null);
       toast.success("Contract deleted", {
-        description: "Its unpaid commitment, payments, and attachments were removed.",
+        description: "Its unpaid commitment and payment schedule were removed.",
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The contract could not be deleted.");
@@ -3275,57 +3257,6 @@ export default function Home() {
       );
     } finally {
       setContractSaving(false);
-    }
-  }
-
-  async function loadContractDocuments(contractId: string) {
-    try {
-      const response = await fetch(
-        `/api/documents?contractId=${encodeURIComponent(contractId)}`,
-      );
-      const result = (await response.json()) as {
-        documents?: PaymentDocument[];
-      };
-      if (!response.ok) throw new Error("Documents unavailable");
-      setPaymentDocuments((current) => [
-        ...current.filter((item) => item.contractId !== contractId),
-        ...(result.documents ?? []),
-      ]);
-    } catch {
-      toast.error("Payment documents could not be loaded.");
-    }
-  }
-
-  async function uploadPaymentDocument(
-    contract: ContractRecord,
-    payment: ContractPayment,
-    file: File | undefined,
-  ) {
-    if (!file) return;
-    setDocumentUploadingId(payment.id);
-    try {
-      const form = new FormData();
-      form.set("contractId", contract.id);
-      form.set("paymentId", payment.id);
-      form.set("file", file);
-      const response = await fetch("/api/documents", { method: "POST", body: form });
-      const result = (await response.json()) as {
-        document?: PaymentDocument;
-        error?: string;
-      };
-      if (!response.ok || !result.document) {
-        throw new Error(result.error || "Document upload failed.");
-      }
-      setPaymentDocuments((current) => [...current, result.document!]);
-      toast.success("Payment document uploaded", {
-        description: result.document.fileName,
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Document upload failed.",
-      );
-    } finally {
-      setDocumentUploadingId("");
     }
   }
 
@@ -8136,7 +8067,6 @@ export default function Home() {
                           onClick={(event) => {
                             event.stopPropagation();
                             setContractDetailId(contract.id);
-                            void loadContractDocuments(contract.id);
                           }}
                           className="mt-3 h-8 px-2.5 text-xs"
                         >
@@ -8261,41 +8191,6 @@ export default function Home() {
                                     );
                                     return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
                                   }).join(" · ") || "Not assigned"}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3 lg:col-span-7">
-                                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
-                                    <FileUp className="h-4 w-4" />
-                                    {documentUploadingId === payment.id ? "Uploading…" : "Upload payment document"}
-                                    <input
-                                      type="file"
-                                      accept=".pdf,.jpg,.jpeg,.png,.xlsx"
-                                      className="sr-only"
-                                      disabled={documentUploadingId === payment.id}
-                                      onChange={(event) => {
-                                        void uploadPaymentDocument(
-                                          contract,
-                                          payment,
-                                          event.target.files?.[0],
-                                        );
-                                        event.currentTarget.value = "";
-                                      }}
-                                    />
-                                  </label>
-                                  {paymentDocuments
-                                    .filter((document) => document.paymentId === payment.id)
-                                    .map((document) => (
-                                      <a
-                                        key={document.id}
-                                        href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`}
-                                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 py-2 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]"
-                                      >
-                                        <FileText className="h-3.5 w-3.5" />
-                                        {document.fileName}
-                                      </a>
-                                    ))}
-                                  {!paymentDocuments.some((document) => document.paymentId === payment.id) && (
-                                    <span className="text-xs text-[#718178]">No documents attached</span>
-                                  )}
                                 </div>
                               </div>
                             ))}
@@ -11161,18 +11056,6 @@ export default function Home() {
                               return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
                             }).join(" · ") || "Not assigned"}
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#e5eae4] pt-3">
-                            <label className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#c7d2c7] bg-white px-3 text-xs font-bold text-[#315845] hover:bg-[#f3f7f1]">
-                              <FileUp className="h-4 w-4" />
-                              {documentUploadingId === payment.id ? "Uploading…" : "Upload document"}
-                              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx" className="sr-only" disabled={documentUploadingId === payment.id} onChange={(event) => { void uploadPaymentDocument(selectedContract, payment, event.target.files?.[0]); event.currentTarget.value = ""; }} />
-                            </label>
-                            {paymentDocuments.filter((document) => document.paymentId === payment.id).map((document) => (
-                              <a key={document.id} href={`/api/documents?id=${encodeURIComponent(document.id)}&download=1`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#edf3ec] px-3 text-xs font-bold text-[#315845] hover:bg-[#e2ece0]">
-                                <FileText className="h-3.5 w-3.5" /> {document.fileName}
-                              </a>
-                            ))}
-                          </div>
                         </div>
                         <aside className="rounded-lg border border-[#dce5da] bg-[#f7faf5] p-3 lg:self-stretch">
                           <label className="block">
@@ -11870,7 +11753,7 @@ export default function Home() {
             <AlertDialogTitle>Delete this contract?</AlertDialogTitle>
             <AlertDialogDescription>
               {contractToDelete
-                ? `${contractToDelete.contractNumber}, its payment schedule, and attached payment documents will be removed. The audit history will keep a record of what was deleted.`
+                ? `${contractToDelete.contractNumber} and its payment schedule will be removed. The audit history will keep a record of what was deleted.`
                 : "The contract and its related records will be removed."}
             </AlertDialogDescription>
           </AlertDialogHeader>
