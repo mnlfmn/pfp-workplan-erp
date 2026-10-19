@@ -1,38 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
-  Banknote,
-  Bell,
   CalendarDays,
   ChevronRight,
   CircleCheck,
-  ClipboardCheck,
-  CopyPlus,
-  Download,
   Ellipsis,
-  FileSpreadsheet,
-  FileSearch,
-  Gauge,
-  HandCoins,
   History,
   LayoutDashboard,
   ListChecks,
-  Mail,
   PencilLine,
   Plus,
   ReceiptText,
   RotateCcw,
-  Search,
-  Settings2,
   ShieldCheck,
-  SlidersHorizontal,
-  Target,
   Trash2,
-  TrendingUp,
-  UserPlus,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -40,10 +24,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ConsultantSelectionModule } from "@/components/consultant-selection-module";
-import { MelModule } from "@/components/mel-module";
-import { QuarterlyReportingModule } from "@/components/quarterly-reporting-module";
-import { StaffKpiModule } from "@/components/staff-kpi-module";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,14 +56,6 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -96,12 +68,20 @@ import {
 } from "@/lib/ui-language";
 import {
   defaultMetadata,
-  metadataCategories,
   metadataCategoryLabels,
   type MetadataCategory,
   type MetadataOption,
 } from "@/lib/system-metadata";
 import workplan from "@/lib/workplan-data.json";
+
+import { ModuleErrorBoundary, ModuleLoading } from "@/components/modules/module-boundary";
+
+const DashboardModule = lazy(() => import("@/components/modules/dashboard-module"));
+const PlansModule = lazy(() => import("@/components/modules/plans-module"));
+const ContractsModule = lazy(() => import("@/components/modules/contracts-module"));
+const KpiModule = lazy(() => import("@/components/modules/kpi-module"));
+const MelWorkspaceModule = lazy(() => import("@/components/modules/mel-workspace-module"));
+const AdminModule = lazy(() => import("@/components/modules/admin-module"));
 
 type BaseActivity = (typeof workplan.activities)[number];
 type ProcurementType = string;
@@ -6277,2851 +6257,312 @@ export default function Home() {
 
       <div className="w-full px-4 py-7 sm:px-6 lg:px-8">
          <TabsContent value="dashboard" className="space-y-6">
-            <section className="rounded-2xl border border-[#d7ded5] bg-gradient-to-r from-white to-[#f1f6ee] p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
-              <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">Portfolio dashboard</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Goal delivery and financial position for {selectedYear}
-                </p>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3 lg:flex">
-                <NativeSelect
-                  value={section}
-                  onChange={(event) => setSection(event.target.value)}
-                  className="h-10 min-w-[155px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter dashboard by workplan section"
-                >
-                  <NativeSelectOption value="all">All sections</NativeSelectOption>
-                  {sectionOptions.map((item) => (
-                    <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
-                  ))}
-                </NativeSelect>
-                <NativeSelect
-                  value={goal}
-                  onChange={(event) => setGoal(event.target.value)}
-                  className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter dashboard by goal"
-                >
-                  <NativeSelectOption value="all">Every goal</NativeSelectOption>
-                  {goals.map((value) => (
-                    <NativeSelectOption key={value} value={value}>
-                      {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-                <NativeSelect
-                  value={member}
-                  onChange={(event) => setMember(event.target.value)}
-                  className="h-10 min-w-[230px] border-[#ced8cf] bg-[#f8faf7]"
-                  aria-label="Filter dashboard by team member"
-                >
-                  <NativeSelectOption value="all">All team members</NativeSelectOption>
-                  {teamMembers.map((item) => (
-                    <NativeSelectOption key={item.id} value={item.id}>
-                      {metadataLabel("member_type", item.group)} · {item.name}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-[#cbd8cd] bg-gradient-to-br from-[#eaf2e8] to-[#f5f8f3] p-3 shadow-[0_10px_28px_rgba(20,36,27,0.05)] sm:p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                {
-                  label: "Budget",
-                  value: formatMnt(dashboardFinance.budgetMnt),
-                  detail: "Approved budget in selected scope",
-                  icon: WalletCards,
-                  accent: "bg-[#0c3b2d] text-white",
-                },
-                {
-                  label: "Commitments",
-                  value: formatMnt(dashboardFinance.commitmentMnt),
-                  detail: `${dashboardFinance.commitmentPercent}% of budget committed`,
-                  icon: HandCoins,
-                  accent: "bg-[#0c3b2d] text-white",
-                },
-                {
-                  label: "Expenditure",
-                  value: formatMnt(dashboardFinance.expenditureMnt),
-                  detail: `${dashboardFinance.spentPercent}% of budget spent`,
-                  icon: ReceiptText,
-                  accent: "bg-[#0c3b2d] text-white",
-                },
-                {
-                  label: "Remaining",
-                  value: formatMnt(dashboardFinance.remainingMnt),
-                  detail: `${dashboardFinance.remainingPercent}% of budget remaining`,
-                  icon: Banknote,
-                  accent: "bg-[#0c3b2d] text-white",
-                },
-                ].map((metric) => (
-                  <article
-                    key={metric.label}
-                    className={`relative overflow-hidden rounded-2xl border border-white/10 p-5 shadow-[0_8px_22px_rgba(7,42,31,0.12)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(7,42,31,0.18)] ${metric.accent}`}
-                  >
-                    <div className="mb-5 flex items-center justify-between">
-                      <p
-                        className={`text-sm font-semibold ${metric.accent.includes("text-white") ? "text-emerald-50/80" : "text-[#5d7467]"}`}
-                      >
-                        {metric.label}
-                      </p>
-                      <metric.icon
-                        className={`h-5 w-5 ${metric.accent.includes("text-white") ? "text-[#dbf081]" : "text-[#49705c]"}`}
-                      />
-                    </div>
-                    <p className="text-[1.65rem] font-black tracking-[-0.04em] xl:text-3xl">
-                      {metric.value}
-                    </p>
-                    <p
-                      className={`mt-1 text-sm ${metric.accent.includes("text-white") ? "text-emerald-50/70" : "text-[#718178]"}`}
-                    >
-                      {metric.detail}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black">Financial position</h2>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Budget, commitments, expenditure, and remaining balance in the selected scope.
-                    </p>
-                  </div>
-                  <Banknote className="h-5 w-5 text-[#49705c]" />
-                </div>
-                <div className="mt-5 space-y-4" role="img" aria-label="Horizontal financial position bar chart">
-                  {dashboardFinanceBars.map((row) => (
-                    <button
-                      type="button"
-                      key={row.label}
-                      onClick={() => {
-                        setWorkplanSection("finance");
-                        setActiveView("workplan");
-                      }}
-                      className="block w-full rounded-lg p-1 text-left transition hover:bg-[#f6f9f4]"
-                    >
-                      <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-                        <span className="font-bold text-[#315845]">{row.label}</span>
-                        <span className={`font-black tabular-nums ${row.value < 0 ? "text-rose-700" : "text-[#183529]"}`}>
-                          {formatMnt(row.value)}
-                        </span>
-                      </div>
-                      <div className="h-4 overflow-hidden rounded-full bg-[#edf1eb]">
-                        <div
-                          className="h-full rounded-full transition-[width]"
-                          style={{ width: `${row.width}%`, backgroundColor: row.color }}
-                        />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </article>
-
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black">Contract status</h2>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      {dashboardContractStats.total} contracts linked to the selected workplan scope.
-                    </p>
-                  </div>
-                  <ReceiptText className="h-5 w-5 text-[#49705c]" />
-                </div>
-                <div className="mt-5 flex items-end justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#718178]">
-                      Payment progress
-                    </p>
-                    <p className="mt-1 text-3xl font-black">{dashboardContractStats.progress}%</p>
-                  </div>
-                  <p className="text-right text-xs leading-5 text-[#718178]">
-                    {formatMnt(dashboardContractStats.paidValue)} paid<br />
-                    of {formatMnt(dashboardContractStats.totalValue)}
-                  </p>
-                </div>
-                <Progress
-                  value={dashboardContractStats.progress}
-                  className="mt-3 h-2.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                />
-                <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {(Object.keys(contractStatusMeta) as ContractRecord["status"][]).map((contractStatus) => (
-                    <button
-                      type="button"
-                      key={contractStatus}
-                      onClick={() => {
-                        setContractStatusFilter(contractStatus);
-                        setActiveView("contracts");
-                      }}
-                      className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-center transition hover:border-[#9fb3a4] hover:bg-[#f1f6ee]"
-                    >
-                      <p className="text-2xl font-black">{dashboardContractStats.counts[contractStatus]}</p>
-                      <p className="mt-1 text-xs font-bold text-[#5d7467]">
-                        {contractStatusMeta[contractStatus].label}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </article>
-            </section>
-
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {[
-                {
-                  label: "Activity progress",
-                  value: `${deliveryIndicators.activityProgress}%`,
-                  detail: `${dashboardActivities.length} activities`,
-                  icon: Gauge,
-                },
-                {
-                  label: "Completion rate",
-                  value: `${deliveryIndicators.completionPercent}%`,
-                  detail: `${deliveryIndicators.completed} completed`,
-                  icon: CircleCheck,
-                },
-                {
-                  label: "Commitment rate",
-                  value: `${dashboardFinance.commitmentPercent}%`,
-                  detail: "committed ÷ budget",
-                  icon: HandCoins,
-                },
-                {
-                  label: "Expenditure rate",
-                  value: `${dashboardFinance.spentPercent}%`,
-                  detail: "expenditure ÷ budget",
-                  icon: TrendingUp,
-                },
-                {
-                  label: "Activities at risk",
-                  value: deliveryIndicators.atRisk,
-                  detail: `${deliveryIndicators.overdue} overdue at reporting date`,
-                  icon: AlertTriangle,
-                },
-                {
-                  label: "Reporting coverage",
-                  value: `${deliveryIndicators.reportingPercent}%`,
-                  detail: `${dashboardFinance.financeCoveragePercent}% finance-line coverage`,
-                  icon: ListChecks,
-                },
-              ].map((indicator) => (
-                <article
-                  key={indicator.label}
-                  className="rounded-2xl border border-[#d7ded5] bg-gradient-to-br from-white to-[#f7faf5] p-4 shadow-[0_5px_18px_rgba(20,36,27,0.035)] transition hover:-translate-y-0.5 hover:border-[#b6c7b8] hover:shadow-sm"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-[#5d7467]">
-                      {indicator.label}
-                    </p>
-                    <indicator.icon className="h-4 w-4 text-[#49705c]" />
-                  </div>
-                  <p className="mt-3 text-2xl font-black">{indicator.value}</p>
-                  <p className="mt-1 text-xs leading-5 text-[#718178]">
-                    {indicator.detail}
-                  </p>
-                </article>
-              ))}
-            </section>
-
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
-              <article className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                <div className="border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-5 py-4">
-                  <h2 className="text-lg font-black">Overall activity status</h2>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    Status distribution for the selected section, goal, and owner filters.
-                  </p>
-                </div>
-                <div className="grid gap-6 p-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
-                  <div className="flex justify-center">
-                    <div
-                      className="relative grid h-44 w-44 place-items-center rounded-full shadow-[0_12px_30px_rgba(20,36,27,0.12)]"
-                      style={{ background: overallStatusSummary.background }}
-                      role="img"
-                      aria-label={`Status chart for ${overallStatusSummary.total} activities`}
-                    >
-                      <div className="grid h-24 w-24 place-items-center rounded-full border border-[#edf1eb] bg-white text-center shadow-inner">
-                        <div>
-                          <p className="text-3xl font-black tracking-[-0.04em]">{overallStatusSummary.total}</p>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#718178]">activities</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {statusKeys.map((key) => {
-                      const count = overallStatusSummary.counts[key];
-                      const percent = overallStatusSummary.total
-                        ? Math.round((count / overallStatusSummary.total) * 100)
-                        : 0;
-                      return (
-                        <button
-                          type="button"
-                          key={key}
-                          onClick={() => {
-                            setStatus(key);
-                            setActiveView("workplan");
-                          }}
-                          className="rounded-xl border border-[#e1e7df] bg-[#f8faf7] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#8eaa98] hover:bg-[#f1f6ee] hover:shadow-sm"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span
-                                className="h-3 w-3 shrink-0 rounded-full"
-                                style={{ backgroundColor: statusChartColor(key) }}
-                              />
-                              <span className="truncate text-sm font-bold">{metadataLabel("status", key)}</span>
-                            </div>
-                            <span className="text-lg font-black">{count}</span>
-                          </div>
-                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e3e8e4]">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${percent}%`,
-                                backgroundColor: statusChartColor(key),
-                              }}
-                            />
-                          </div>
-                          <p className="mt-1 text-right text-xs font-semibold text-[#718178]">{percent}%</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </article>
-
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black">Forecast expenditure</h2>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Unpaid contract installments grouped by due quarter.
-                    </p>
-                  </div>
-                  <TrendingUp className="h-5 w-5 text-[#49705c]" />
-                </div>
-                <div className="mt-6 space-y-5">
-                  {expenditureForecast.map((item) => {
-                    const maximum = Math.max(...expenditureForecast.map((row) => row.amountMnt), 1);
-                    return (
-                      <div key={item.quarter}>
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#edf4e9] font-black text-[#315845]">{item.quarter}</span>
-                          <span className="font-black tabular-nums">{formatMnt(item.amountMnt)}</span>
-                        </div>
-                        <div className="h-2.5 overflow-hidden rounded-full bg-[#e5ebe4]">
-                          <div className="h-full rounded-full bg-[#2c795a]" style={{ width: `${(item.amountMnt / maximum) * 100}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </article>
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-              <div className="border-b border-[#e2e7e0] px-5 py-4">
-                <h2 className="text-xl font-black">Progress and finance by goal</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Activity progress is paired with budget, commitments, expenditure, and remaining balance.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <Table className="min-w-[930px]">
-                  <TableHeader>
-                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[235px] pl-5">Goal</TableHead>
-                      <TableHead className="w-[210px]">Activity progress</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Commitment</TableHead>
-                      <TableHead className="text-right">Expenditure</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {goalRows.map((row) => (
-                      <TableRow key={row.goal}>
-                        <TableCell className="pl-5">
-                          <p className="font-black">
-                            {row.goal === "All goals" ? "Cross-goal" : metadataLabel("goal", row.goal)}
-                          </p>
-                          <p className="mt-1 text-xs text-[#718178]">
-                            {row.completed} of {row.activities} activities completed
-                          </p>
-                        </TableCell>
-                        <TableCell>
-                          <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                            <span>{row.progress}%</span>
-                            <span className="text-xs text-[#718178]">
-                              {row.activities} activities
-                            </span>
-                          </div>
-                          <Progress
-                            value={row.progress}
-                            className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right font-bold tabular-nums">
-                          {formatMnt(row.budgetMnt)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          <p className="font-bold">{formatMnt(row.commitmentMnt)}</p>
-                          <p className="text-xs text-[#718178]">{row.commitmentPercent}%</p>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          <p className="font-bold">{formatMnt(row.expenditureMnt)}</p>
-                          <p className="text-xs text-[#718178]">{row.spentPercent}%</p>
-                        </TableCell>
-                        <TableCell
-                          className={`text-right font-black tabular-nums ${row.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
-                        >
-                          {formatMnt(row.remainingMnt)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </section>
+            {activeView === "dashboard" ? (
+              <ModuleErrorBoundary moduleName="Dashboard">
+                <Suspense fallback={<ModuleLoading label="Dashboard" />}>
+                  <DashboardModule
+                    {...{
+                      contractStatusMeta,
+                      dashboardActivities,
+                      dashboardContractStats,
+                      dashboardFinance,
+                      dashboardFinanceBars,
+                      deliveryIndicators,
+                      expenditureForecast,
+                      formatMnt,
+                      goal,
+                      goalRows,
+                      goals,
+                      member,
+                      metadataLabel,
+                      overallStatusSummary,
+                      section,
+                      sectionOptions,
+                      selectedYear,
+                      setActiveView,
+                      setContractStatusFilter,
+                      setGoal,
+                      setMember,
+                      setSection,
+                      setStatus,
+                      setWorkplanSection,
+                      statusChartColor,
+                      statusKeys,
+                      teamMembers
+                    }}
+                  />
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="workplan" className="space-y-6">
-
-        <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
-            <button type="button" onClick={() => setWorkplanSection("finance")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "finance" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><Banknote className="h-4 w-4" /> Financial Plan</button>
-            <button type="button" onClick={() => setWorkplanSection("activities")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "activities" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ListChecks className="h-4 w-4" /> Work Plan</button>
-            <button type="button" onClick={() => setWorkplanSection("procurement")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "procurement" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><ReceiptText className="h-4 w-4" /> Procurement Plan</button>
-            <button type="button" onClick={() => setWorkplanSection("consultant-selection")} className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${workplanSection === "consultant-selection" ? "bg-[#0c3b2d] text-white shadow-sm" : "text-[#53685c] hover:bg-[#f0f5ee]"}`}><FileSearch className="h-4 w-4" /> Consultant Selection</button>
-        </div>
-
-        {workplanSection === "activities" ? (
-
-        <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-          <div className="sticky top-0 z-30 border-b border-[#dbe3d9] bg-white/95 p-4 backdrop-blur lg:p-5">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h2 className="text-xl font-black">Workplan activities</h2>
-                <p className="mt-0.5 text-sm text-[#718178]">
-                  {filtered.length} of {allActivities.length} main activities · select a row for quick details
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-lg border border-[#cbd6cc] bg-[#f5f8f3] p-1">
-                  {(["compact", "comfortable"] as const).map((density) => (
-                    <button
-                      type="button"
-                      key={density}
-                      onClick={() => setWorkplanDensity(density)}
-                      className={[
-                        "h-7 rounded-md px-2.5 text-xs font-black capitalize transition",
-                        workplanDensity === density
-                          ? "bg-white text-[#174734] shadow-sm"
-                          : "text-[#718178] hover:text-[#174734]",
-                      ].join(" ")}
-                    >
-                      {density}
-                    </button>
-                  ))}
-                </div>
-                <Button
-                  onClick={openAddActivity}
-                  className="h-9 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add activity
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_repeat(5,minmax(135px,0.65fr))]">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="h-9 border-[#ced8cf] bg-[#f8faf7] pl-9 text-base md:text-sm"
-                  placeholder="Search activities, sub-activities or owners"
-                  aria-label="Search workplan activities"
-                />
-              </label>
-              <NativeSelect
-                value={section}
-                onChange={(event) => setSection(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
-                aria-label="Filter by workplan section"
-              >
-                <NativeSelectOption value="all">All sections</NativeSelectOption>
-                {sectionOptions.map((item) => (
-                  <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <NativeSelect
-                value={goal}
-                onChange={(event) => setGoal(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
-                aria-label="Filter by goal"
-              >
-                <NativeSelectOption value="all">Every goal</NativeSelectOption>
-                {goals.map((value) => (
-                  <NativeSelectOption key={value} value={value}>
-                    {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <NativeSelect
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
-                aria-label="Filter by status"
-              >
-                <NativeSelectOption value="all">All statuses</NativeSelectOption>
-                {statusOptions.map((item) => (
-                  <NativeSelectOption key={item.value} value={item.value}>
-                    {item.label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <NativeSelect
-                value={workstream}
-                onChange={(event) => setWorkstream(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
-                aria-label="Filter by workstream"
-              >
-                <NativeSelectOption value="all">All workstreams</NativeSelectOption>
-                {workstreams.map((value) => (
-                  <NativeSelectOption key={value} value={value}>
-                    {metadataLabel("workstream", value)}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <NativeSelect
-                value={member}
-                onChange={(event) => setMember(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
-                aria-label="Filter workplan by team member"
-              >
-                <NativeSelectOption value="all">All team members</NativeSelectOption>
-                {teamMembers.map((item) => (
-                  <NativeSelectOption key={item.id} value={item.id}>
-                    {metadataLabel("member_type", item.group)} · {item.name}
-                  </NativeSelectOption>
-                ))}
-                <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
-              </NativeSelect>
-            </div>
-          </div>
-
-          <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="min-w-0 xl:border-r xl:border-[#dbe3d9]">
-              <div className="overflow-x-auto">
-                <div className="min-w-[820px]">
-                  <div className="sticky top-0 z-10 grid grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]">
-                    <span>Code</span>
-                    <span>Activity</span>
-                    <span>Owner</span>
-                    <span>Status</span>
-                    <span>Progress</span>
-                    <span className="text-right">Budget</span>
-                  </div>
-
-                  <div className="max-h-[720px] overflow-y-auto">
-                    {filtered.map((item) => {
-                      const currentStatus = deriveActivityStatus(item, updates);
-                      const currentProgress = deriveActivityProgress(item, updates);
-                      const currentResponsibility = responsibilityParts(
-                        activityOwner(item, updates),
-                        teamMembers,
-                      );
-                      const currentOwner = currentResponsibility.accountable;
-                      const normalizedSearch = query.trim().toLocaleLowerCase();
-                      const matchingSubactivity = Boolean(
-                        normalizedSearch &&
-                          item.subactivities.some((subactivity) =>
-                            [
-                              subactivity.title,
-                              subactivityOwner(subactivity, updates),
-                              subactivity.progressSummary,
-                            ]
-                              .join(" ")
-                              .toLocaleLowerCase()
-                              .includes(normalizedSearch),
-                          ),
-                      );
-                      const isExpanded =
-                        expandedWorkplanIds.has(item.id) || matchingSubactivity;
-                      const isSelected =
-                        workplanPreview?.activityId === item.id &&
-                        !workplanPreview?.subactivityId;
-                      const allocatedMnt =
-                        allocationByActivityKey.get(item.id) ??
-                        item.subactivities.reduce(
-                          (total, subactivity) =>
-                            total +
-                            (allocationByActivityKey.get(subactivity.id) ?? 0),
-                          0,
-                        );
-                      const rowSpacing =
-                        workplanDensity === "compact" ? "py-2.5" : "py-4";
-
-                      return (
-                        <div key={item.id} className="border-b border-[#e4e9e2]">
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            aria-current={isSelected ? "true" : undefined}
-                            onClick={() =>
-                              setWorkplanPreview({ activityId: item.id })
-                            }
-                            onKeyDown={(event) => {
-                              if (event.target !== event.currentTarget) return;
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                setWorkplanPreview({ activityId: item.id });
-                              }
-                            }}
-                            className={[
-                              "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-l-4 px-3 text-left transition",
-                              rowSpacing,
-                              isSelected
-                                ? "relative z-[1] border-l-[#0c3b2d] bg-[#dceccf] shadow-[inset_0_0_0_2px_#2c795a]"
-                                : "border-l-[#7ca08d] bg-[#f5f9f2] hover:bg-[#edf5e9]",
-                            ].join(" ")}
-                          >
-                            <div className="flex min-w-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setExpandedWorkplanIds((current) => {
-                                    const next = new Set(current);
-                                    if (next.has(item.id)) next.delete(item.id);
-                                    else next.add(item.id);
-                                    return next;
-                                  });
-                                }}
-                                aria-label={
-                                  isExpanded
-                                    ? "Collapse sub-activities"
-                                    : "Expand sub-activities"
-                                }
-                                aria-expanded={isExpanded}
-                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c4d1c6] bg-white text-[#315845] hover:bg-[#e3eee0]"
-                              >
-                                <ChevronRight
-                                  className={[
-                                    "h-4 w-4 transition-transform",
-                                    isExpanded ? "rotate-90" : "",
-                                  ].join(" ")}
-                                />
-                              </button>
-                              <span className="truncate font-mono text-xs font-black text-[#245f47]">
-                                {item.code || item.uid}
-                              </span>
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <p
-                                  className={[
-                                    "min-w-0 flex-1 font-black text-[#173228]",
-                                    workplanDensity === "compact"
-                                      ? "line-clamp-1 text-sm"
-                                      : "line-clamp-2 text-[15px] leading-5",
-                                  ].join(" ")}
-                                >
-                                  {language === "mn" && item.titleMn?.trim()
-                                    ? item.titleMn
-                                    : item.title}
-                                </p>
-                                {isSelected && (
-                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
-                                    <CircleCheck className="h-3 w-3" /> Selected
-                                  </span>
-                                )}
-                              </div>
-                              <p className="mt-0.5 truncate text-[11px] font-semibold text-[#718178]">
-                                Main activity · {item.subactivities.length} sub-activities
-                              </p>
-                            </div>
-                            <div className="min-w-0">
-                              <p
-                                className={[
-                                  "truncate text-xs font-bold",
-                                  currentOwner ? "text-[#315845]" : "text-rose-700",
-                                ].join(" ")}
-                              >
-                                {currentOwner || "Owner required"}
-                              </p>
-                              {currentResponsibility.supporting.length > 0 && (
-                                <p className="mt-0.5 truncate text-[11px] text-[#718178]">
-                                  +{currentResponsibility.supporting.length} supporting
-                                </p>
-                              )}
-                            </div>
-                            <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
-                            <div>
-                              <div className="mb-1 flex items-center justify-between text-[11px] font-black text-[#315845]">
-                                <span>{currentProgress}%</span>
-                              </div>
-                              <Progress
-                                value={currentProgress}
-                                className="h-1.5 bg-[#dfe7dc] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                              />
-                            </div>
-                            <p className="text-right text-xs font-black tabular-nums text-[#315845]">
-                              {formatMnt(allocatedMnt)}
-                            </p>
-                          </div>
-
-                          {isExpanded && (
-                            <div className="bg-white">
-                              {item.subactivities.map((subactivity, subIndex) => {
-                                const subStatus = recordStatus(
-                                  subactivity.id,
-                                  subactivity.status as StatusKey,
-                                  updates,
-                                );
-                                const subProgress = recordProgress(
-                                  subactivity.id,
-                                  statusMetaFor(subactivity.status as StatusKey).weight,
-                                  updates,
-                                );
-                                const subResponsibility = responsibilityParts(
-                                  subactivityOwner(subactivity, updates),
-                                  teamMembers,
-                                );
-                                const subSelected =
-                                  workplanPreview?.subactivityId === subactivity.id;
-                                return (
-                                  <div
-                                    key={subactivity.id}
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-current={subSelected ? "true" : undefined}
-                                    onClick={() =>
-                                      setWorkplanPreview({
-                                        activityId: item.id,
-                                        subactivityId: subactivity.id,
-                                      })
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.target !== event.currentTarget) return;
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        setWorkplanPreview({
-                                          activityId: item.id,
-                                          subactivityId: subactivity.id,
-                                        });
-                                      }
-                                    }}
-                                    className={[
-                                      "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-t border-[#edf0eb] border-l-4 px-3 text-left transition",
-                                      workplanDensity === "compact" ? "py-2" : "py-3.5",
-                                      subSelected
-                                        ? "relative z-[1] border-l-[#0c3b2d] bg-[#e1efcf] shadow-[inset_0_0_0_2px_#2c795a]"
-                                        : "border-l-transparent hover:bg-[#f8faf7]",
-                                    ].join(" ")}
-                                  >
-                                    <div className="flex items-center gap-2 pl-9">
-                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
-                                      <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">
-                                        Sub {subIndex + 1}
-                                      </span>
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="flex min-w-0 items-center gap-2">
-                                        <p
-                                          className={[
-                                            "min-w-0 flex-1 font-bold text-[#294438]",
-                                            workplanDensity === "compact"
-                                              ? "line-clamp-1 text-xs"
-                                              : "line-clamp-2 text-sm",
-                                          ].join(" ")}
-                                        >
-                                          {subactivity.title}
-                                        </p>
-                                        {subSelected && (
-                                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
-                                            <CircleCheck className="h-3 w-3" /> Selected
-                                          </span>
-                                        )}
-                                      </div>
-                                      <p className="mt-0.5 text-[11px] text-[#819087]">
-                                        {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
-                                      </p>
-                                    </div>
-                                    <div className="min-w-0">
-                                      <p
-                                        className={[
-                                          "truncate text-xs font-semibold",
-                                          subResponsibility.accountable
-                                            ? "text-[#53685c]"
-                                            : "text-rose-700",
-                                        ].join(" ")}
-                                      >
-                                        {subResponsibility.accountable || "Owner required"}
-                                      </p>
-                                      {subResponsibility.supporting.length > 0 && (
-                                        <p className="mt-0.5 truncate text-[11px] text-[#819087]">
-                                          +{subResponsibility.supporting.length} supporting
-                                        </p>
-                                      )}
-                                    </div>
-                                    <StatusPill status={subStatus} label={metadataLabel("status", subStatus)} />
-                                    <div>
-                                      <div className="mb-1 text-[11px] font-black text-[#53685c]">
-                                        {subProgress}%
-                                      </div>
-                                      <Progress
-                                        value={subProgress}
-                                        className="h-1 bg-[#e4eae2] [&_[data-slot=progress-indicator]]:bg-[#5a8d73]"
-                                      />
-                                    </div>
-                                    <p className="text-right text-xs font-bold tabular-nums text-[#53685c]">
-                                      {formatMnt(
-                                        allocationByActivityKey.get(subactivity.id) ?? 0,
-                                      )}
-                                    </p>
-                                  </div>
-                                );
-                              })}
-                              {!item.subactivities.length && (
-                                <div className="border-t border-[#edf0eb] px-12 py-3 text-xs text-[#718178]">
-                                  No sub-activities yet.
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {filtered.length === 0 && (
-                      <div className="px-6 py-16 text-center">
-                        <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
-                        <p className="font-bold">
-                          {allActivities.length
-                            ? "No activities match these filters"
-                            : "No activities in " + selectedYear + " draft yet"}
-                        </p>
-                        <p className="mt-1 text-sm text-[#718178]">
-                          {allActivities.length
-                            ? "Try a different status or search term."
-                            : "Add the first activity to begin developing this workplan."}
-                        </p>
-                        <Button
-                          variant={allActivities.length ? "outline" : "default"}
-                          className="mt-4"
-                          onClick={() => {
-                            if (!allActivities.length) {
-                              openAddActivity();
-                              return;
-                            }
-                            setQuery("");
-                            setSection("all");
-                            setGoal("all");
-                            setStatus("all");
-                            setWorkstream("all");
-                            setMember("all");
-                          }}
-                        >
-                          {allActivities.length ? "Clear filters" : "Add first activity"}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-2 border-t border-[#e2e7e0] bg-[#f7f9f5] px-4 py-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={exportWorkplan}
-                  disabled={workplanExporting || planState === "loading"}
-                  className="h-9 border-[#9fb1a5] bg-white text-xs font-bold text-[#174734] hover:bg-[#eef5ed]"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {workplanExporting ? "Preparing…" : "Export Excel"}
-                </Button>
-              </div>
-            </div>
-
-            <aside className="border-t border-[#dbe3d9] bg-[#f7f9f5] p-4 xl:border-t-0">
-              <div className="sticky top-4">
-                {workplanPreviewActivity ? (
-                  (() => {
-                    const activity = workplanPreviewActivity;
-                    const subactivity = workplanPreviewSubactivity;
-                    const previewStatus = subactivity
-                      ? recordStatus(
-                          subactivity.id,
-                          subactivity.status as StatusKey,
-                          updates,
-                        )
-                      : deriveActivityStatus(activity, updates);
-                    const previewProgress = subactivity
-                      ? recordProgress(
-                          subactivity.id,
-                          statusMetaFor(subactivity.status as StatusKey).weight,
-                          updates,
-                        )
-                      : deriveActivityProgress(activity, updates);
-                    const previewResponsibility = responsibilityParts(
-                      subactivity
-                        ? subactivityOwner(subactivity, updates)
-                        : activityOwner(activity, updates),
+            {activeView === "workplan" ? (
+              <ModuleErrorBoundary moduleName="Plans">
+                <Suspense fallback={<ModuleLoading label="Plans" />}>
+                  <PlansModule
+                    {...{
+                      StatusPill,
+                      activityOwner,
+                      allActivities,
+                      allBudgetLines,
+                      allocationByActivityKey,
+                      allocationByBudgetKey,
+                      allocationState,
+                      allocationTargets,
+                      currentSession,
+                      deriveActivityProgress,
+                      deriveActivityStatus,
+                      expandedWorkplanIds,
+                      exportWorkplan,
+                      filtered,
+                      filteredBudgetLines,
+                      financeByBudgetKey,
+                      financeCreatorFilter,
+                      financeCreatorOptions,
+                      financeDateFrom,
+                      financeDateTo,
+                      financeEntriesExpanded,
+                      financeEntryCreatorName,
+                      financeState,
+                      financeStats,
+                      formatDate,
+                      formatMnt,
+                      goal,
+                      goals,
+                      language,
+                      localizedTargetLabel,
+                      member,
+                      metadataLabel,
+                      openActivity,
+                      openAddActivity,
+                      openAddBudgetLine,
+                      openAllocationDialog,
+                      openAuditHistory,
+                      openFinanceBudgetLine,
+                      openFinanceDialog,
+                      planState,
+                      procurementItems,
+                      procurementQuery,
+                      procurementTypeFilter,
+                      procurementTypeForSubactivity,
+                      procurementTypeOptions,
+                      query,
+                      recordProgress,
+                      recordStatus,
+                      responsibilityParts,
+                      section,
+                      sectionOptions,
+                      selectedBudgetKey,
+                      selectedYear,
+                      setExpandedWorkplanIds,
+                      setFinanceCreatorFilter,
+                      setFinanceDateFrom,
+                      setFinanceDateTo,
+                      setFinanceDeleteEntry,
+                      setFinanceEntriesExpanded,
+                      setGoal,
+                      setMember,
+                      setProcurementQuery,
+                      setProcurementTypeFilter,
+                      setQuery,
+                      setSection,
+                      setSelectedBudgetKey,
+                      setStatus,
+                      setWorkplanDensity,
+                      setWorkplanPreview,
+                      setWorkplanSection,
+                      setWorkstream,
+                      status,
+                      statusMetaFor,
+                      statusOptions,
+                      subactivityOwner,
                       teamMembers,
-                    );
-                    const previewAllocation = subactivity
-                      ? allocationByActivityKey.get(subactivity.id) ?? 0
-                      : allocationByActivityKey.get(activity.id) ??
-                        activity.subactivities.reduce(
-                          (total, item) =>
-                            total + (allocationByActivityKey.get(item.id) ?? 0),
-                          0,
-                        );
-
-                    return (
-                      <div className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-sm">
-                        <div className="bg-[#0c3b2d] p-4 text-white">
-                          <div>
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-100/70">
-                                {subactivity ? "Sub-activity" : "Main activity"}
-                              </p>
-                              <p className="mt-1 font-mono text-xs font-black text-[#dbf081]">
-                                {activity.code || activity.uid}
-                              </p>
-                            </div>
-                          </div>
-                          <h3 className="mt-3 text-base font-black leading-6">
-                            {subactivity
-                              ? subactivity.title
-                              : language === "mn" && activity.titleMn?.trim()
-                                ? activity.titleMn
-                                : activity.title}
-                          </h3>
-                          <div className="mt-4 flex items-center justify-between gap-3">
-                            <StatusPill status={previewStatus} label={metadataLabel("status", previewStatus)} />
-                            <span className="text-xl font-black text-[#dbf081]">
-                              {previewProgress}%
-                            </span>
-                          </div>
-                          <Progress
-                            value={previewProgress}
-                            className="mt-2 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
-                          />
-                        </div>
-
-                        <div className="space-y-4 p-4">
-                          <dl className="grid grid-cols-2 gap-3 text-xs">
-                            <div>
-                              <dt className="font-bold text-[#819087]">Start</dt>
-                              <dd className="mt-1 font-black text-[#294438]">
-                                {formatDate(
-                                  subactivity?.startDate || activity.startDate,
-                                  language,
-                                )}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="font-bold text-[#819087]">Due</dt>
-                              <dd className="mt-1 font-black text-[#294438]">
-                                {formatDate(
-                                  subactivity?.endDate || activity.endDate,
-                                  language,
-                                )}
-                              </dd>
-                            </div>
-                            <div className="col-span-2">
-                              <dt className="font-bold text-[#819087]">Accountable owner</dt>
-                              <dd
-                                className={[
-                                  "mt-1 font-black",
-                                  previewResponsibility.accountable
-                                    ? "text-[#294438]"
-                                    : "text-rose-700",
-                                ].join(" ")}
-                              >
-                                {previewResponsibility.accountable || "Owner required"}
-                              </dd>
-                              {previewResponsibility.supporting.length > 0 && (
-                                <div className="mt-2 rounded-lg bg-[#f1f6ee] p-2.5">
-                                  <dt className="font-bold text-[#819087]">Supporting owner</dt>
-                                  <dd className="mt-1 font-bold text-[#294438]">
-                                    {previewResponsibility.supporting.join(", ")}
-                                  </dd>
-                                </div>
-                              )}
-                            </div>
-                            {!subactivity && (
-                              <div className="col-span-2">
-                                <dt className="font-bold text-[#819087]">Sub-activities</dt>
-                                <dd className="mt-1 text-lg font-black text-[#245f47]">
-                                  {activity.subactivities.length}
-                                </dd>
-                              </div>
-                            )}
-                            <div className="col-span-2">
-                              <dt className="font-bold text-[#819087]">Allocated budget</dt>
-                              <dd className="mt-1 text-lg font-black text-[#245f47]">
-                                {formatMnt(previewAllocation)}
-                              </dd>
-                            </div>
-                            {subactivity && (
-                              <div className="col-span-2">
-                                <dt className="font-bold text-[#819087]">Type of procurement</dt>
-                                <dd className="mt-1 font-bold text-[#294438]">
-                                  {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
-                                </dd>
-                              </div>
-                            )}
-                          </dl>
-
-                          <Button
-                            size="sm"
-                            onClick={() => openActivity(activity)}
-                            className="h-9 w-full bg-[#0c3b2d] text-xs text-white hover:bg-[#174d3a]"
-                          >
-                            Full view
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-[#bac9bd] bg-white px-5 py-12 text-center">
-                    <ListChecks className="mx-auto h-7 w-7 text-[#6f8a7b]" />
-                    <h3 className="mt-3 font-black">Quick details</h3>
-                    <p className="mt-1 text-xs leading-5 text-[#718178]">
-                      Select a main activity or sub-activity to view its owner, status, progress, budget, and available actions.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </aside>
-          </div>
-        </section>
-        ) : workplanSection === "procurement" ? (
-          <div className="space-y-4">
-            <section className="overflow-hidden rounded-2xl border border-[#bfd0c2] bg-gradient-to-br from-[#0c3b2d] to-[#246348] text-white shadow-[0_12px_30px_rgba(12,59,45,0.14)]">
-              <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-end">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.14em] text-[#dbf081]">{selectedYear} procurement plan</p>
-                  <h2 className="mt-1 text-2xl font-black">Applicable procurement activities</h2>
-                  <p className="mt-1 max-w-2xl text-sm text-white/70">This plan updates automatically whenever the procurement type is changed in a sub-activity. “Not applicable” items are excluded.</p>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    ["Plan items", procurementItems.length],
-                    ["In progress", procurementItems.filter((item) => item.status === "in_progress").length],
-                    ["Allocated", formatMnt(procurementItems.reduce((total, item) => total + item.allocatedMnt, 0))],
-                  ].map(([label, value]) => <div key={String(label)} className="min-w-28 rounded-xl border border-white/15 bg-white/10 p-3"><p className="text-[11px] font-semibold text-white/65">{label}</p><p className="mt-1 text-lg font-black tabular-nums">{value}</p></div>)}
-                </div>
-              </div>
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_8px_24px_rgba(20,36,27,0.04)]">
-              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] p-4 sm:flex-row sm:items-center">
-                <label className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" /><Input value={procurementQuery} onChange={(event) => setProcurementQuery(event.target.value)} placeholder="Search procurement activity, owner or code" className="h-9 bg-[#f8faf7] pl-9" /></label>
-                <NativeSelect value={procurementTypeFilter} onChange={(event) => setProcurementTypeFilter(event.target.value)} className="h-9 sm:w-56"><NativeSelectOption value="all">All procurement types</NativeSelectOption>{procurementTypeOptions.filter((item) => item.value.toLocaleLowerCase() !== "not applicable").map((item) => <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>)}</NativeSelect>
-              </div>
-              <div className="overflow-x-auto">
-                <div className="min-w-[940px]">
-                  <div className="grid grid-cols-[100px_minmax(220px,1.5fr)_170px_135px_130px_100px_130px] gap-3 bg-[#f4f7f2] px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]"><span>Code</span><span>Procurement item</span><span>Type</span><span>Owner</span><span>Timeline</span><span>Status</span><span className="text-right">Allocation</span></div>
-                  <div className="divide-y divide-[#e5eae4]">
-                    {visibleProcurementItems.map((item) => (
-                      <button key={item.subactivity.id} type="button" onClick={() => openActivity(item.activity)} className="grid w-full grid-cols-[100px_minmax(220px,1.5fr)_170px_135px_130px_100px_130px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[#f7faf5]">
-                        <span className="font-mono text-xs font-black text-[#245f47]">{item.activity.code || item.activity.uid}</span>
-                        <span className="min-w-0"><strong className="block line-clamp-2 text-sm text-[#183529]">{item.subactivity.title}</strong><span className="mt-0.5 block truncate text-[11px] text-[#718178]">Under {item.activity.title}</span></span>
-                        <span className="rounded-lg bg-[#eef4eb] px-2 py-1.5 text-xs font-bold text-[#315845]">{metadataLabel("procurement_type", item.procurementType)}</span>
-                        <span className={`truncate text-xs font-bold ${item.owner ? "text-[#315845]" : "text-rose-700"}`}>{item.owner || "Owner required"}</span>
-                        <span className="text-xs text-[#65766d]">{formatDate(item.subactivity.startDate, language)} – {formatDate(item.subactivity.endDate, language)}</span>
-                        <span><StatusPill status={item.status} label={metadataLabel("status", item.status)} /></span>
-                        <span className="text-right text-xs font-black tabular-nums text-[#245f47]">{formatMnt(item.allocatedMnt)}</span>
-                      </button>
-                    ))}
-                    {!visibleProcurementItems.length && <div className="px-6 py-14 text-center"><ReceiptText className="mx-auto h-7 w-7 text-[#809288]" /><p className="mt-3 font-black">No procurement activities found</p><p className="mt-1 text-sm text-[#718178]">Choose Goods and service or Intellectual service in a sub-activity to include it automatically.</p></div>}
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {workplanSection === "consultant-selection" && (
-          <ConsultantSelectionModule
-            year={selectedYear}
-            activities={allActivities.map((activity) => ({
-              key: activity.id,
-              code: activity.code || activity.uid,
-              title: language === "mn" && activity.titleMn ? activity.titleMn : activity.title,
-              kind: "activity" as const,
-            }))}
-            session={currentSession}
-            language={language}
-          />
-        )}
-
-        {workplanSection === "finance" && (
-          <div className="space-y-6">
-            <nav className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Finance breadcrumb">
-              <button type="button" onClick={() => setWorkplanSection("activities")} className="hover:text-[#174734]">Work Plan</button>
-              <ChevronRight className="h-4 w-4" />
-              <button type="button" onClick={() => setSelectedBudgetKey(null)} className="hover:text-[#174734]">Financial Plan</button>
-              {selectedBudgetKey && (
-                <>
-                  <ChevronRight className="h-4 w-4" />
-                  <span className="text-[#174734]">
-                    {allBudgetLines.find((line) => line.id === selectedBudgetKey)?.code ?? "Budget line"}
-                  </span>
-                </>
-              )}
-            </nav>
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-              <div className="border-b border-[#e2e7e0] p-4 lg:p-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold">Budget monitoring</h2>
-                    <p className="text-sm text-[#718178]">
-                      {filteredBudgetLines.length} budget lines · commitments and expenditure are tracked separately
-                    </p>
-                    {member !== "all" && (
-                      <p className="mt-1 text-xs text-[#718178]">
-                        Team finance uses budget lines linked to assigned activities. Shared lines may appear for more than one member.
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    onClick={openAddBudgetLine}
-                    className="shrink-0 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add budget line
-                  </Button>
-                </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <label className="relative block min-w-[230px]">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
-                    <Input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9 text-base md:text-sm"
-                      placeholder="Search budget line"
-                      aria-label="Search budget lines"
-                    />
-                  </label>
-                  <NativeSelect
-                    value={section}
-                    onChange={(event) => setSection(event.target.value)}
-                    className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter finance by workplan section"
-                  >
-                    <NativeSelectOption value="all">All sections</NativeSelectOption>
-                    {sectionOptions.map((item) => (
-                      <NativeSelectOption key={item.value} value={item.value}>{item.label}</NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <NativeSelect
-                    value={goal}
-                    onChange={(event) => setGoal(event.target.value)}
-                    className="h-10 min-w-[140px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter finance by goal"
-                  >
-                    <NativeSelectOption value="all">Every goal</NativeSelectOption>
-                    {goals.map((value) => (
-                      <NativeSelectOption key={value} value={value}>
-                        {value === "All goals" ? "Cross-goal" : metadataLabel("goal", value)}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <NativeSelect
-                    value={member}
-                    onChange={(event) => setMember(event.target.value)}
-                    className="h-10 min-w-[220px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter finance by team member"
-                  >
-                    <NativeSelectOption value="all">All team members</NativeSelectOption>
-                    {teamMembers.map((item) => (
-                      <NativeSelectOption key={item.id} value={item.id}>
-                        {metadataLabel("member_type", item.group)} · {item.name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </div>
-              </div>
-
-              <div className="hidden xl:block">
-                <Table className="w-full table-fixed">
-                  <TableHeader>
-                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[28%] pl-5">Budget line</TableHead>
-                      <TableHead className="w-[12%] text-right">Budget</TableHead>
-                      <TableHead className="w-[12%] text-right">Allocated</TableHead>
-                      <TableHead className="w-[12%] text-right">Committed</TableHead>
-                      <TableHead className="w-[12%] text-right">Expenditure</TableHead>
-                      <TableHead className="w-[12%] text-right">Remaining</TableHead>
-                      <TableHead className="w-[12%] pr-5 text-right">Details</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredBudgetLines.map((line) => {
-                      const totals = financeByBudgetKey.get(line.id) ?? {
-                        commitment: 0,
-                        expenditure: 0,
-                      };
-                      const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
-                      const remainingMnt =
-                        budgetMnt - totals.commitment - totals.expenditure;
-                      const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
-                      return (
-                        <TableRow key={line.id}>
-                          <TableCell className="whitespace-normal pl-5 align-top">
-                            <div className="flex items-start gap-3">
-                              <span className="mt-0.5 shrink-0 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
-                                {line.code}
-                              </span>
-                              <div className="min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={() => openFinanceBudgetLine(line.id)}
-                                  className="whitespace-normal break-words text-left font-bold leading-5 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
-                                >
-                                  {line.title}
-                                </button>
-                                <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
-                                  {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
-                                </p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] font-bold tabular-nums">
-                            {formatMnt(Number(line.budgetMntMillion) * 1_000_000)}
-                          </TableCell>
-                          <TableCell className={`whitespace-nowrap text-right text-[13px] font-bold tabular-nums ${allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#315845]"}`}>
-                            {formatMnt(allocatedMnt)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
-                            {formatMnt(totals.commitment)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
-                            {formatMnt(totals.expenditure)}
-                          </TableCell>
-                          <TableCell
-                            className={`whitespace-nowrap text-right text-[13px] font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
-                          >
-                            {formatMnt(remainingMnt)}
-                          </TableCell>
-                          <TableCell className="pr-5 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openFinanceBudgetLine(line.id)}
-                              aria-label={`Open budget line ${line.code}`}
-                            >
-                              Open
-                              <ChevronRight className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="divide-y divide-[#e2e7e0] xl:hidden">
-                {filteredBudgetLines.map((line) => {
-                  const totals = financeByBudgetKey.get(line.id) ?? {
-                    commitment: 0,
-                    expenditure: 0,
-                  };
-                  const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
-                  const remainingMnt =
-                    budgetMnt - totals.commitment - totals.expenditure;
-                  const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
-                  return (
-                    <article key={line.id} className="p-4 sm:p-5">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <span className="inline-flex rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
-                            {line.code}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => openFinanceBudgetLine(line.id)}
-                            className="mt-2 whitespace-normal break-words text-left font-bold leading-6 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
-                          >
-                            {line.title}
-                          </button>
-                          <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
-                            {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openFinanceBudgetLine(line.id)}
-                          className="shrink-0"
-                        >
-                          Open line
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                        {[
-                          ["Budget", formatMnt(budgetMnt)],
-                          ["Allocated", formatMnt(allocatedMnt)],
-                          ["Committed", formatMnt(totals.commitment)],
-                          ["Expenditure", formatMnt(totals.expenditure)],
-                          ["Remaining", formatMnt(remainingMnt)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-xl bg-[#f5f8f3] p-3">
-                            <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                            <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums text-[#183529]">
-                              {value}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </article>
-                  );
-                })}
-              </div>
-
-              {filteredBudgetLines.length === 0 && (
-                <div className="px-6 py-14 text-center">
-                  <SlidersHorizontal className="mx-auto mb-3 h-6 w-6 text-[#779083]" />
-                  <p className="font-bold">
-                    {allBudgetLines.length
-                      ? "No budget lines match these filters"
-                      : `No budget lines in the ${selectedYear} draft yet`}
-                  </p>
-                  <Button
-                    variant={allBudgetLines.length ? "outline" : "default"}
-                    className="mt-4"
-                    onClick={() => {
-                      if (!allBudgetLines.length) {
-                        openAddBudgetLine();
-                        return;
-                      }
-                      setQuery("");
-                      setSection("all");
-                      setGoal("all");
-                      setMember("all");
+                      updates,
+                      visibleAllocations,
+                      visibleFinanceEntries,
+                      visibleProcurementItems,
+                      workplanDensity,
+                      workplanExporting,
+                      workplanPreview,
+                      workplanPreviewActivity,
+                      workplanPreviewSubactivity,
+                      workplanSection,
+                      workstream,
+                      workstreams
                     }}
-                  >
-                    {allBudgetLines.length ? "Clear filters" : "Add first budget line"}
-                  </Button>
-                </div>
-              )}
-            </section>
-
-            <section className="hidden overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-              <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-bold">Budget allocations</h2>
-                  <p className="text-sm text-[#718178]">
-                    Planned budget assigned to main activities and sub-activities
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-[#5d7467]">
-                    {visibleAllocations.length} allocations
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openAllocationDialog()}
-                    disabled={!allBudgetLines.length || !allocationTargets.length}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Allocate
-                  </Button>
-                </div>
-              </div>
-              {allocationState === "unavailable" && (
-                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-                  Saved allocations are temporarily unavailable.
-                </div>
-              )}
-              <div className="divide-y divide-[#e4e9e2]">
-                {visibleAllocations.map((allocation) => {
-                  const line = allBudgetLines.find(
-                    (item) => item.id === allocation.budgetKey,
-                  );
-                  const target = allocationTargets.find(
-                    (item) => item.key === allocation.activityKey,
-                  );
-                  return (
-                    <div
-                      key={allocation.id}
-                      className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_160px_80px] md:items-center"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs font-black text-[#2f634c]">
-                          {line?.code ?? "Budget line"}
-                        </p>
-                        <p className="mt-1 whitespace-normal break-words text-sm font-bold leading-5">
-                          {line?.title ?? "Removed budget line"}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="whitespace-normal break-words text-sm leading-5 text-[#53685c]">
-                          {target
-                            ? localizedTargetLabel(target, allActivities, language)
-                            : "Removed workplan item"}
-                        </p>
-                        {allocation.note && (
-                          <p className="mt-1 whitespace-normal break-words text-xs text-[#718178]">
-                            {allocation.note}
-                          </p>
-                        )}
-                      </div>
-                      <p className="whitespace-nowrap text-right font-black tabular-nums text-[#245f47] md:text-left">
-                        {formatMnt(allocation.amountMnt)}
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openAllocationDialog(undefined, undefined, allocation)}
-                      >
-                        <PencilLine className="h-4 w-4" />
-                        Edit
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-              {allocationState === "ready" && visibleAllocations.length === 0 && (
-                <div className="px-6 py-10 text-center">
-                  <p className="font-bold">No budget allocations yet</p>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    Assign planned amounts to an activity or sub-activity.
-                  </p>
-                </div>
-              )}
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-              <div className="border-b border-[#e2e7e0] px-5 py-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold">Finance entries</h2>
-                    <p className="text-sm text-[#718178]">
-                      Every manual entry shows the person who recorded it.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[#5d7467]">
-                      {visibleFinanceEntries.length} of {financeStats.relevantEntries.length} entries
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setFinanceEntriesExpanded((current) => !current)}
-                      aria-expanded={financeEntriesExpanded}
-                      className="h-8 border-[#b9cabb] bg-white text-xs"
-                    >
-                      <ChevronRight className={`h-4 w-4 transition-transform ${financeEntriesExpanded ? "rotate-90" : ""}`} />
-                      {financeEntriesExpanded ? "Hide entries" : "View entries"}
-                    </Button>
-                  </div>
-                </div>
-                {financeEntriesExpanded && (
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <NativeSelect
-                    value={financeCreatorFilter}
-                    onChange={(event) => setFinanceCreatorFilter(event.target.value)}
-                    className="h-10 border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter finance entries by person"
-                  >
-                    <NativeSelectOption value="all">All people</NativeSelectOption>
-                    {financeCreatorOptions.map(([email, name]) => (
-                      <NativeSelectOption key={email} value={email}>
-                        {name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <label className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg border border-[#ced8cf] bg-[#f8faf7] px-3">
-                    <span className="text-xs font-bold text-[#5d7467]">From</span>
-                    <Input
-                      type="date"
-                      value={financeDateFrom}
-                      onChange={(event) => setFinanceDateFrom(event.target.value)}
-                      className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                      aria-label="Filter finance entries from date"
-                    />
-                  </label>
-                  <label className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-lg border border-[#ced8cf] bg-[#f8faf7] px-3">
-                    <span className="text-xs font-bold text-[#5d7467]">To</span>
-                    <Input
-                      type="date"
-                      value={financeDateTo}
-                      onChange={(event) => setFinanceDateTo(event.target.value)}
-                      className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                      aria-label="Filter finance entries to date"
-                    />
-                  </label>
-                </div>
-                )}
-              </div>
-              {!financeEntriesExpanded && (
-                <button
-                  type="button"
-                  onClick={() => setFinanceEntriesExpanded(true)}
-                  className="flex w-full items-center justify-between gap-4 bg-[#f8faf7] px-5 py-4 text-left text-sm text-[#5d7467] transition-colors hover:bg-[#f1f6ee]"
-                >
-                  <span>Expand to filter and review the complete finance-entry history.</span>
-                  <span className="shrink-0 font-black text-[#285d45]">View full list</span>
-                </button>
-              )}
-              {financeEntriesExpanded && (
-              <>
-              {financeState === "unavailable" && (
-                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-                  Saved finance entries are temporarily unavailable. The approved budget remains visible.
-                </div>
-              )}
-              <div className="max-h-[480px] overflow-auto">
-                <Table className="min-w-[980px]">
-                  <TableHeader className="sticky top-0 z-10 bg-[#f7f9f5] shadow-[0_1px_0_#e2e7e0]">
-                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="pl-5">Date</TableHead>
-                      <TableHead>Budget line</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Entered by</TableHead>
-                      <TableHead className="pr-5 text-right">Amount (MNT)</TableHead>
-                      <TableHead className="pr-5 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleFinanceEntries.map((entry) => {
-                      const line = allBudgetLines.find(
-                        (item) => item.id === entry.budgetKey,
-                      );
-                      return (
-                        <TableRow key={entry.id}>
-                          <TableCell className="pl-5 whitespace-nowrap">
-                            {formatDate(entry.entryDate, language)}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs font-bold text-[#2f634c]">
-                            {line?.code ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`rounded-full px-2.5 py-1 text-xs font-bold ${entry.entryType === "commitment" ? "bg-blue-50 text-blue-800" : "bg-emerald-50 text-emerald-800"}`}
-                            >
-                              {entry.entryType === "commitment"
-                                ? "Commitment"
-                                : "Expenditure"}
-                            </span>
-                          </TableCell>
-                          <TableCell className="max-w-[380px]">
-                            <p className="truncate font-medium">
-                              {entry.description || entry.vendor || "No description"}
-                            </p>
-                            {entry.vendor && entry.description && (
-                              <p className="mt-1 truncate text-xs text-[#718178]">
-                                {entry.vendor}
-                              </p>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-semibold text-[#315845]">
-                            {financeEntryCreatorName(entry, teamMembers)}
-                          </TableCell>
-                          <TableCell className="pr-5 text-right font-black tabular-nums">
-                            {formatMnt(entry.amountMnt)}
-                          </TableCell>
-                          <TableCell className="pr-5">
-                            {entry.activityKey ? (
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => void openAuditHistory({ entityType: "finance", entityKey: String(entry.id), label: `${entry.entryType === "commitment" ? "Commitment" : "Expenditure"} · ${formatMnt(entry.amountMnt)}` })}
-                                  aria-label="View finance entry history"
-                                >
-                                  <History className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() =>
-                                    openFinanceDialog(
-                                      entry.budgetKey,
-                                      entry.activityKey,
-                                      entry,
-                                    )
-                                  }
-                                  aria-label="Edit finance entry"
-                                >
-                                  <PencilLine className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => setFinanceDeleteEntry(entry)}
-                                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                                  aria-label="Remove finance entry"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <span className="block text-right text-xs text-[#718178]">
-                                Legacy entry
-                              </span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-              {financeState === "ready" && visibleFinanceEntries.length === 0 && (
-                <div className="px-6 py-12 text-center">
-                  <ReceiptText className="mx-auto mb-3 h-7 w-7 text-[#779083]" />
-                  <p className="font-bold">
-                    {financeStats.relevantEntries.length
-                      ? "No finance entries match these filters"
-                      : "No finance entries yet"}
-                  </p>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    {financeStats.relevantEntries.length
-                      ? "Change or clear the person and date filters to see more records."
-                      : "Open a budget line, then choose an activity to add a commitment or expenditure."}
-                  </p>
-                </div>
-              )}
-              </>
-              )}
-            </section>
-          </div>
-        )}
+                  />
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="contracts" className="space-y-6">
-            <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
-              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); setContractOwnerFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
-              {contractStatusFilter !== "all" && (
-                <>
-                  <ChevronRight className="h-4 w-4" />
-                  <span className="text-[#174734]">{contractStatusMeta[contractStatusFilter as ContractRecord["status"]]?.label}</span>
-                </>
-              )}
-              {contractStartYearFilter !== "all" && (
-                <>
-                  <ChevronRight className="h-4 w-4" />
-                  <span className="text-[#174734]">Started {contractStartYearFilter}</span>
-                </>
-              )}
-              {contractOwnerFilter !== "all" && (
-                <>
-                  <ChevronRight className="h-4 w-4" />
-                  <span className="text-[#174734]">
-                    {contractOwnerFilter === "no_owner"
-                      ? "No accountable owner"
-                      : contractOwnerFilter}
-                  </span>
-                </>
-              )}
-            </nav>
-            <section className="mx-auto w-full max-w-6xl rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between">
-              <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">Contract management</h2>
-                <p className="mt-1 max-w-3xl text-sm text-[#718178]">
-                  Link contracts and payment deliverables to the workplan. Unpaid contract value is commitment; paid installments become expenditure.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => void exportContracts()}
-                  disabled={contractExporting || !filteredContracts.length}
-                  className="border-[#b9cabb] bg-white"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  {contractExporting ? "Preparing…" : "Export Excel"}
-                </Button>
-                <Button
-                  onClick={openAddContract}
-                  className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  disabled={!contractTargets.length}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add contract
-                </Button>
-              </div>
-            </section>
-
-            <section className="mx-auto w-full max-w-6xl rounded-2xl border border-[#b9cabb] bg-[#e9f1e6] p-3">
-              <div className="mb-3 flex items-center gap-2 px-1">
-                <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#0c3b2d] text-white">
-                  <ReceiptText className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="font-black">Contract financial position</h3>
-                  <p className="text-xs text-[#5d7467]">Current {selectedYear} register</p>
-                </div>
-              </div>
-              <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {[
-                  ["Active contracts", String(contractStats.active)],
-                  ["Total contract value", formatMnt(contractStats.totalValue)],
-                  ["Outstanding commitment", formatMnt(contractStats.outstanding)],
-                  ["Paid expenditure", formatMnt(contractStats.paid)],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-white/80 bg-white p-3 shadow-sm">
-                    <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                    <dd className="mt-1 whitespace-nowrap text-base font-black tabular-nums text-[#183529]">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-
-            <section className="mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-              <div className="flex flex-col gap-3 border-b border-[#e2e7e0] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-                <div className="relative min-w-0 flex-1 sm:max-w-xl">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a8c81]" />
-                  <Input
-                    value={contractQuery}
-                    onChange={(event) => setContractQuery(event.target.value)}
-                    placeholder="Search contract, ToR, provider or workplan code"
-                    className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
+            {activeView === "contracts" ? (
+              <ModuleErrorBoundary moduleName="Contracts">
+                <Suspense fallback={<ModuleLoading label="Contracts" />}>
+                  <ContractsModule
+                    {...{
+                      allActivities,
+                      allBudgetLines,
+                      contractCommitmentMnt,
+                      contractExporting,
+                      contractOwnerFilter,
+                      contractOwnerOptions,
+                      contractPaidMnt,
+                      contractQuery,
+                      contractSaving,
+                      contractStartYearFilter,
+                      contractStartYears,
+                      contractState,
+                      contractStats,
+                      contractStatusFilter,
+                      contractStatusMeta,
+                      contractTargets,
+                      contracts,
+                      currentSession,
+                      exportContracts,
+                      filteredContracts,
+                      formatDate,
+                      formatMnt,
+                      formatUsd,
+                      language,
+                      localizedTargetLabel,
+                      openAddContract,
+                      openAuditHistory,
+                      openEditContract,
+                      paymentTransferDates,
+                      selectedYear,
+                      setContractDetailId,
+                      setContractOwnerFilter,
+                      setContractQuery,
+                      setContractStartYearFilter,
+                      setContractStatusFilter,
+                      setContractToClose,
+                      setContractToDelete,
+                      setPaymentPaid,
+                      setPaymentTransferDates
+                    }}
                   />
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                  <NativeSelect
-                    value={contractStatusFilter}
-                    onChange={(event) => setContractStatusFilter(event.target.value)}
-                    className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter contracts by status"
-                  >
-                    <NativeSelectOption value="all">All statuses</NativeSelectOption>
-                    {Object.entries(contractStatusMeta).map(([value, meta]) => (
-                      <NativeSelectOption key={value} value={value}>
-                        {meta.label}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <NativeSelect
-                    value={contractStartYearFilter}
-                    onChange={(event) => setContractStartYearFilter(event.target.value)}
-                    className="h-10 min-w-[165px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter contracts by starting year"
-                  >
-                    <NativeSelectOption value="all">All start years</NativeSelectOption>
-                    {contractStartYears.map((year) => (
-                      <NativeSelectOption key={year} value={year}>Started {year}</NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <NativeSelect
-                    value={contractOwnerFilter}
-                    onChange={(event) => setContractOwnerFilter(event.target.value)}
-                    className="h-10 min-w-[190px] border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Filter contracts by accountable owner"
-                  >
-                    <NativeSelectOption value="all">All accountable owners</NativeSelectOption>
-                    {contractOwnerOptions.names.map((name) => (
-                      <NativeSelectOption key={name} value={name}>{name}</NativeSelectOption>
-                    ))}
-                    {contractOwnerOptions.hasUnassigned && (
-                      <NativeSelectOption value="no_owner">No accountable owner</NativeSelectOption>
-                    )}
-                  </NativeSelect>
-                </div>
-              </div>
-
-              {contractState === "unavailable" && (
-                <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-                  Saved contracts are temporarily unavailable.
-                </div>
-              )}
-
-              <div className="space-y-3 bg-[#f7f9f5] p-3 sm:p-4">
-                {filteredContracts.map((contract) => {
-                  const fundingDetails = (contract.allocations ?? []).map((allocation) => ({
-                    allocation,
-                    target: contractTargets.find(
-                      (item) => item.key === allocation.activityKey,
-                    ),
-                    line: allBudgetLines.find(
-                      (item) => item.id === allocation.budgetKey,
-                    ),
-                  }));
-                  const paidMnt = contractPaidMnt(contract);
-                  const commitmentMnt = contractCommitmentMnt(contract);
-                  const expanded = false;
-                  const statusInfo = contractStatusMeta[contract.status];
-                  return (
-                    <article
-                      key={contract.id}
-                      className="overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_5px_16px_rgba(20,36,27,0.04)]"
-                    >
-                      <div className="p-3 sm:p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
-                                {contract.contractNumber}
-                              </span>
-                              {contract.transferredFromYear > 0 && (
-                                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
-                                  Transferred from {contract.transferredFromYear}
-                                </span>
-                              )}
-                              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusInfo.tone}`}>
-                                {statusInfo.label}
-                              </span>
-                            </div>
-                            <h3 className="mt-2 break-words text-base font-black leading-5 text-[#183529]">
-                              {contract.torName}
-                            </h3>
-                            <p className="mt-1 text-xs font-semibold text-[#53685c]">
-                              {contract.serviceProviderName} · {contract.serviceProviderType}
-                            </p>
-                            <p className="mt-2 break-words text-xs leading-5 text-[#718178]">
-                              {fundingDetails.length} budget line{fundingDetails.length === 1 ? "" : "s"} · {fundingDetails.map(({ line, target }) => `${line?.code ?? "Budget"} / ${target?.code ?? "Workplan"}`).join(" · ")}
-                            </p>
-                            <p className="mt-1 text-xs text-[#718178]">
-                              {formatDate(contract.startDate, language)} – {formatDate(contract.endDate, language)}
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 flex-wrap gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void openAuditHistory({ entityType: "contract", entityKey: contract.id, label: contract.contractNumber });
-                              }}
-                            >
-                              <History className="h-4 w-4" />
-                              Amendments
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); openEditContract(contract); }}>
-                              <PencilLine className="h-4 w-4" />
-                              Edit
-                            </Button>
-                            {currentSession?.isAdmin && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={(event) => { event.stopPropagation(); setContractToDelete(contract); }}
-                                className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                              </Button>
-                            )}
-                            {contract.status !== "closed" && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={(event) => { event.stopPropagation(); setContractToClose(contract); }}
-                                className="border-amber-300 text-amber-900 hover:bg-amber-50"
-                              >
-                                Close contract
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-
-                        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                          {[
-                            [
-                              "Contract amount",
-                              contract.currency === "USD"
-                                ? `${formatUsd(contract.foreignAmountMinor)} · ${formatMnt(contract.amountMnt)}`
-                                : formatMnt(contract.amountMnt),
-                            ],
-                            ["Outstanding commitment", formatMnt(commitmentMnt)],
-                            ["Paid expenditure", formatMnt(paidMnt)],
-                          ].map(([label, value]) => (
-                            <div key={label} className="rounded-lg bg-[#f3f7f1] px-3 py-2">
-                              <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                              <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums">
-                                {value}
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setContractDetailId(contract.id);
-                          }}
-                          className="mt-3 h-8 px-2.5 text-xs"
-                        >
-                          Open contract <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {expanded && (
-                        <div className="border-t border-[#dfe7dc] bg-[#fbfcfa] p-3 sm:p-4">
-                          <section className="mb-4 rounded-xl border border-[#cbd8c9] bg-[#eef4eb] p-3">
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-black">Budget line allocation</p>
-                                <p className="text-xs text-[#718178]">Contract value distributed across connected budget lines.</p>
-                              </div>
-                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#315845]">
-                                {fundingDetails.length} line{fundingDetails.length === 1 ? "" : "s"}
-                              </span>
-                            </div>
-                            <div className="grid gap-2 md:grid-cols-2">
-                              {fundingDetails.map(({ allocation, line, target }) => {
-                                const paid = contract.payments
-                                  .filter((payment) => Boolean(payment.paid))
-                                  .flatMap((payment) => payment.allocations ?? [])
-                                  .filter(
-                                    (item) =>
-                                      item.budgetKey === allocation.budgetKey &&
-                                      item.activityKey === allocation.activityKey,
-                                  )
-                                  .reduce((total, item) => total + item.amountMnt, 0);
-                                return (
-                                  <div key={allocation.id} className="rounded-lg border border-white bg-white p-3">
-                                    <p className="font-mono text-xs font-black text-[#2f634c]">
-                                      {line?.code ?? "Budget"} · {target?.code ?? "Workplan"}
-                                    </p>
-                                    <p className="mt-1 line-clamp-2 text-xs font-semibold text-[#53685c]">
-                                      {target ? localizedTargetLabel(target, allActivities, language) : "Removed workplan item"}
-                                    </p>
-                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                                      <span><b>Allocated:</b> {formatMnt(allocation.amountMnt)}</span>
-                                      <span><b>Paid:</b> {formatMnt(paid)}</span>
-                                      <span><b>Committed:</b> {formatMnt(contract.status === "closed" ? 0 : Math.max(allocation.amountMnt - paid, 0))}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </section>
-                          <div className="space-y-3">
-                            {contract.payments.map((payment) => (
-                              <div
-                                key={payment.id}
-                                className="grid gap-3 rounded-xl border border-[#dfe7dc] bg-white p-4 lg:grid-cols-[minmax(100px,0.7fr)_minmax(120px,0.8fr)_minmax(190px,1.8fr)_70px_140px_150px_105px] lg:items-center"
-                              >
-                                <div>
-                                  <p className="text-xs font-semibold text-[#718178]">Payment</p>
-                                  <p className="mt-1 font-bold">{payment.label}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold text-[#718178]">Due date</p>
-                                  <p className="mt-1 text-sm font-semibold">{formatDate(payment.dueDate, language)}</p>
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-xs font-semibold text-[#718178]">Deliverable</p>
-                                  <p className="mt-1 break-words text-sm font-semibold">{payment.deliverable}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold text-[#718178]">Share</p>
-                                  <p className="mt-1 font-black tabular-nums">{payment.percentage}%</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold text-[#718178]">Amount</p>
-                                  <p className="mt-1 whitespace-nowrap font-black tabular-nums">
-                                    {contract.currency === "USD" && payment.foreignAmountMinor
-                                      ? `${formatUsd(payment.foreignAmountMinor)} · `
-                                      : ""}
-                                    {formatMnt(payment.amountMnt)}
-                                  </p>
-                                </div>
-                                <label className="block">
-                                  <span className="text-xs font-semibold text-[#718178]">
-                                    Transfer date
-                                  </span>
-                                  <Input
-                                    type="date"
-                                    value={paymentTransferDates[payment.id] ?? payment.paidAt ?? ""}
-                                    onChange={(event) =>
-                                      setPaymentTransferDates((current) => ({
-                                        ...current,
-                                        [payment.id]: event.target.value,
-                                      }))
-                                    }
-                                    disabled={Boolean(payment.paid) || contract.status === "closed"}
-                                    className="mt-1 h-8 border-[#cbd6cc] bg-white px-2 text-xs"
-                                  />
-                                </label>
-                                <Button
-                                  size="sm"
-                                  variant={payment.paid ? "outline" : "default"}
-                                  disabled={contractSaving || contract.status === "closed"}
-                                  onClick={() => setPaymentPaid(contract, payment, !payment.paid)}
-                                  className={`h-8 px-2.5 text-xs ${payment.paid ? "border-emerald-300 text-emerald-800" : "bg-[#0c3b2d] text-white hover:bg-[#174d3a]"}`}
-                                >
-                                  {payment.paid ? (
-                                    <>
-                                      <CircleCheck className="h-4 w-4" /> Paid
-                                    </>
-                                  ) : (
-                                    "Mark paid"
-                                  )}
-                                </Button>
-                                {payment.paid && payment.paidAt && (
-                                  <p className="text-xs text-emerald-800 lg:col-start-6">
-                                    Paid {formatDate(payment.paidAt, language)}
-                                  </p>
-                                )}
-                                <div className="rounded-lg bg-[#f3f7f1] px-3 py-2 text-xs lg:col-span-7">
-                                  <span className="font-bold text-[#53685c]">Budget line split: </span>
-                                  {(payment.allocations ?? []).map((allocation) => {
-                                    const target = contractTargets.find(
-                                      (item) => item.key === allocation.activityKey,
-                                    );
-                                    return `${target?.code ?? "Workplan"} ${formatMnt(allocation.amountMnt)}`;
-                                  }).join(" · ") || "Not assigned"}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-
-                {contractState === "ready" && filteredContracts.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-[#bfcbbf] bg-white px-6 py-14 text-center">
-                    <ReceiptText className="mx-auto h-7 w-7 text-[#779083]" />
-                    <p className="mt-3 font-black">
-                      {contracts.length ? "No contracts match these filters" : "No contracts yet"}
-                    </p>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      {contracts.length
-                        ? "Try another status or search term."
-                        : "Add the first contract and split its value into payment deliverables."}
-                    </p>
-                    {!contracts.length && (
-                      <Button className="mt-4 bg-[#0c3b2d] text-white" onClick={openAddContract}>
-                        <Plus className="h-4 w-4" /> Add contract
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="team" className="space-y-6">
-            <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setTeamPerformanceSection("workplan")}
-                className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                  teamPerformanceSection === "workplan"
-                    ? "bg-[#0c3b2d] text-white shadow-sm"
-                    : "text-[#53685c] hover:bg-[#f0f5ee]"
-                }`}
-              >
-                <BarChart3 className="h-4 w-4" /> Workplan Performance
-              </button>
-              <button
-                type="button"
-                onClick={() => setTeamPerformanceSection("kpi")}
-                className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                  teamPerformanceSection === "kpi"
-                    ? "bg-[#0c3b2d] text-white shadow-sm"
-                    : "text-[#53685c] hover:bg-[#f0f5ee]"
-                }`}
-              >
-                <Target className="h-4 w-4" /> Staff KPI
-              </button>
-            </div>
-
-            {teamPerformanceSection === "kpi" ? (
-              <StaffKpiModule
-                year={selectedYear}
-                activities={allActivities}
-                teamMembers={teamMembers}
-                session={currentSession}
-                assignedActivityKeysByMember={kpiAssignedActivityKeysByMember}
-                activityQuarterNotes={kpiActivityQuarterNotes}
-              />
-            ) : (
-              <>
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
-              <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">
-                  {currentSession?.isAdmin ? "Team Performance" : "My Performance"}
-                </h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  {currentSession?.isAdmin
-                    ? "Workplan responsibilities, activity status, delivery progress, and financial position by team member."
-                    : "Your workplan responsibilities, activity status, delivery progress, and financial position."}
-                </p>
-              </div>
-              {currentSession?.isAdmin && (
-                <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_220px] lg:justify-end">
-                  <label className="relative block">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
-                    <Input
-                      value={teamDirectoryQuery}
-                      onChange={(event) => setTeamDirectoryQuery(event.target.value)}
-                      className="h-10 border-[#ced8cf] bg-[#f8faf7] pl-9"
-                      placeholder="Search staff name"
-                      aria-label="Search team performance by staff name"
-                    />
-                  </label>
-                  <NativeSelect
-                    value={teamDirectoryMember}
-                    onChange={(event) => setTeamDirectoryMember(event.target.value)}
-                    className="h-10 border-[#ced8cf] bg-[#f8faf7]"
-                    aria-label="Select team member performance"
-                  >
-                    <NativeSelectOption value="all">All staff members</NativeSelectOption>
-                    {teamMembers.map((item) => (
-                      <NativeSelectOption key={item.id} value={item.id}>
-                        {item.name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </div>
-              )}
-            </section>
-
-            {teamState === "unavailable" && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Saved roster changes are temporarily unavailable. The default team list remains visible.
-              </div>
-            )}
-
-            {visibleTeamSummaries.length > 0 ? (
-              <>
-                <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                  {[
-                    { label: "Team members", value: visibleTeamSummaries.length, icon: Users },
-                    { label: "Accountable activities", value: visibleTeamSummaries.reduce((total, item) => total + item.accountableMainCount, 0), icon: Target },
-                    { label: "Supporting assignments", value: visibleTeamSummaries.reduce((total, item) => total + item.supportingMainCount + item.supportingSubactivityCount, 0), icon: HandCoins },
-                    { label: "Sub-activities", value: visibleTeamSummaries.reduce((total, item) => total + item.subactivityCount, 0), icon: ListChecks },
-                    { label: "Average progress", value: `${Math.round(visibleTeamSummaries.reduce((total, item) => total + item.progress, 0) / visibleTeamSummaries.length)}%`, icon: Gauge },
-                  ].map(({ label, value, icon: Icon }) => (
-                    <article key={label} className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_22px_rgba(20,36,27,0.04)]">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#718178]">{label}</p>
-                        <Icon className="h-4 w-4 text-[#2f634c]" />
-                      </div>
-                      <p className="mt-2 text-2xl font-black tabular-nums text-[#183529]">{value}</p>
-                    </article>
-                  ))}
-                </section>
-
-                <section className="grid gap-4 xl:grid-cols-2">
-                  {visibleTeamSummaries.map((item) => (
-                    <article key={item.id} className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                      <div className="flex items-start justify-between gap-4 bg-gradient-to-r from-[#0c3b2d] to-[#245f47] p-4 text-white sm:p-5">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#dbf081] text-sm font-black text-[#173b2d]">
-                            {item.name.split(/[.\s]/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="truncate text-base font-black">{item.name}</h3>
-                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold">{metadataLabel("member_type", item.group)}</span>
-                            </div>
-                            <p className="mt-1 text-xs text-emerald-50/75">{item.role}</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setMember(item.id);
-                            setActiveView("dashboard");
-                          }}
-                          className="h-8 shrink-0 border-white/30 bg-white/10 px-2.5 text-xs text-white hover:bg-white/20 hover:text-white"
-                        >
-                          View report
-                        </Button>
-                      </div>
-
-                      <div className="p-4 sm:p-5">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                          {[
-                            ["Accountable", item.accountableMainCount],
-                            ["Supporting main", item.supportingMainCount],
-                            ["Sub-activities", item.subactivityCount],
-                            ["Supporting subs", item.supportingSubactivityCount],
-                            ["Active contracts", item.activeContractCount],
-                          ].map(([label, value]) => (
-                            <div key={String(label)} className="rounded-xl bg-[#f2f6f0] p-3">
-                              <p className="text-[11px] font-semibold text-[#718178]">{label}</p>
-                              <p className="mt-1 text-xl font-black tabular-nums text-[#183529]">{value}</p>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-4">
-                          <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                            <span>Combined delivery progress</span>
-                            <span>{item.progress}%</span>
-                          </div>
-                          <Progress value={item.progress} className="h-2 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {statusKeys.map((key) =>
-                              item.statusCounts[key] ? (
-                                <span key={key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${statusMetaFor(key).tone}`}>
-                                  <span className={`h-1.5 w-1.5 rounded-full ${statusMetaFor(key).dot}`} />
-                                  {metadataLabel("status", key)} {item.statusCounts[key]}
-                                </span>
-                              ) : null,
-                            )}
-                          </div>
-                        </div>
-
-                        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[#e2e7e0] pt-4 text-sm">
-                          <div><dt className="text-xs text-[#718178]">Budget</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.budgetMnt)}</dd></div>
-                          <div><dt className="text-xs text-[#718178]">Commitment</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.commitmentMnt)}</dd></div>
-                          <div><dt className="text-xs text-[#718178]">Expenditure</dt><dd className="mt-1 font-black tabular-nums">{formatMnt(item.expenditureMnt)}</dd></div>
-                          <div><dt className="text-xs text-[#718178]">Remaining</dt><dd className={`mt-1 font-black tabular-nums ${item.remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}>{formatMnt(item.remainingMnt)}</dd></div>
-                        </dl>
-                      </div>
-                    </article>
-                  ))}
-                </section>
-                <p className="rounded-xl border border-[#d7ded5] bg-[#f8faf7] px-4 py-3 text-xs leading-5 text-[#718178]">
-                  Counts distinguish accountable and supporting roles across main activities and sub-activities. Shared budget lines can appear for more than one person, so team financial figures should not be added together.
-                </p>
-              </>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-white px-6 py-12 text-center text-sm text-[#718178]">
-                Your signed-in account is not linked to a team member record yet. Ask an administrator to add your email in Admin Control.
-              </div>
-            )}
-              </>
-            )}
+            {activeView === "team" ? (
+              <ModuleErrorBoundary moduleName="KPI">
+                <Suspense fallback={<ModuleLoading label="KPI" />}>
+                  <KpiModule
+                    {...{
+                      allActivities,
+                      currentSession,
+                      formatMnt,
+                      kpiActivityQuarterNotes,
+                      kpiAssignedActivityKeysByMember,
+                      metadataLabel,
+                      selectedYear,
+                      setActiveView,
+                      setMember,
+                      setTeamDirectoryMember,
+                      setTeamDirectoryQuery,
+                      setTeamPerformanceSection,
+                      statusKeys,
+                      statusMetaFor,
+                      teamDirectoryMember,
+                      teamDirectoryQuery,
+                      teamMembers,
+                      teamPerformanceSection,
+                      teamState,
+                      visibleTeamSummaries
+                    }}
+                  />
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Monitoring, evaluation and learning</p>
-                <h2 className="mt-1 text-xl font-black">MEL workspace</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Choose the workspace you want to manage. Only the selected area is shown below.
-                </p>
-              </div>
-              <div className="mt-4 inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-[#f8faf7] p-1 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setMelSection("indicators")}
-                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                    melSection === "indicators"
-                      ? "bg-[#0c3b2d] text-white shadow-sm"
-                      : "text-[#53685c] hover:bg-white"
-                  }`}
-                >
-                  <Target className="h-4 w-4" /> Indicator Management
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMelSection("monitoring")}
-                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                    melSection === "monitoring"
-                      ? "bg-[#0c3b2d] text-white shadow-sm"
-                      : "text-[#53685c] hover:bg-white"
-                  }`}
-                >
-                  <BarChart3 className="h-4 w-4" /> Programme Monitoring
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMelSection("quarterly")}
-                  className={`flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                    melSection === "quarterly"
-                      ? "bg-[#0c3b2d] text-white shadow-sm"
-                      : "text-[#53685c] hover:bg-white"
-                  }`}
-                >
-                  <ClipboardCheck className="h-4 w-4" /> Quarterly Reporting
-                </button>
-              </div>
-            </section>
-
-            {melSection === "indicators" ? (
-              <MelModule
-                year={selectedYear}
-                activities={allActivities}
-                teamMembers={teamMembers}
-                session={currentSession}
-              />
-            ) : melSection === "quarterly" ? (
-              <QuarterlyReportingModule
-                year={selectedYear}
-                activities={quarterlyReportingActivities}
-                teamMembers={teamMembers}
-                session={currentSession}
-                statusOptions={statusOptions}
-                onUpdateSaved={(update) =>
-                  setUpdates((current) => ({
-                    ...current,
-                    [update.activityKey]: update,
-                  }))
-                }
-              />
-            ) : (
-              <>
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-5 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:flex sm:items-end sm:justify-between">
-              <div>
-                <h2 className="text-xl font-black">Workplan monitoring and year comparison</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Download each quarter&apos;s saved progress and notes, review data quality, and compare years.
-                </p>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2 sm:mt-0">
-                {quarterKeys.map((quarter) => (
-                  <Button
-                    key={quarter}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void exportQuarterlyReport(quarter)}
-                    disabled={workplanExporting}
-                  >
-                    <FileSpreadsheet className="h-4 w-4" /> {quarter} Excel
-                  </Button>
-                ))}
-              </div>
-            </section>
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="flex items-center gap-2 text-lg font-black">
-                    <Bell className="h-5 w-5 text-[#2f634c]" /> Automatic alerts
-                  </h2>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    Open an alert to review the underlying workplan or contract records.
-                  </p>
-                </div>
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">
-                  {automaticAlerts.reduce((total, item) => total + item.count, 0)} open
-                </span>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {automaticAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={() => {
-                      if (alert.id === "owners") setMember("no_owner");
-                      setActiveView(alert.view);
+            {activeView === "reports" ? (
+              <ModuleErrorBoundary moduleName="MEL">
+                <Suspense fallback={<ModuleLoading label="MEL" />}>
+                  <MelWorkspaceModule
+                    {...{
+                      allActivities,
+                      allBudgetLines,
+                      automaticAlerts,
+                      averageActivityProgress,
+                      comparePlan,
+                      compareYear,
+                      currentSession,
+                      dataCompleteness,
+                      exportQuarterlyReport,
+                      formatMnt,
+                      loadComparison,
+                      melSection,
+                      quarterKeys,
+                      quarterlyReportingActivities,
+                      selectedYear,
+                      setActiveView,
+                      setMelSection,
+                      setMember,
+                      setUpdates,
+                      statusOptions,
+                      teamMembers,
+                      updates,
+                      workplanExporting,
+                      workplanYears
                     }}
-                    className={`rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
-                      alert.count
-                        ? alert.tone === "rose"
-                          ? "border-rose-200 bg-rose-50"
-                          : "border-amber-200 bg-amber-50"
-                        : "border-[#e1e7df] bg-[#f8faf7]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-black">{alert.label}</span>
-                      <span className="text-lg font-black">{alert.count}</span>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#65766d]">
-                      {alert.detail}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </section>
-            <section className="grid gap-5 lg:grid-cols-2">
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-black">Data completeness</h3>
-                    <p className="mt-1 text-sm text-[#718178]">Checks the records required for reporting and accountability.</p>
-                  </div>
-                  <span className="text-3xl font-black text-[#245f47]">{dataCompleteness.completePercent}%</span>
-                </div>
-                <Progress value={dataCompleteness.completePercent} className="mt-4 h-2.5 bg-[#e2e8df] [&_[data-slot=progress-indicator]]:bg-[#2c795a]" />
-                <dl className="mt-4 grid grid-cols-2 gap-2">
-                  {[
-                    ["Missing owners", dataCompleteness.missingOwner],
-                    ["Missing dates", dataCompleteness.missingDates],
-                    ["Missing workplan structure", dataCompleteness.missingStructure],
-                    ["Missing procurement type", dataCompleteness.missingProcurementType],
-                    [`${dataCompleteness.currentQuarter} updates missing`, dataCompleteness.missingQuarterlyUpdate],
-                    ["Budget lines without activities", dataCompleteness.unlinkedBudgetLines],
-                    ["Incomplete contracts", dataCompleteness.incompleteContracts],
-                    ["Incomplete finance entries", dataCompleteness.incompleteFinanceEntries],
-                  ].map(([label, value]) => (
-                    <div key={String(label)} className="rounded-xl bg-[#f7f9f5] p-3">
-                      <dt className="text-xs text-[#718178]">{label}</dt>
-                      <dd className="mt-1 text-xl font-black">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </article>
-              <article className="rounded-2xl border border-[#d7ded5] bg-white p-5">
-                <h3 className="text-lg font-black">Year-to-year comparison</h3>
-                <p className="mt-1 text-sm text-[#718178]">Compare the selected workplan with another saved year.</p>
-                <div className="mt-4 flex gap-2">
-                  <NativeSelect
-                    value={String(compareYear)}
-                    onChange={(event) => void loadComparison(Number(event.target.value))}
-                    className="h-10 flex-1 border-[#ced8cf] bg-white"
-                  >
-                    {workplanYears.map((item) => (
-                      <NativeSelectOption key={item.year} value={String(item.year)}>{item.year} workplan</NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <Button variant="outline" onClick={() => void loadComparison(compareYear)}>Compare</Button>
-                </div>
-                <div className="mt-4 grid grid-cols-[1fr_100px_100px] gap-2 text-sm">
-                  <span className="font-bold text-[#718178]">Metric</span>
-                  <span className="text-right font-bold text-[#718178]">{selectedYear}</span>
-                  <span className="text-right font-bold text-[#718178]">{comparePlan?.year ?? compareYear}</span>
-                  {[
-                    ["Activities", allActivities.length, comparePlan?.activities.length ?? "—"],
-                    ["Average progress", `${averageActivityProgress(allActivities, updates)}%`, comparePlan ? `${averageActivityProgress(comparePlan.activities, updates)}%` : "—"],
-                    ["Budget", formatMnt(allBudgetLines.reduce((total, line) => total + Number(line.budgetMntMillion) * 1_000_000, 0)), comparePlan ? formatMnt(comparePlan.budgetLines.reduce((total, line) => total + Number(line.budgetMntMillion) * 1_000_000, 0)) : "—"],
-                  ].map(([label, current, previous]) => (
-                    <div key={String(label)} className="contents">
-                      <span className="border-t border-[#e5eae4] py-2 font-semibold">{label}</span>
-                      <span className="border-t border-[#e5eae4] py-2 text-right font-black">{current}</span>
-                      <span className="border-t border-[#e5eae4] py-2 text-right font-black">{previous}</span>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            </section>
-              </>
-            )}
+                  />
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="access" className="space-y-6">
-            <section className="rounded-2xl border border-[#d7ded5] bg-white p-4 shadow-[0_8px_26px_rgba(20,36,27,0.05)] lg:flex lg:items-end lg:justify-between lg:p-5">
-              <div className="mb-4 lg:mb-0">
-                <h2 className="text-xl font-black">Admin control</h2>
-                <p className="mt-1 text-sm text-[#718178]">
-                  Manage users, workplan years, and the shared dropdown options used across the ERP system.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {currentSession && (
-                  <div className="flex h-10 items-center gap-2 rounded-xl border border-[#ced8cf] bg-[#f8faf7] px-3 text-sm font-semibold text-[#315845]">
-                    {currentSession.isAdmin && <ShieldCheck className="h-4 w-4" />}
-                    {currentSession.memberName} · {currentSession.isAdmin ? "Admin" : "Member"}
-                  </div>
-                )}
-                <a
-                  href="/signout-with-chatgpt?return_to=%2F"
-                  target="_top"
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-[#ced8cf] bg-white px-3 text-sm font-bold text-[#315845] hover:bg-[#f5f8f4]"
-                >
-                  Sign out
-                </a>
-                {currentSession?.isAdmin && adminControlSection === "users" && (
-                  <Button
-                    onClick={openAddTeamMember}
-                    className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    Add member
-                  </Button>
-                )}
-              </div>
-            </section>
-
-            {currentSession?.isAdmin && (
-              <div className="inline-flex rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setAdminControlSection("users")}
-                  className={`flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                    adminControlSection === "users"
-                      ? "bg-[#0c3b2d] text-white"
-                      : "text-[#53685c] hover:bg-[#f0f5ee]"
-                  }`}
-                >
-                  <Users className="h-4 w-4" /> User directory
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAdminControlSection("metadata")}
-                  className={`flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-black transition ${
-                    adminControlSection === "metadata"
-                      ? "bg-[#0c3b2d] text-white"
-                      : "text-[#53685c] hover:bg-[#f0f5ee]"
-                  }`}
-                >
-                  <Settings2 className="h-4 w-4" /> Meta data control
-                </button>
-              </div>
-            )}
-
-            {adminControlSection === "users" && teamState === "unavailable" && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                User registration information is temporarily unavailable.
-              </div>
-            )}
-
-            {currentSession?.isAdmin && adminControlSection === "metadata" && (
-              <div className="space-y-5">
-                <section className="rounded-2xl border border-[#cfdacf] bg-white p-5 shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#5f7568]">Workplan administration</p>
-                      <h3 className="mt-1 text-lg font-black">Year and planning controls</h3>
-                      <p className="mt-1 text-sm text-[#718178]">
-                        Use the year selector in the header to view any saved plan. Creating and deleting years remains restricted to administrators.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#cbd6cc] bg-[#f7faf5] px-3 text-sm font-black text-[#315845]">
-                        <CalendarDays className="h-4 w-4" /> {language === "mn" ? `${selectedYear} оны төлөвлөгөө` : `${selectedYear} workplan`}
-                      </span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button className="h-10 bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
-                            <Settings2 className="h-4 w-4" /> Planning
-                            <ChevronRight className="h-4 w-4 rotate-90" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-60">
-                          <DropdownMenuItem onClick={openYearDialog}>
-                            <CopyPlus className="h-4 w-4" /> Create next year draft
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={openAddActivity}>
-                            <Plus className="h-4 w-4" /> Add activity to {selectedYear}
-                          </DropdownMenuItem>
-                          {selectedYear > 2026 && (
-                            <DropdownMenuItem
-                              onClick={() => setYearDeleteOpen(true)}
-                              className="text-rose-700 focus:text-rose-700"
-                            >
-                              <Trash2 className="h-4 w-4" /> Delete entire {selectedYear} year
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-                  <div className="border-b border-[#e2e7e0] p-5">
-                    <h3 className="text-lg font-black">System dropdown options</h3>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Rename, reorder, add, or remove options. Saved changes apply throughout Workplan, Finance, Dashboard, MEL, and Contracts.
-                    </p>
-                  </div>
-                  <div className="grid min-h-[420px] md:grid-cols-[230px_minmax(0,1fr)]">
-                    <nav className="border-b border-[#e2e7e0] bg-[#f5f8f3] p-3 md:border-b-0 md:border-r" aria-label="Metadata categories">
-                      <div className="grid grid-cols-2 gap-2 md:grid-cols-1">
-                        {metadataCategories.map((category) => (
-                          <button
-                            key={category}
-                            type="button"
-                            onClick={() => setSelectedMetadataCategory(category)}
-                            className={`rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${
-                              selectedMetadataCategory === category
-                                ? "bg-[#0c3b2d] text-white shadow-sm"
-                                : "text-[#456052] hover:bg-white"
-                            }`}
-                          >
-                            {metadataCategoryLabels[category]}
-                          </button>
-                        ))}
-                      </div>
-                    </nav>
-                    <div className="p-4 sm:p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h4 className="font-black">{metadataCategoryLabels[selectedMetadataCategory]}</h4>
-                          <p className="mt-1 text-xs leading-5 text-[#718178]">
-                            The internal key remains stable so existing records keep working when you rename an option.
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-[#e8f0e4] px-2.5 py-1 text-xs font-bold text-[#315845]">
-                          {metadataDrafts[selectedMetadataCategory].length} options
-                        </span>
-                      </div>
-                      <div className="mt-4 space-y-2">
-                        {metadataDrafts[selectedMetadataCategory].map((item, index) => (
-                          <div key={item.value} className="grid gap-2 rounded-xl border border-[#dce4da] bg-[#fafcf9] p-3 sm:grid-cols-[minmax(0,1fr)_170px_auto] sm:items-center">
-                            <Input
-                              value={item.label}
-                              onChange={(event) =>
-                                updateMetadataOption(
-                                  selectedMetadataCategory,
-                                  item.value,
-                                  event.target.value,
-                                )
-                              }
-                              className="h-9 border-[#cbd6cc] bg-white font-semibold"
-                              aria-label={`Visible name for ${item.value}`}
-                            />
-                            <code className="truncate rounded-lg bg-[#edf2eb] px-2.5 py-2 text-xs text-[#53685c]">{item.value}</code>
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8"
-                                disabled={index === 0}
-                                onClick={() => moveMetadataOption(selectedMetadataCategory, item.value, -1)}
-                                aria-label="Move option up"
-                              >
-                                <ChevronRight className="h-4 w-4 -rotate-90" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8"
-                                disabled={index === metadataDrafts[selectedMetadataCategory].length - 1}
-                                onClick={() => moveMetadataOption(selectedMetadataCategory, item.value, 1)}
-                                aria-label="Move option down"
-                              >
-                                <ChevronRight className="h-4 w-4 rotate-90" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8 text-rose-700"
-                                disabled={metadataDrafts[selectedMetadataCategory].length <= 1}
-                                onClick={() => removeMetadataOption(selectedMetadataCategory, item.value)}
-                                aria-label="Remove option"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-[#e2e7e0] pt-4">
-                        <Button type="button" variant="outline" onClick={() => addMetadataOption(selectedMetadataCategory)}>
-                          <Plus className="h-4 w-4" /> Add option
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => void saveMetadataCategory(selectedMetadataCategory)}
-                          disabled={metadataSavingCategory === selectedMetadataCategory || metadataState === "loading"}
-                          className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]"
-                        >
-                          {metadataSavingCategory === selectedMetadataCategory ? "Saving…" : "Save category"}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              </div>
-            )}
-
-            <section className={`${adminControlSection === "users" ? "" : "hidden"} overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]`}>
-              <div className="flex flex-col gap-2 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-black">
-                    {currentSession?.isAdmin ? "User directory" : "Your account"}
-                  </h2>
-                  <p className="mt-1 text-sm text-[#718178]">
-                    {currentSession?.isAdmin
-                      ? "Administrators can register users, update profiles, prepare invitations, and grant administrator access."
-                      : "Your sign-in and registration information is managed by a workplan administrator."}
-                  </p>
-                </div>
-                {currentSession?.isAdmin && (
-                  <span className="text-sm font-semibold text-[#5d7467]">
-                    {teamMembers.length} registered team records
-                  </span>
-                )}
-              </div>
-              <div className="overflow-x-auto">
-                <Table className="min-w-[1080px]">
-                  <TableHeader>
-                    <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[280px] pl-5">Team member</TableHead>
-                      <TableHead className="w-[260px]">Sign-in email</TableHead>
-                      <TableHead className="w-[140px]">Access level</TableHead>
-                      <TableHead className="w-[230px]">Registration</TableHead>
-                      <TableHead className="w-[240px] pr-5 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {accessMembers.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="pl-5">
-                          <div className="flex items-start gap-3">
-                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e7efe3] text-sm font-black text-[#275b45]">
-                              {item.name
-                                .split(/[.\s]/)
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((part) => part[0])
-                                .join("")}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-black">{item.name}</p>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${item.group === "PCU" ? "bg-[#dcefd6] text-[#285a43]" : item.group === "MNLF" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
-                                >
-                                  {metadataLabel("member_type", item.group)}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-xs text-[#718178]">{item.role}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {item.email ? (
-                            <p className="break-all font-semibold text-[#315845]">{item.email}</p>
-                          ) : (
-                            <span className="text-sm font-semibold text-amber-700">Email required</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${item.accessRole === "admin" ? "bg-[#dcefd6] text-[#285a43]" : "bg-slate-100 text-slate-700"}`}
-                          >
-                            {item.accessRole === "admin" && <ShieldCheck className="h-3.5 w-3.5" />}
-                            {item.accessRole === "admin" ? "Administrator" : "Member"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2 text-sm font-semibold">
-                            <span
-                              className={`h-2 w-2 rounded-full ${item.inviteStatus === "active" ? "bg-emerald-600" : item.inviteStatus === "invited" ? "bg-blue-600" : item.email ? "bg-amber-500" : "bg-rose-500"}`}
-                            />
-                            {item.inviteStatus === "active"
-                              ? "Signed in"
-                              : item.inviteStatus === "invited"
-                                ? "Invitation prepared"
-                                : item.email
-                                  ? "Ready to invite"
-                                  : "Registration incomplete"}
-                          </div>
-                          {item.lastSignedInAt && (
-                            <p className="mt-1 text-xs text-[#718178]">
-                              Last sign-in {formatUpdatedAt(item.lastSignedInAt, language)}
-                            </p>
-                          )}
-                        </TableCell>
-                        <TableCell className="pr-5">
-                          <div className="flex justify-end gap-2">
-                            {currentSession?.isAdmin ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => void openAuditHistory({ entityType: "team", entityKey: item.id, label: item.name })}
-                                  aria-label="View team member history"
-                                >
-                                  <History className="h-4 w-4" />
-                                </Button>
-                                {item.email && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => void prepareTeamInvite(item)}
-                                  >
-                                    <Mail className="h-4 w-4" />
-                                    {item.inviteStatus === "active" ? "Send again" : "Invite"}
-                                  </Button>
-                                )}
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openEditTeamMember(item)}
-                                >
-                                  <PencilLine className="h-4 w-4" />
-                                  Edit
-                                </Button>
-                              </>
-                            ) : (
-                              <span className="text-xs text-[#718178]">Managed by administrator</span>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!accessMembers.length && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="py-10 text-center text-sm text-[#718178]">
-                          Loading account information…
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="border-t border-[#e2e7e0] bg-[#f8faf7] px-5 py-3 text-xs leading-5 text-[#718178]">
-                A user must sign in with the exact email saved here. Invitations open as a prepared email for the administrator to review and send.
-              </div>
-            </section>
-            {currentSession?.isAdmin && adminControlSection === "users" && (
-              <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white">
-                <div className="flex flex-col gap-3 border-b border-[#e2e7e0] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-black">Backups and restore</h2>
-                    <p className="mt-1 text-sm text-[#718178]">
-                      Database snapshots are retained for 30 days. Preview is required before restore.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-[#eef4eb] px-3 py-1.5 text-xs font-bold text-[#496356]">
-                      {backups.length} snapshots
-                    </span>
-                    <Button
-                      variant="outline"
-                      onClick={() => setBackupListExpanded((current) => !current)}
-                      aria-expanded={backupListExpanded}
-                    >
-                      <ChevronRight className={`h-4 w-4 transition-transform ${backupListExpanded ? "rotate-90" : ""}`} />
-                      {backupListExpanded ? "Hide backups" : "View backups"}
-                    </Button>
-                    <Button onClick={() => void createBackup()} disabled={backupSaving} className="bg-[#0c3b2d] text-white hover:bg-[#174d3a]">
-                      <ShieldCheck className="h-4 w-4" /> {backupSaving ? "Working…" : "Create backup now"}
-                    </Button>
-                  </div>
-                </div>
-                {!backupListExpanded && (
-                  <button
-                    type="button"
-                    onClick={() => setBackupListExpanded(true)}
-                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sm text-[#5f7568] transition hover:bg-[#f8faf7]"
-                  >
-                    <span>Expand to review the complete backup and restore history.</span>
-                    <span className="shrink-0 font-bold text-[#245f47]">View full list</span>
-                  </button>
-                )}
-                {backupListExpanded && (
-                  <div className="max-h-[440px] overflow-y-auto divide-y divide-[#e8ece6]">
-                    {backups.map((backup) => (
-                      <div key={backup.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="font-bold">{formatUpdatedAt(backup.createdAt, language)}</p>
-                          <p className="mt-1 text-xs text-[#718178]">{backup.recordCount} records · {backup.source} · {backup.createdBy}</p>
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => void previewBackup(backup)} disabled={backupSaving}>
-                          Preview restore
-                        </Button>
-                      </div>
-                    ))}
-                    {!backups.length && (
-                      <p className="px-5 py-8 text-center text-sm text-[#718178]">No backup snapshots yet.</p>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
+            {activeView === "access" ? (
+              <ModuleErrorBoundary moduleName="Admin Control">
+                <Suspense fallback={<ModuleLoading label="Admin Control" />}>
+                  <AdminModule
+                    {...{
+                      accessMembers,
+                      addMetadataOption,
+                      adminControlSection,
+                      backupListExpanded,
+                      backupSaving,
+                      backups,
+                      createBackup,
+                      currentSession,
+                      formatUpdatedAt,
+                      language,
+                      metadataDrafts,
+                      metadataLabel,
+                      metadataSavingCategory,
+                      metadataState,
+                      moveMetadataOption,
+                      openAddActivity,
+                      openAddTeamMember,
+                      openAuditHistory,
+                      openEditTeamMember,
+                      openYearDialog,
+                      prepareTeamInvite,
+                      previewBackup,
+                      removeMetadataOption,
+                      saveMetadataCategory,
+                      selectedMetadataCategory,
+                      selectedYear,
+                      setAdminControlSection,
+                      setBackupListExpanded,
+                      setSelectedMetadataCategory,
+                      setYearDeleteOpen,
+                      teamMembers,
+                      teamState,
+                      updateMetadataOption
+                    }}
+                  />
+                </Suspense>
+              </ModuleErrorBoundary>
+            ) : null}
           </TabsContent>
       </div>
       </Tabs>
