@@ -5315,12 +5315,15 @@ export default function Home() {
   ]);
 
   const transferPreview = useMemo(() => {
+    const openContracts = contracts.filter((contract) =>
+      ["draft", "active"].includes(contract.status),
+    );
     const openContractKeys = new Set(
-      contracts
-        .filter((contract) => ["draft", "active"].includes(contract.status))
-        .flatMap((contract) =>
-          (contract.allocations ?? []).map((allocation) => allocation.activityKey),
-        ),
+      openContracts.flatMap((contract) =>
+        contract.allocations?.length
+          ? contract.allocations.map((allocation) => allocation.activityKey)
+          : [contract.activityKey],
+      ),
     );
     const activities = allActivities.filter((activity) => {
       if (copyCurrentYear) return true;
@@ -5352,15 +5355,51 @@ export default function Home() {
         ).length,
       0,
     );
+    const activityGroups = activities.map((activity) => ({
+      activity,
+      subactivities: activity.subactivities.filter(
+        (subactivity) =>
+          copyCurrentYear ||
+          recordStatus(
+            subactivity.id,
+            subactivity.status as StatusKey,
+            updates,
+          ) !== "completed" ||
+          openContractKeys.has(subactivity.id),
+      ),
+    }));
+    const includedActivityKeys = new Set(activities.map((activity) => activity.id));
+    const neededBudgetKeys = new Set(
+      openContracts.flatMap((contract) =>
+        contract.allocations?.length
+          ? contract.allocations.map((allocation) => allocation.budgetKey)
+          : [contract.budgetKey],
+      ),
+    );
+    const budgetLines = allBudgetLines
+      .filter((line) => {
+        if (copyCurrentYear || neededBudgetKeys.has(line.id)) return true;
+        if (Array.isArray(line.linkedActivityKeys)) {
+          return line.linkedActivityKeys.some((key) => includedActivityKeys.has(key));
+        }
+        return activities.some((activity) => activityMatchesBudgetLine(activity, line));
+      })
+      .map((line) => ({
+        line,
+        remainingMnt: Math.max(
+          0,
+          summarizeFinance([line], financeEntries, contracts).remainingMnt,
+        ),
+      }));
     return {
       activities,
+      activityGroups,
       subactivities,
-      contracts: contracts.filter((contract) =>
-        ["draft", "active"].includes(contract.status),
-      ),
-      remainingBudgetMnt: Math.max(
+      contracts: openContracts,
+      budgetLines,
+      remainingBudgetMnt: budgetLines.reduce(
+        (total, item) => total + item.remainingMnt,
         0,
-        summarizeFinance(allBudgetLines, financeEntries, contracts).remainingMnt,
       ),
     };
   }, [allActivities, allBudgetLines, contracts, copyCurrentYear, financeEntries, updates]);
@@ -9224,15 +9263,16 @@ export default function Home() {
       </AlertDialog>
 
       <Dialog open={yearDialogOpen} onOpenChange={setYearDialogOpen}>
-        <DialogContent className="bg-white text-[#14241b] sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[94vh] w-[96vw] flex-col overflow-hidden bg-white p-0 text-[#14241b] sm:max-w-7xl!">
+          <DialogHeader className="shrink-0 border-b border-[#e1e7df] px-6 py-5 pr-12">
             <DialogTitle>Create the next workplan</DialogTitle>
             <DialogDescription>
               Unfinished activities and open contract obligations are always carried forward. You can also copy the complete structure as a planning template.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <label className="block">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">
+            <label className="block rounded-xl border border-[#d8e0d6] bg-white p-4">
               <span className="mb-1.5 block text-sm font-bold">Workplan year</span>
               <Input
                 type="number"
@@ -9244,7 +9284,7 @@ export default function Home() {
                   setNewYear(Number(event.target.value));
                   setTransferPreviewVisible(false);
                 }}
-                className="h-11 border-[#cbd6cc] bg-white"
+                className="h-11 border-[#cbd6cc] bg-[#f7faf5]"
               />
             </label>
             <label className="flex items-start gap-3 rounded-xl border border-[#d8e0d6] bg-[#f7faf5] p-4">
@@ -9263,46 +9303,97 @@ export default function Home() {
                 </span>
               </span>
             </label>
+            </div>
             {transferPreviewVisible && (
-              <section className="rounded-xl border border-[#b9cabb] bg-[#eef4eb] p-4">
-                <h3 className="font-black">Transfer preview</h3>
-                <p className="mt-1 text-sm text-[#5d7467]">
-                  The following records will be highlighted as transferred in the {newYear} draft. Only the remaining budget after commitments and expenditure is carried forward.
-                </p>
-                <dl className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
-                  <div className="rounded-lg bg-white p-3">
+              <section className="rounded-2xl border border-[#b9cabb] bg-[#eef4eb] p-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-black">Full transfer preview</h3>
+                    <p className="mt-1 max-w-4xl text-sm text-[#5d7467]">
+                      Review every activity, sub-activity, budget line, and open contract that will be transferred to the {newYear} draft. Only the remaining budget after commitments and expenditure is carried forward.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-[#dce9d9] px-3 py-1 text-xs font-black text-[#315845]">
+                    From {selectedYear} to {newYear}
+                  </span>
+                </div>
+                <dl className="mt-4 grid grid-cols-2 gap-2 text-center lg:grid-cols-5">
+                  <div className="rounded-xl bg-white p-3">
                     <dt className="text-xs text-[#718178]">Activities</dt>
                     <dd className="mt-1 text-xl font-black">{transferPreview.activities.length}</dd>
                   </div>
-                  <div className="rounded-lg bg-white p-3">
+                  <div className="rounded-xl bg-white p-3">
                     <dt className="text-xs text-[#718178]">Sub-activities</dt>
                     <dd className="mt-1 text-xl font-black">{transferPreview.subactivities}</dd>
                   </div>
-                  <div className="rounded-lg bg-white p-3">
+                  <div className="rounded-xl bg-white p-3">
+                    <dt className="text-xs text-[#718178]">Budget lines</dt>
+                    <dd className="mt-1 text-xl font-black">{transferPreview.budgetLines.length}</dd>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
                     <dt className="text-xs text-[#718178]">Contracts</dt>
                     <dd className="mt-1 text-xl font-black">{transferPreview.contracts.length}</dd>
                   </div>
-                  <div className="rounded-lg bg-white p-3">
+                  <div className="col-span-2 rounded-xl bg-white p-3 lg:col-span-1">
                     <dt className="text-xs text-[#718178]">Remaining budget</dt>
-                    <dd className="mt-1 text-sm font-black tabular-nums">{formatMnt(transferPreview.remainingBudgetMnt)}</dd>
+                    <dd className="mt-1 whitespace-nowrap text-base font-black tabular-nums">{formatMnt(transferPreview.remainingBudgetMnt)}</dd>
                   </div>
                 </dl>
-                <div className="mt-3 max-h-28 overflow-y-auto text-xs text-[#405a4d]">
-                  {transferPreview.activities.slice(0, 8).map((activity) => (
-                    <p key={activity.id} className="py-1">
-                      <strong>{activity.code || activity.uid}</strong> · {activity.title}
-                    </p>
-                  ))}
-                  {transferPreview.activities.length > 8 && (
-                    <p className="py-1 font-bold">
-                      + {transferPreview.activities.length - 8} more activities
-                    </p>
-                  )}
+                <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
+                  <section className="overflow-hidden rounded-xl border border-[#d4ded2] bg-white">
+                    <div className="flex items-center justify-between border-b border-[#e1e7df] px-4 py-3">
+                      <div><h4 className="font-black">Activities and sub-activities</h4><p className="text-xs text-[#718178]">Complete list included in the new draft</p></div>
+                      <span className="rounded-full bg-[#eef4eb] px-2.5 py-1 text-xs font-black">{transferPreview.activities.length + transferPreview.subactivities} records</span>
+                    </div>
+                    <div className="max-h-[46vh] divide-y divide-[#e8ede6] overflow-y-auto">
+                      {transferPreview.activityGroups.map(({ activity, subactivities }) => (
+                        <article key={activity.id} className="px-4 py-3">
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 shrink-0 rounded-md bg-[#e7f0e3] px-2 py-1 font-mono text-[11px] font-black text-[#2f634c]">{activity.code || activity.uid}</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-black leading-5 text-[#183529]">{activity.title}</p>
+                              <p className="mt-1 text-[11px] font-bold text-[#718178]">Main activity · {subactivities.length} sub-activit{subactivities.length === 1 ? "y" : "ies"}</p>
+                              {subactivities.length > 0 && (
+                                <div className="mt-2 space-y-1.5 border-l-2 border-[#d9e5d6] pl-3">
+                                  {subactivities.map((subactivity, index) => (
+                                    <p key={subactivity.id} className="text-xs leading-4 text-[#4f675a]">
+                                      <span className="mr-1.5 font-black text-[#2f634c]">{index + 1}.</span>{subactivity.title}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                      {!transferPreview.activityGroups.length && <p className="p-4 text-sm text-[#718178]">No activities will be transferred.</p>}
+                    </div>
+                  </section>
+                  <div className="grid min-h-0 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <section className="overflow-hidden rounded-xl border border-[#d4ded2] bg-white">
+                      <div className="flex items-center justify-between border-b border-[#e1e7df] px-4 py-3"><div><h4 className="font-black">Budget lines</h4><p className="text-xs text-[#718178]">Remaining amount carried forward</p></div><span className="text-xs font-black">{transferPreview.budgetLines.length}</span></div>
+                      <div className="max-h-[22vh] divide-y divide-[#e8ede6] overflow-y-auto">
+                        {transferPreview.budgetLines.map(({ line, remainingMnt }) => (
+                          <div key={line.id} className="px-4 py-2.5 text-xs"><p className="font-black text-[#183529]">{line.code}</p><p className="mt-0.5 line-clamp-2 text-[#617568]">{line.title}</p><p className="mt-1 font-black tabular-nums text-[#2f634c]">{formatMnt(remainingMnt)}</p></div>
+                        ))}
+                        {!transferPreview.budgetLines.length && <p className="p-4 text-sm text-[#718178]">No budget lines will be transferred.</p>}
+                      </div>
+                    </section>
+                    <section className="overflow-hidden rounded-xl border border-[#d4ded2] bg-white">
+                      <div className="flex items-center justify-between border-b border-[#e1e7df] px-4 py-3"><div><h4 className="font-black">Open contracts</h4><p className="text-xs text-[#718178]">Outstanding obligations carried forward</p></div><span className="text-xs font-black">{transferPreview.contracts.length}</span></div>
+                      <div className="max-h-[22vh] divide-y divide-[#e8ede6] overflow-y-auto">
+                        {transferPreview.contracts.map((contract) => (
+                          <div key={contract.id} className="px-4 py-2.5 text-xs"><div className="flex items-center justify-between gap-2"><p className="font-black text-[#183529]">{contract.contractNumber}</p><span className="rounded-full bg-[#edf3ff] px-2 py-0.5 font-bold text-[#2751b5]">{contract.status}</span></div><p className="mt-0.5 line-clamp-2 text-[#617568]">{contract.torName}</p><p className="mt-1 text-[#405a4d]">{contract.serviceProviderName || "Service provider not entered"} · <strong>{formatMnt(contract.amountMnt)}</strong></p></div>
+                        ))}
+                        {!transferPreview.contracts.length && <p className="p-4 text-sm text-[#718178]">No contracts will be transferred.</p>}
+                      </div>
+                    </section>
+                  </div>
                 </div>
               </section>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-[#e1e7df] bg-white px-6 py-4">
             <Button variant="outline" onClick={() => setYearDialogOpen(false)}>
               Cancel
             </Button>
