@@ -9621,7 +9621,7 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[94vw] max-w-[1420px]! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:w-[92vw] sm:max-w-[1420px]!">
+        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[94vw] max-w-[1280px]! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:w-[92vw] sm:max-w-[1280px]!">
           {selected && (
             <>
               <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-3 pr-14 text-left sm:px-6">
@@ -9651,159 +9651,123 @@ export default function Home() {
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.45fr)] lg:overflow-hidden">
-                <aside className="border-b border-[#dbe3d9] bg-[#eef4eb] p-4 lg:overflow-y-auto lg:border-r lg:border-b-0">
-                  <div className="pb-3">
-                  <section className="rounded-2xl border-2 border-[#082d22] bg-[#0d4635] p-4 text-white shadow-[0_12px_28px_rgba(12,59,45,0.2)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-100/70">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-[#f3f6f1] p-3 sm:p-4">
+                <section className="rounded-2xl border border-[#d5dfd3] bg-white p-3.5 shadow-[0_8px_24px_rgba(21,57,42,0.06)] sm:p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-base font-black">Activity overview</h3>
+                      <p className="mt-0.5 text-xs text-[#718178]">
+                        Main activity summary and actions
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 rounded-lg border-[#b9cabb] bg-white px-3 text-xs"
+                            aria-label="More main activity actions"
+                          >
+                            <Ellipsis className="h-4 w-4" />
+                            More
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => openEditActivity(selected)}>
+                            <PencilLine className="h-4 w-4" />
+                            Edit details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
+                          >
+                            <History className="h-4 w-4" />
+                            View history
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button
+                        size="sm"
+                        onClick={() => openUpdateEditor(targetForActivity(selected, updates))}
+                        className="h-9 rounded-lg bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
+                      >
+                        <PencilLine className="h-3.5 w-3.5" />
+                        Update activity
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 rounded-xl bg-[#0d4635] p-3.5 text-white sm:grid-cols-2 lg:grid-cols-[minmax(280px,1fr)_110px_170px_150px] lg:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-100/70">
                           Main activity
                         </p>
-                        <p className="mt-2 text-base font-black leading-6">
+                        <span className="font-mono text-xs font-black text-[#dbf081]">
                           {selected.code || selected.uid}
-                        </p>
+                        </span>
+                        <StatusPill status={deriveActivityStatus(selected, updates)} label={metadataLabel("status", deriveActivityStatus(selected, updates))} />
                       </div>
-                      <StatusPill status={deriveActivityStatus(selected, updates)} label={metadataLabel("status", deriveActivityStatus(selected, updates))} />
+                      <div className="mt-2 flex items-center gap-2">
+                        <Progress
+                          value={deriveActivityProgress(selected, updates)}
+                          className="h-2 flex-1 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
+                        />
+                        <span className="w-11 text-right text-sm font-black text-[#dbf081]">
+                          {deriveActivityProgress(selected, updates)}%
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-emerald-100/70">
+                        {formatDate(selected.startDate, language)} – {formatDate(selected.endDate, language)}
+                      </p>
                     </div>
-
-                    <div className="mt-4">
-                      <div className="flex items-end justify-between gap-3">
-                        <div>
-                          <p className="text-xs text-emerald-100/70">Overall progress</p>
-                          <p className="mt-1 text-2xl font-black">
-                            {deriveActivityProgress(selected, updates)}%
-                          </p>
-                        </div>
-                        <p className="text-right text-xs leading-5 text-emerald-100/75">
-                          Average of<br />sub-activities
-                        </p>
-                      </div>
-                      <Progress
-                        value={deriveActivityProgress(selected, updates)}
-                        className="mt-2.5 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
-                      />
+                    <div>
+                      <p className="text-xs text-emerald-100/65">Sub-activities</p>
+                      <p className="mt-1 text-base font-black">{selected.subactivities.length}</p>
                     </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2.5 border-t border-white/15 pt-3.5 text-sm">
-                      <div>
-                        <p className="text-emerald-100/65">Start</p>
-                        <p className="mt-1 font-bold">{formatDate(selected.startDate, language)}</p>
-                      </div>
-                      <div>
-                        <p className="text-emerald-100/65">Due</p>
-                        <p className="mt-1 font-bold">{formatDate(selected.endDate, language)}</p>
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-emerald-100/65">Accountable owner</p>
-                        <p className={responsibilityParts(activityOwner(selected, updates), teamMembers).accountable ? "mt-1 font-bold" : "mt-1 font-bold text-rose-200"}>
-                          {responsibilityParts(activityOwner(selected, updates), teamMembers).accountable || "Owner required"}
+                    <div className="min-w-0">
+                      <p className="text-xs text-emerald-100/65">Accountable owner</p>
+                      <p className={responsibilityParts(activityOwner(selected, updates), teamMembers).accountable ? "mt-1 truncate text-sm font-bold" : "mt-1 text-sm font-bold text-rose-200"}>
+                        {responsibilityParts(activityOwner(selected, updates), teamMembers).accountable || "Owner required"}
+                      </p>
+                      {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.length > 0 && (
+                        <p className="mt-1 truncate text-xs text-emerald-100/70">
+                          Supporting: {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.join(", ")}
                         </p>
-                        {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.length > 0 && (
-                          <p className="mt-1 text-xs text-emerald-100/75">
-                            Supporting: {responsibilityParts(activityOwner(selected, updates), teamMembers).supporting.join(", ")}
-                          </p>
-                        )}
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-emerald-100/65">Allocated budget</p>
-                        <p className="mt-1 text-base font-black text-[#dbf081]">
-                          {formatMnt(selectedAllocatedMnt)}
-                        </p>
-                      </div>
+                      )}
                     </div>
-                  </section>
-
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        openUpdateEditor(targetForActivity(selected, updates))
-                      }
-                      className="h-9 flex-1 rounded-lg bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
-                    >
-                      <PencilLine className="h-3.5 w-3.5" />
-                      Update activity
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 rounded-lg border-[#b9cabb] bg-white px-3 text-xs"
-                          aria-label="More main activity actions"
-                        >
-                          <Ellipsis className="h-4 w-4" />
-                          More
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => openEditActivity(selected)}>
-                          <PencilLine className="h-4 w-4" />
-                          Edit details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => void openAuditHistory({ entityType: "activity", entityKey: selected.id, label: selected.code || selected.title })}
-                        >
-                          <History className="h-4 w-4" />
-                          View history
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                    <div>
+                      <p className="text-xs text-emerald-100/65">Allocated budget</p>
+                      <p className="mt-1 text-base font-black text-[#dbf081]">
+                        {formatMnt(selectedAllocatedMnt)}
+                      </p>
+                    </div>
                   </div>
 
-                  {renderInlineUpdateEditor(
-                    targetForActivity(selected, updates),
-                    true,
-                  )}
+                  {renderInlineUpdateEditor(targetForActivity(selected, updates), true)}
 
-                  <details className="group mt-4 rounded-2xl border border-[#ced9ce] bg-white">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 font-black marker:hidden">
+                  <details className="group mt-3 rounded-xl border border-[#d5dfd3] bg-[#f8faf7]">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-black marker:hidden">
                       <span>Workplan details</span>
                       <ChevronRight className="h-4 w-4 text-[#5d7467] transition-transform group-open:rotate-90" />
                     </summary>
-                    <dl className="grid gap-4 border-t border-[#e0e6de] p-4 text-sm">
-                      <div>
-                        <dt className="text-[#718178]">Goal</dt>
-                        <dd className="mt-1 font-bold">{selected.goal || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Priority</dt>
-                        <dd className="mt-1 font-bold">{selected.priority || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">MECC lead</dt>
-                        <dd className="mt-1 font-bold">{selected.lead || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">{selectedYear} target</dt>
-                        <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {selected.target || "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Baseline</dt>
-                        <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {selected.baseline || "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[#718178]">Support/Partners</dt>
-                        <dd className="mt-1 whitespace-pre-line font-medium leading-6">
-                          {supportPartnersForActivity(selected) || "—"}
-                        </dd>
-                      </div>
+                    <dl className="grid gap-3 border-t border-[#e0e6de] p-3.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                      <div><dt className="text-xs text-[#718178]">Goal</dt><dd className="mt-1 font-bold">{selected.goal || "—"}</dd></div>
+                      <div><dt className="text-xs text-[#718178]">Priority</dt><dd className="mt-1 font-bold">{selected.priority || "—"}</dd></div>
+                      <div><dt className="text-xs text-[#718178]">MECC lead</dt><dd className="mt-1 font-bold">{selected.lead || "—"}</dd></div>
+                      <div><dt className="text-xs text-[#718178]">{selectedYear} target</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.target || "—"}</dd></div>
+                      <div><dt className="text-xs text-[#718178]">Baseline</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.baseline || "—"}</dd></div>
+                      <div><dt className="text-xs text-[#718178]">Support/Partners</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{supportPartnersForActivity(selected) || "—"}</dd></div>
                     </dl>
                   </details>
-                </aside>
+                </section>
 
-                <section className="bg-white lg:overflow-y-auto">
-                  <div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-[#e0e6de] bg-white/95 px-3.5 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                <section className="mt-3 overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_8px_24px_rgba(21,57,42,0.05)]">
+                  <div className="flex flex-col gap-2 border-b border-[#e0e6de] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                     <div>
-                      <h3 className="text-lg font-black">Sub-activities</h3>
+                      <h3 className="text-base font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
-                        Edit each sub-activity directly inside its own card.
+                        {selected.subactivities.length} items · use the action menu to update, edit details, or view history
                       </p>
                     </div>
                     <Button
@@ -9817,128 +9781,79 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="grid gap-2.5 p-3.5 sm:p-4 xl:grid-cols-2">
+                  <div className="divide-y divide-[#e4e9e2]">
                     {selected.subactivities.map((sub, index) => {
-                      const currentStatus = recordStatus(
-                        sub.id,
-                        sub.status as StatusKey,
-                        updates,
-                      );
-                      const currentProgress = recordProgress(
-                        sub.id,
-                        statusMetaFor(sub.status as StatusKey).weight,
-                        updates,
-                      );
-                      const currentResponsibility = responsibilityParts(
-                        subactivityOwner(sub, updates),
-                        teamMembers,
-                      );
+                      const currentStatus = recordStatus(sub.id, sub.status as StatusKey, updates);
+                      const currentProgress = recordProgress(sub.id, statusMetaFor(sub.status as StatusKey).weight, updates);
+                      const currentResponsibility = responsibilityParts(subactivityOwner(sub, updates), teamMembers);
                       const currentOwner = currentResponsibility.accountable;
                       const isEditing = activeTarget?.key === sub.id;
 
                       return (
                         <article
                           key={sub.id}
-                          className={
-                            isEditing
-                              ? "rounded-xl border-2 border-[#4c8166] bg-[#f1f7ee] p-2.5 shadow-[0_8px_22px_rgba(35,91,67,0.1)] xl:col-span-2"
-                              : "rounded-xl border border-[#dbe3d9] bg-white p-2.5"
-                          }
+                          className={isEditing ? "bg-[#f1f7ee] px-3.5 py-3 ring-1 ring-inset ring-[#4c8166] sm:px-4" : "bg-white px-3.5 py-3 transition-colors hover:bg-[#f8faf7] sm:px-4"}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex min-w-0 items-start gap-2">
-                              <span className="rounded-md bg-[#e8f1e6] p-1.5 text-[#2c795a]">
-                                <ListChecks className="h-3.5 w-3.5" />
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#6b7c72]">
-                                  Sub-activity {index + 1}
-                                </p>
-                                <p className={`mt-0.5 max-w-[48ch] text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-3"}`}>
-                                  {sub.title}
-                                </p>
+                          <div className="grid items-center gap-3 sm:grid-cols-[36px_minmax(0,1fr)_130px_118px_36px]">
+                            <span className="hidden h-8 w-8 place-items-center rounded-lg bg-[#e8f1e6] text-[#2c795a] sm:grid">
+                              <ListChecks className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5f796a]">
+                                Sub-activity {index + 1}
+                              </p>
+                              <p className={`mt-0.5 text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-2"}`}>
+                                {sub.title}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#718178]">
+                                <span className={currentOwner ? "font-semibold text-[#315845]" : "font-semibold text-rose-700"}>
+                                  {currentOwner || "Owner required"}
+                                </span>
+                                {currentResponsibility.supporting.length > 0 && (
+                                  <span>Supporting: {currentResponsibility.supporting.join(", ")}</span>
+                                )}
+                                <span>{metadataLabel("procurement_type", procurementTypeForSubactivity(sub))}</span>
+                                <span className={(allocationByActivityKey.get(sub.id) ?? 0) > 0 ? "font-semibold text-[#315845]" : "text-[#9aa79f]"}>
+                                  {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
+                                </span>
                               </div>
                             </div>
-                            <div className="flex shrink-0 items-center gap-1">
+                            <div className="justify-self-start sm:justify-self-end">
                               <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 rounded-lg text-[#53685c] hover:bg-[#edf3eb]"
-                                    aria-label={`More actions for sub-activity ${index + 1}`}
-                                  >
-                                    <Ellipsis className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-44">
-                                  <DropdownMenuItem onClick={() => openEditSubactivity(selected, sub)}>
-                                    <PencilLine className="h-4 w-4" />
-                                    Edit details
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}
-                                  >
-                                    <History className="h-4 w-4" />
-                                    View history
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
                             </div>
-                          </div>
-
-                          <div className="mt-2.5 flex items-center gap-2">
-                            <Progress
-                              value={currentProgress}
-                              className="h-1.5 flex-1 bg-[#e1e8de] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
-                            />
-                            <span className="w-10 text-right text-xs font-black text-[#315845]">
-                              {currentProgress}%
-                            </span>
-                          </div>
-
-                          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-[#e4e9e2] pt-2.5 text-xs">
-                            <p
-                              className={
-                                currentOwner
-                                  ? "flex min-w-0 items-center gap-1.5 font-semibold text-[#315845]"
-                                  : "flex min-w-0 items-center gap-1.5 font-semibold text-rose-700"
-                              }
-                            >
-                              <span
-                                className={
-                                  currentOwner
-                                    ? "h-2 w-2 shrink-0 rounded-full bg-emerald-600"
-                                    : "h-2 w-2 shrink-0 rounded-full bg-rose-600"
-                                }
+                            <div className="flex items-center gap-2">
+                              <Progress
+                                value={currentProgress}
+                                className="h-1.5 flex-1 bg-[#e1e8de] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
                               />
-                              {currentOwner || "Owner required"}
-                            </p>
-                            {currentResponsibility.supporting.length > 0 && (
-                              <p className="text-[#718178]">
-                                Supporting: {currentResponsibility.supporting.join(", ")}
-                              </p>
-                            )}
-                            <p className="text-[#718178]">
-                              Procurement: {metadataLabel("procurement_type", procurementTypeForSubactivity(sub))}
-                            </p>
-                            <p className="ml-auto font-bold text-[#315845]">
-                              Allocated {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
-                            </p>
-                          </div>
-
-                          <div className="mt-2 flex justify-end">
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                openUpdateEditor(targetForSubactivity(sub))
-                              }
-                              className="h-8 rounded-lg bg-[#0c3b2d] px-2.5 text-xs text-white hover:bg-[#174d3a]"
-                            >
-                              <PencilLine className="h-3.5 w-3.5" />
-                              {isEditing ? "Editing" : "Update"}
-                            </Button>
+                              <span className="w-9 text-right text-xs font-black text-[#315845]">{currentProgress}%</span>
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 rounded-lg text-[#53685c] hover:bg-[#edf3eb]"
+                                  aria-label={`Actions for sub-activity ${index + 1}`}
+                                >
+                                  <Ellipsis className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem onClick={() => openUpdateEditor(targetForSubactivity(sub))}>
+                                  <PencilLine className="h-4 w-4" />
+                                  Update
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openEditSubactivity(selected, sub)}>
+                                  <PencilLine className="h-4 w-4" />
+                                  Edit details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => void openAuditHistory({ entityType: "activity", entityKey: sub.id, label: `Sub-activity ${index + 1}` })}>
+                                  <History className="h-4 w-4" />
+                                  View history
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
 
                           {renderInlineUpdateEditor(targetForSubactivity(sub))}
@@ -9947,12 +9862,10 @@ export default function Home() {
                     })}
 
                     {selected.subactivities.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-[#cbd6cc] bg-[#f8faf7] p-8 text-center xl:col-span-2">
+                      <div className="p-8 text-center">
                         <ListChecks className="mx-auto h-7 w-7 text-[#6b7c72]" />
                         <p className="mt-3 font-bold">No sub-activities yet</p>
-                        <p className="mt-1 text-sm text-[#718178]">
-                          Add the first sub-activity for this main activity.
-                        </p>
+                        <p className="mt-1 text-sm text-[#718178]">Add the first sub-activity for this main activity.</p>
                       </div>
                     )}
                   </div>
