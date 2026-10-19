@@ -9651,9 +9651,9 @@ export default function Home() {
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[#f3f6f1] p-3 sm:p-4">
-                <section className="rounded-2xl border border-[#d5dfd3] bg-white p-3.5 shadow-[0_8px_24px_rgba(21,57,42,0.06)] sm:p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4 sm:px-5">
+                <section>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-base font-black">Activity overview</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
@@ -9697,7 +9697,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="mt-3 grid gap-3 rounded-xl bg-[#0d4635] p-3.5 text-white sm:grid-cols-2 lg:grid-cols-[minmax(280px,1fr)_110px_170px_150px] lg:items-center">
+                  <div className="mt-3 grid gap-3 rounded-xl bg-[#0d4635] p-3.5 text-white sm:grid-cols-2 lg:grid-cols-[minmax(280px,1fr)_90px_180px_150px] lg:items-center">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-100/70">
@@ -9706,24 +9706,17 @@ export default function Home() {
                         <span className="font-mono text-xs font-black text-[#dbf081]">
                           {selected.code || selected.uid}
                         </span>
-                        <StatusPill status={deriveActivityStatus(selected, updates)} label={metadataLabel("status", deriveActivityStatus(selected, updates))} />
                       </div>
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2">
                         <Progress
                           value={deriveActivityProgress(selected, updates)}
-                          className="h-2 flex-1 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
+                          className="h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
                         />
-                        <span className="w-11 text-right text-sm font-black text-[#dbf081]">
-                          {deriveActivityProgress(selected, updates)}%
-                        </span>
                       </div>
-                      <p className="mt-2 text-xs text-emerald-100/70">
-                        {formatDate(selected.startDate, language)} – {formatDate(selected.endDate, language)}
-                      </p>
                     </div>
                     <div>
-                      <p className="text-xs text-emerald-100/65">Sub-activities</p>
-                      <p className="mt-1 text-base font-black">{selected.subactivities.length}</p>
+                      <p className="text-xs text-emerald-100/65">Progress</p>
+                      <p className="mt-1 text-base font-black text-[#dbf081]">{deriveActivityProgress(selected, updates)}%</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs text-emerald-100/65">Accountable owner</p>
@@ -9745,25 +9738,10 @@ export default function Home() {
                   </div>
 
                   {renderInlineUpdateEditor(targetForActivity(selected, updates), true)}
-
-                  <details className="group mt-3 rounded-xl border border-[#d5dfd3] bg-[#f8faf7]">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-black marker:hidden">
-                      <span>Workplan details</span>
-                      <ChevronRight className="h-4 w-4 text-[#5d7467] transition-transform group-open:rotate-90" />
-                    </summary>
-                    <dl className="grid gap-3 border-t border-[#e0e6de] p-3.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                      <div><dt className="text-xs text-[#718178]">Goal</dt><dd className="mt-1 font-bold">{selected.goal || "—"}</dd></div>
-                      <div><dt className="text-xs text-[#718178]">Priority</dt><dd className="mt-1 font-bold">{selected.priority || "—"}</dd></div>
-                      <div><dt className="text-xs text-[#718178]">MECC lead</dt><dd className="mt-1 font-bold">{selected.lead || "—"}</dd></div>
-                      <div><dt className="text-xs text-[#718178]">{selectedYear} target</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.target || "—"}</dd></div>
-                      <div><dt className="text-xs text-[#718178]">Baseline</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.baseline || "—"}</dd></div>
-                      <div><dt className="text-xs text-[#718178]">Support/Partners</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{supportPartnersForActivity(selected) || "—"}</dd></div>
-                    </dl>
-                  </details>
                 </section>
 
-                <section className="mt-3 overflow-hidden rounded-2xl border border-[#d5dfd3] bg-white shadow-[0_8px_24px_rgba(21,57,42,0.05)]">
-                  <div className="flex flex-col gap-2 border-b border-[#e0e6de] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                <section className="mt-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-base font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
@@ -9781,7 +9759,7 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="divide-y divide-[#e4e9e2]">
+                  <div className="mt-3 divide-y divide-[#e4e9e2] border-y border-[#e0e6de]">
                     {selected.subactivities.map((sub, index) => {
                       const currentStatus = recordStatus(sub.id, sub.status as StatusKey, updates);
                       const currentProgress = recordProgress(sub.id, statusMetaFor(sub.status as StatusKey).weight, updates);
@@ -9792,11 +9770,11 @@ export default function Home() {
                       return (
                         <article
                           key={sub.id}
-                          className={isEditing ? "bg-[#f1f7ee] px-3.5 py-3 ring-1 ring-inset ring-[#4c8166] sm:px-4" : "bg-white px-3.5 py-3 transition-colors hover:bg-[#f8faf7] sm:px-4"}
+                          className={isEditing ? "bg-[#f1f7ee] px-1.5 py-2 ring-1 ring-inset ring-[#4c8166]" : "bg-white px-1.5 py-2 transition-colors hover:bg-[#f8faf7]"}
                         >
-                          <div className="grid items-center gap-3 sm:grid-cols-[36px_minmax(0,1fr)_130px_118px_36px]">
+                          <div className="grid min-h-[58px] items-center gap-2.5 sm:grid-cols-[36px_minmax(0,1fr)_130px_104px_34px]">
                             <span className="hidden h-8 w-8 place-items-center rounded-lg bg-[#e8f1e6] text-[#2c795a] sm:grid">
-                              <ListChecks className="h-4 w-4" />
+                              <ListChecks className="h-3.5 w-3.5" />
                             </span>
                             <div className="min-w-0">
                               <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5f796a]">
@@ -9805,14 +9783,19 @@ export default function Home() {
                               <p className={`mt-0.5 text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-2"}`}>
                                 {sub.title}
                               </p>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#718178]">
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#718178]">
                                 <span className={currentOwner ? "font-semibold text-[#315845]" : "font-semibold text-rose-700"}>
                                   {currentOwner || "Owner required"}
                                 </span>
                                 {currentResponsibility.supporting.length > 0 && (
-                                  <span>Supporting: {currentResponsibility.supporting.join(", ")}</span>
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span>Supporting: {currentResponsibility.supporting.join(", ")}</span>
+                                  </>
                                 )}
+                                <span aria-hidden="true">·</span>
                                 <span>{metadataLabel("procurement_type", procurementTypeForSubactivity(sub))}</span>
+                                <span aria-hidden="true">·</span>
                                 <span className={(allocationByActivityKey.get(sub.id) ?? 0) > 0 ? "font-semibold text-[#315845]" : "text-[#9aa79f]"}>
                                   {formatMnt(allocationByActivityKey.get(sub.id) ?? 0)}
                                 </span>
@@ -9870,6 +9853,23 @@ export default function Home() {
                     )}
                   </div>
                 </section>
+
+                <details className="group mt-3 rounded-xl border border-[#d5dfd3] bg-[#f8faf7]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-black marker:hidden">
+                    <span>Workplan details</span>
+                    <ChevronRight className="h-4 w-4 text-[#5d7467] transition-transform group-open:rotate-90" />
+                  </summary>
+                  <dl className="grid gap-3 border-t border-[#e0e6de] p-3.5 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <div><dt className="text-xs text-[#718178]">Start</dt><dd className="mt-1 font-bold">{formatDate(selected.startDate, language)}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">Due</dt><dd className="mt-1 font-bold">{formatDate(selected.endDate, language)}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">Goal</dt><dd className="mt-1 font-bold">{selected.goal || "—"}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">Priority</dt><dd className="mt-1 font-bold">{selected.priority || "—"}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">MECC lead</dt><dd className="mt-1 font-bold">{selected.lead || "—"}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">{selectedYear} target</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.target || "—"}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">Baseline</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{selected.baseline || "—"}</dd></div>
+                    <div><dt className="text-xs text-[#718178]">Support/Partners</dt><dd className="mt-1 whitespace-pre-line font-medium leading-5">{supportPartnersForActivity(selected) || "—"}</dd></div>
+                  </dl>
+                </details>
               </div>
             </>
           )}
