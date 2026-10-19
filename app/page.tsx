@@ -9621,7 +9621,7 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[94vw] max-w-[1280px]! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:w-[92vw] sm:max-w-[1280px]!">
+        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[94vw] max-w-[1024px]! flex-col gap-0 overflow-hidden bg-white p-0 text-[#14241b] sm:w-[92vw] sm:max-w-[1024px]!">
           {selected && (
             <>
               <DialogHeader className="shrink-0 border-b border-[#dce3da] bg-white px-5 py-3 pr-14 text-left sm:px-6">
