@@ -101,6 +101,67 @@ export default function PlansModule({
   workstream,
   workstreams,
 }: any) {
+  const resetWorkplanFilters = () => {
+    setQuery("");
+    setSection("all");
+    setGoal("all");
+    setStatus("all");
+    setWorkstream("all");
+    setMember("all");
+  };
+
+  const activeWorkplanFilters = [
+    query.trim()
+      ? { key: "query", label: `Search: ${query.trim()}`, clear: () => setQuery("") }
+      : null,
+    section !== "all"
+      ? {
+          key: "section",
+          label:
+            sectionOptions.find((item: any) => item.value === section)?.label ??
+            section,
+          clear: () => setSection("all"),
+        }
+      : null,
+    goal !== "all"
+      ? {
+          key: "goal",
+          label: goal === "All goals" ? "Cross-goal" : metadataLabel("goal", goal),
+          clear: () => setGoal("all"),
+        }
+      : null,
+    status !== "all"
+      ? {
+          key: "status",
+          label:
+            statusOptions.find((item: any) => item.value === status)?.label ??
+            metadataLabel("status", status),
+          clear: () => setStatus("all"),
+        }
+      : null,
+    workstream !== "all"
+      ? {
+          key: "workstream",
+          label: metadataLabel("workstream", workstream),
+          clear: () => setWorkstream("all"),
+        }
+      : null,
+    member !== "all"
+      ? {
+          key: "member",
+          label:
+            member === "no_owner"
+              ? "No owner"
+              : teamMembers.find((item: any) => item.id === member)?.name ?? member,
+          clear: () => setMember("all"),
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string;
+    clear: () => void;
+  }>;
+
   return (
     <>
 <div className="inline-flex max-w-full flex-wrap rounded-xl border border-[#cfdacf] bg-white p-1 shadow-sm">
@@ -118,7 +179,10 @@ export default function PlansModule({
               <div>
                 <h2 className="text-xl font-black">Workplan activities</h2>
                 <p className="mt-0.5 text-sm text-[#718178]">
-                  {filtered.length} of {allActivities.length} main activities · select a row for quick details
+                  {filtered.length} of {allActivities.length} main activities
+                  {activeWorkplanFilters.length > 0 && (
+                    <> · {Math.max(0, allActivities.length - filtered.length)} hidden by filters</>
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -149,8 +213,8 @@ export default function PlansModule({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_repeat(5,minmax(135px,0.65fr))]">
-              <label className="relative block">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label className="relative min-w-[260px] flex-[1_1_320px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                 <Input
                   value={query}
@@ -163,7 +227,7 @@ export default function PlansModule({
               <NativeSelect
                 value={section}
                 onChange={(event) => setSection(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-[140px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by workplan section"
               >
                 <NativeSelectOption value="all">All sections</NativeSelectOption>
@@ -174,7 +238,7 @@ export default function PlansModule({
               <NativeSelect
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-[132px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by goal"
               >
                 <NativeSelectOption value="all">Every goal</NativeSelectOption>
@@ -187,7 +251,7 @@ export default function PlansModule({
               <NativeSelect
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-[158px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by status"
               >
                 <NativeSelectOption value="all">All statuses</NativeSelectOption>
@@ -200,7 +264,7 @@ export default function PlansModule({
               <NativeSelect
                 value={workstream}
                 onChange={(event) => setWorkstream(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-[205px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter by workstream"
               >
                 <NativeSelectOption value="all">All workstreams</NativeSelectOption>
@@ -213,7 +277,7 @@ export default function PlansModule({
               <NativeSelect
                 value={member}
                 onChange={(event) => setMember(event.target.value)}
-                className="h-9 w-full border-[#ced8cf] bg-[#f8faf7]"
+                className="h-9 w-[205px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                 aria-label="Filter workplan by team member"
               >
                 <NativeSelectOption value="all">All team members</NativeSelectOption>
@@ -225,13 +289,40 @@ export default function PlansModule({
                 <NativeSelectOption value="no_owner">No owner</NativeSelectOption>
               </NativeSelect>
             </div>
+
+            {activeWorkplanFilters.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-[#edf1eb] pt-2.5">
+                <span className="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#819087]">
+                  Active filters
+                </span>
+                {activeWorkplanFilters.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={filter.clear}
+                    className="inline-flex max-w-[240px] items-center gap-1 rounded-full border border-[#bfd0c2] bg-[#edf5e9] px-2.5 py-1 text-[11px] font-bold text-[#315845] transition hover:border-[#88a895] hover:bg-[#e3efde]"
+                    title={`Remove ${filter.label} filter`}
+                  >
+                    <span className="truncate">{filter.label}</span>
+                    <span aria-hidden="true" className="text-sm leading-none">×</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={resetWorkplanFilters}
+                  className="ml-1 text-[11px] font-black text-[#245f47] underline decoration-[#9eb5a6] underline-offset-4 hover:text-[#0c3b2d]"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="min-w-0 xl:border-r xl:border-[#dbe3d9]">
+          <div className="grid min-[1380px]:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="min-w-0 min-[1380px]:border-r min-[1380px]:border-[#dbe3d9]">
               <div className="overflow-x-auto">
-                <div className="min-w-[820px]">
-                  <div className="sticky top-0 z-10 grid grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#718178]">
+                <div className="min-w-[912px]">
+                  <div className="sticky top-0 z-10 grid grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-[#718178]">
                     <span>Code</span>
                     <span>Activity</span>
                     <span>Owner</span>
@@ -277,7 +368,7 @@ export default function PlansModule({
                           0,
                         );
                       const rowSpacing =
-                        workplanDensity === "compact" ? "py-2.5" : "py-4";
+                        workplanDensity === "compact" ? "py-2" : "py-3.5";
 
                       return (
                         <div key={item.id} className="border-b border-[#e4e9e2]">
@@ -296,11 +387,11 @@ export default function PlansModule({
                               }
                             }}
                             className={[
-                              "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-l-4 px-3 text-left transition",
+                              "grid cursor-pointer grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] items-center gap-3 border-l-[3px] px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2c795a]",
                               rowSpacing,
                               isSelected
-                                ? "relative z-[1] border-l-[#0c3b2d] bg-[#dceccf] shadow-[inset_0_0_0_2px_#2c795a]"
-                                : "border-l-[#7ca08d] bg-[#f5f9f2] hover:bg-[#edf5e9]",
+                                ? "relative z-[1] border-l-[#1d6c4d] bg-[#e6f0df]"
+                                : "border-l-transparent bg-white hover:bg-[#f4f8f1]",
                             ].join(" ")}
                           >
                             <div className="flex min-w-0 items-center gap-2">
@@ -321,7 +412,7 @@ export default function PlansModule({
                                     : "Expand sub-activities"
                                 }
                                 aria-expanded={isExpanded}
-                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c4d1c6] bg-white text-[#315845] hover:bg-[#e3eee0]"
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c4d1c6] bg-white text-[#315845] outline-none transition hover:bg-[#e3eee0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
                               >
                                 <ChevronRight
                                   className={[
@@ -330,6 +421,9 @@ export default function PlansModule({
                                   ].join(" ")}
                                 />
                               </button>
+                              {isSelected && (
+                                <CircleCheck className="h-3.5 w-3.5 shrink-0 text-[#1d6c4d]" aria-label="Selected" />
+                              )}
                               <span className="truncate font-mono text-xs font-black text-[#245f47]">
                                 {item.code || item.uid}
                               </span>
@@ -340,7 +434,7 @@ export default function PlansModule({
                                   className={[
                                     "min-w-0 flex-1 font-black text-[#173228]",
                                     workplanDensity === "compact"
-                                      ? "line-clamp-1 text-sm"
+                                      ? "line-clamp-2 text-sm leading-4"
                                       : "line-clamp-2 text-[15px] leading-5",
                                   ].join(" ")}
                                 >
@@ -348,11 +442,6 @@ export default function PlansModule({
                                     ? item.titleMn
                                     : item.title}
                                 </p>
-                                {isSelected && (
-                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
-                                    <CircleCheck className="h-3 w-3" /> Selected
-                                  </span>
-                                )}
                               </div>
                               <p className="mt-0.5 truncate text-[11px] font-semibold text-[#718178]">
                                 Main activity · {item.subactivities.length} sub-activities
@@ -375,7 +464,7 @@ export default function PlansModule({
                             </div>
                             <StatusPill status={currentStatus} label={metadataLabel("status", currentStatus)} />
                             <div>
-                              <div className="mb-1 flex items-center justify-between text-[11px] font-black text-[#315845]">
+                              <div className={`mb-1 flex items-center justify-between text-[11px] font-black ${currentProgress === 0 ? "text-[#94a198]" : "text-[#315845]"}`}>
                                 <span>{currentProgress}%</span>
                               </div>
                               <Progress
@@ -383,7 +472,7 @@ export default function PlansModule({
                                 className="h-1.5 bg-[#dfe7dc] [&_[data-slot=progress-indicator]]:bg-[#2c795a]"
                               />
                             </div>
-                            <p className="text-right text-xs font-black tabular-nums text-[#315845]">
+                            <p className={`text-right text-xs tabular-nums ${allocatedMnt === 0 ? "font-semibold text-[#9aa79f]" : "font-black text-[#315845]"}`}>
                               {formatMnt(allocatedMnt)}
                             </p>
                           </div>
@@ -430,15 +519,19 @@ export default function PlansModule({
                                       }
                                     }}
                                     className={[
-                                      "grid cursor-pointer grid-cols-[90px_minmax(210px,1fr)_115px_105px_90px_115px] items-center gap-3 border-t border-[#edf0eb] border-l-4 px-3 text-left transition",
-                                      workplanDensity === "compact" ? "py-2" : "py-3.5",
+                                      "grid cursor-pointer grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] items-center gap-3 border-t border-[#edf0eb] border-l-[3px] px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2c795a]",
+                                      workplanDensity === "compact" ? "py-1.5" : "py-3",
                                       subSelected
-                                        ? "relative z-[1] border-l-[#0c3b2d] bg-[#e1efcf] shadow-[inset_0_0_0_2px_#2c795a]"
+                                        ? "relative z-[1] border-l-[#1d6c4d] bg-[#edf5e8]"
                                         : "border-l-transparent hover:bg-[#f8faf7]",
                                     ].join(" ")}
                                   >
                                     <div className="flex items-center gap-2 pl-9">
-                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
+                                      {subSelected ? (
+                                        <CircleCheck className="h-3 w-3 shrink-0 text-[#1d6c4d]" aria-label="Selected" />
+                                      ) : (
+                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
+                                      )}
                                       <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">
                                         Sub {subIndex + 1}
                                       </span>
@@ -455,11 +548,6 @@ export default function PlansModule({
                                         >
                                           {subactivity.title}
                                         </p>
-                                        {subSelected && (
-                                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0c3b2d] px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-white">
-                                            <CircleCheck className="h-3 w-3" /> Selected
-                                          </span>
-                                        )}
                                       </div>
                                       <p className="mt-0.5 text-[11px] text-[#819087]">
                                         {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
@@ -484,7 +572,7 @@ export default function PlansModule({
                                     </div>
                                     <StatusPill status={subStatus} label={metadataLabel("status", subStatus)} />
                                     <div>
-                                      <div className="mb-1 text-[11px] font-black text-[#53685c]">
+                                      <div className={`mb-1 text-[11px] font-black ${subProgress === 0 ? "text-[#94a198]" : "text-[#53685c]"}`}>
                                         {subProgress}%
                                       </div>
                                       <Progress
@@ -492,11 +580,15 @@ export default function PlansModule({
                                         className="h-1 bg-[#e4eae2] [&_[data-slot=progress-indicator]]:bg-[#5a8d73]"
                                       />
                                     </div>
-                                    <p className="text-right text-xs font-bold tabular-nums text-[#53685c]">
-                                      {formatMnt(
-                                        allocationByActivityKey.get(subactivity.id) ?? 0,
-                                      )}
-                                    </p>
+                                    {(() => {
+                                      const subAllocation =
+                                        allocationByActivityKey.get(subactivity.id) ?? 0;
+                                      return (
+                                        <p className={`text-right text-xs tabular-nums ${subAllocation === 0 ? "font-semibold text-[#9aa79f]" : "font-bold text-[#53685c]"}`}>
+                                          {formatMnt(subAllocation)}
+                                        </p>
+                                      );
+                                    })()}
                                   </div>
                                 );
                               })}
@@ -532,12 +624,7 @@ export default function PlansModule({
                               openAddActivity();
                               return;
                             }
-                            setQuery("");
-                            setSection("all");
-                            setGoal("all");
-                            setStatus("all");
-                            setWorkstream("all");
-                            setMember("all");
+                            resetWorkplanFilters();
                           }}
                         >
                           {allActivities.length ? "Clear filters" : "Add first activity"}
@@ -562,8 +649,8 @@ export default function PlansModule({
               </div>
             </div>
 
-            <aside className="border-t border-[#dbe3d9] bg-[#f7f9f5] p-4 xl:border-t-0">
-              <div className="sticky top-4">
+            <aside className="border-t border-[#dbe3d9] bg-[#f7f9f5] p-3 min-[1380px]:border-t-0">
+              <div className="min-[1380px]:sticky min-[1380px]:top-4">
                 {workplanPreviewActivity ? (
                   (() => {
                     const activity = workplanPreviewActivity;
@@ -598,39 +685,42 @@ export default function PlansModule({
                         );
 
                     return (
-                      <div className="overflow-hidden rounded-2xl border border-[#cfdacf] bg-white shadow-sm">
-                        <div className="bg-[#0c3b2d] p-4 text-white">
-                          <div>
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-100/70">
+                      <div className="flex min-h-[500px] flex-col overflow-hidden rounded-xl border border-[#cfdacf] bg-white shadow-[0_8px_24px_rgba(20,36,27,0.07)]">
+                        <div className="bg-[#0c3b2d] p-3.5 text-white">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-100/65">
                                 {subactivity ? "Sub-activity" : "Main activity"}
                               </p>
-                              <p className="mt-1 font-mono text-xs font-black text-[#dbf081]">
+                              <p className="mt-0.5 font-mono text-xs font-black text-[#dbf081]">
                                 {activity.code || activity.uid}
                               </p>
                             </div>
+                            <StatusPill status={previewStatus} label={metadataLabel("status", previewStatus)} />
                           </div>
-                          <h3 className="mt-3 text-base font-black leading-6">
+                          <h3 className="mt-2.5 line-clamp-4 text-[15px] font-black leading-5">
                             {subactivity
                               ? subactivity.title
                               : language === "mn" && activity.titleMn?.trim()
                                 ? activity.titleMn
                                 : activity.title}
                           </h3>
-                          <div className="mt-4 flex items-center justify-between gap-3">
-                            <StatusPill status={previewStatus} label={metadataLabel("status", previewStatus)} />
-                            <span className="text-xl font-black text-[#dbf081]">
+                          <div className="mt-3 flex items-end justify-between gap-3">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/55">
+                              Progress
+                            </span>
+                            <span className="text-lg font-black text-[#dbf081]">
                               {previewProgress}%
                             </span>
                           </div>
                           <Progress
                             value={previewProgress}
-                            className="mt-2 h-2 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
+                            className="mt-1.5 h-1.5 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
                           />
                         </div>
 
-                        <div className="space-y-4 p-4">
-                          <dl className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="flex flex-1 flex-col p-3.5">
+                          <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
                             <div>
                               <dt className="font-bold text-[#819087]">Start</dt>
                               <dd className="mt-1 font-black text-[#294438]">
@@ -649,7 +739,7 @@ export default function PlansModule({
                                 )}
                               </dd>
                             </div>
-                            <div className="col-span-2">
+                            <div className="col-span-2 border-t border-[#edf1eb] pt-3">
                               <dt className="font-bold text-[#819087]">Accountable owner</dt>
                               <dd
                                 className={[
@@ -671,16 +761,16 @@ export default function PlansModule({
                               )}
                             </div>
                             {!subactivity && (
-                              <div className="col-span-2">
+                              <div>
                                 <dt className="font-bold text-[#819087]">Sub-activities</dt>
-                                <dd className="mt-1 text-lg font-black text-[#245f47]">
+                                <dd className="mt-1 text-base font-black text-[#245f47]">
                                   {activity.subactivities.length}
                                 </dd>
                               </div>
                             )}
-                            <div className="col-span-2">
+                            <div className={subactivity ? "col-span-2" : ""}>
                               <dt className="font-bold text-[#819087]">Allocated budget</dt>
-                              <dd className="mt-1 text-lg font-black text-[#245f47]">
+                              <dd className="mt-1 text-base font-black text-[#245f47]">
                                 {formatMnt(previewAllocation)}
                               </dd>
                             </div>
@@ -697,7 +787,7 @@ export default function PlansModule({
                           <Button
                             size="sm"
                             onClick={() => openActivity(activity)}
-                            className="h-9 w-full bg-[#0c3b2d] text-xs text-white hover:bg-[#174d3a]"
+                            className="mt-auto h-9 w-full bg-[#0c3b2d] text-xs font-black text-white hover:bg-[#174d3a]"
                           >
                             Full view
                           </Button>
