@@ -5059,6 +5059,95 @@ export default function Home() {
     }));
   }, [dashboardFinance]);
 
+  const dashboardFinancialUtilization = useMemo(() => {
+    const dashboardBudgetKeys = new Set(
+      dashboardBudgetLines.map((line) => line.id),
+    );
+    const activityRows = dashboardActivities.map((activity) => {
+      const childKeys = new Set(
+        activity.subactivities.map((subactivity) => subactivity.id),
+      );
+      const rollupKeys = new Set([activity.id, ...childKeys]);
+      let allocatedMnt = 0;
+      let commitmentMnt = 0;
+      let expenditureMnt = 0;
+
+      for (const budgetKey of dashboardBudgetKeys) {
+        const mainAllocation = allocations.find(
+          (allocation) =>
+            allocation.budgetKey === budgetKey &&
+            allocation.activityKey === activity.id,
+        );
+        allocatedMnt +=
+          mainAllocation?.amountMnt ??
+          allocations
+            .filter(
+              (allocation) =>
+                allocation.budgetKey === budgetKey &&
+                childKeys.has(allocation.activityKey),
+            )
+            .reduce((total, allocation) => total + allocation.amountMnt, 0);
+      }
+
+      for (const entry of financeEntries) {
+        if (
+          !dashboardBudgetKeys.has(entry.budgetKey) ||
+          !rollupKeys.has(entry.activityKey)
+        ) {
+          continue;
+        }
+        if (entry.entryType === "commitment") commitmentMnt += entry.amountMnt;
+        else expenditureMnt += entry.amountMnt;
+      }
+
+      for (const contract of contracts) {
+        for (const budgetKey of dashboardBudgetKeys) {
+          commitmentMnt += contractCommittedForTargets(
+            contract,
+            budgetKey,
+            rollupKeys,
+          );
+          expenditureMnt += contractPaidForTargets(
+            contract,
+            budgetKey,
+            rollupKeys,
+          );
+        }
+      }
+
+      const financialUseMnt = commitmentMnt + expenditureMnt;
+      return {
+        key: activity.id,
+        code: activity.code || activity.uid,
+        title: activity.title,
+        progressPercent: deriveActivityProgress(activity, updates),
+        utilizationPercent: allocatedMnt
+          ? Math.round((financialUseMnt / allocatedMnt) * 100)
+          : null,
+        allocatedMnt,
+        commitmentMnt,
+        expenditureMnt,
+      };
+    });
+
+    return {
+      points: activityRows.filter(
+        (row): row is typeof row & { utilizationPercent: number } =>
+          row.utilizationPercent !== null,
+      ),
+      unallocatedCount: activityRows.filter(
+        (row) => row.utilizationPercent === null,
+      ).length,
+    };
+  }, [
+    allocations,
+    contracts,
+    dashboardActivities,
+    dashboardBudgetLines,
+    financeEntries,
+    updates,
+  ]);
+
   const dashboardContractStats = useMemo(() => {
     const keys = new Set(dashboardBudgetLines.map((line) => line.id));
     const scoped = contracts.filter((contract) =>
@@ -6314,6 +6403,7 @@ export default function Home() {
                       dashboardContractStats,
                       dashboardFinance,
                       dashboardFinanceBars,
+                      dashboardFinancialUtilization,
                       deliveryIndicators,
                       expenditureForecast,
                       formatMnt,
