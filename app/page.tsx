@@ -7597,10 +7597,10 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-5xl!">
+        <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-6xl!">
           {selectedBudgetLine && (
             <>
-              <DialogHeader className="text-left">
+              <DialogHeader className="sticky top-0 z-30 -mx-6 -mt-6 border-b border-[#e2e7e0] bg-white/95 px-6 py-4 pr-14 text-left backdrop-blur">
                 <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-mono text-sm font-black text-[#2f634c]">
@@ -7610,7 +7610,7 @@ export default function Home() {
                       {selectedBudgetLine.title}
                     </DialogTitle>
                     <DialogDescription className="mt-2">
-                      Main activities are shown first. Open one to view its sub-activities, allocations, and finance records.
+                      Allocation and finance position by connected workplan activity.
                     </DialogDescription>
                   </div>
                   <Button
@@ -7631,36 +7631,56 @@ export default function Home() {
                 };
                 const budgetMnt =
                   Number(selectedBudgetLine.budgetMntMillion) * 1_000_000;
+                const allocatedMnt =
+                  allocationByBudgetKey.get(selectedBudgetLine.id) ?? 0;
+                const usedMnt = totals.commitment + totals.expenditure;
+                const remainingMnt = budgetMnt - usedMnt;
+                const utilizationPercent =
+                  budgetMnt > 0 ? Math.round((usedMnt / budgetMnt) * 100) : 0;
+                const remainingRatio = budgetMnt > 0 ? remainingMnt / budgetMnt : 0;
+                const remainingTone =
+                  remainingMnt < 0
+                    ? "text-rose-700"
+                    : remainingRatio <= 0.15
+                      ? "text-amber-700"
+                      : "text-[#245f47]";
+                const utilizationTone =
+                  utilizationPercent > 100
+                    ? "bg-rose-600"
+                    : utilizationPercent >= 85
+                      ? "bg-amber-500"
+                      : "bg-[#2c795a]";
                 const generalEntries = financeEntries.filter(
                   (entry) =>
                     entry.budgetKey === selectedBudgetLine.id && !entry.activityKey,
                 );
                 return (
                   <>
-                    <dl className="grid grid-cols-2 gap-3 py-2 sm:grid-cols-5">
-                      {[
-                        ["Budget", formatMnt(budgetMnt)],
-                        [
-                          "Allocated",
-                          formatMnt(allocationByBudgetKey.get(selectedBudgetLine.id) ?? 0),
-                        ],
-                        ["Committed", formatMnt(totals.commitment)],
-                        ["Expenditure", formatMnt(totals.expenditure)],
-                        [
-                          "Remaining",
-                          formatMnt(
-                            budgetMnt - totals.commitment - totals.expenditure,
-                          ),
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-xl bg-[#f3f7f1] p-3">
-                          <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                          <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums">
-                            {value}
-                          </dd>
+                    <div className="overflow-hidden rounded-xl border border-[#d7e0d5] bg-[#f7faf5]">
+                      <dl className="grid grid-cols-2 divide-x divide-y divide-[#e1e8df] sm:grid-cols-5 sm:divide-y-0">
+                        {[
+                          ["Budget", formatMnt(budgetMnt), "text-[#183529]"],
+                          ["Allocated", formatMnt(allocatedMnt), allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#53685c]"],
+                          ["Committed", formatMnt(totals.commitment), "text-[#183529]"],
+                          ["Expenditure", formatMnt(totals.expenditure), "text-[#183529]"],
+                          ["Remaining", formatMnt(remainingMnt), remainingTone],
+                        ].map(([label, value, tone]) => (
+                          <div key={label} className="min-w-0 px-3 py-2.5">
+                            <dt className="text-[11px] font-semibold text-[#718178]">{label}</dt>
+                            <dd className={`mt-0.5 whitespace-nowrap text-sm font-black tabular-nums ${tone}`}>
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <div className="flex items-center gap-3 border-t border-[#e1e8df] px-3 py-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#dfe7dc]">
+                          <div className={`h-full rounded-full ${utilizationTone}`} style={{ width: `${Math.min(Math.max(utilizationPercent, 0), 100)}%` }} />
                         </div>
-                      ))}
-                    </dl>
+                        <span className="shrink-0 text-[10px] font-black tabular-nums text-[#65766d]">{utilizationPercent}% used</span>
+                        <span className="hidden text-[10px] text-[#819087] sm:inline">Remaining = budget − commitments − expenditure</span>
+                      </div>
+                    </div>
                     {generalEntries.length > 0 && (
                       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                         {generalEntries.length} existing budget-level finance {generalEntries.length === 1 ? "entry is" : "entries are"} retained. New entries are recorded under a specific activity.
@@ -7691,40 +7711,59 @@ export default function Home() {
                   )}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
-                  <NativeSelect
-                    value={financeCreatorFilter}
-                    onChange={(event) => setFinanceCreatorFilter(event.target.value)}
-                    className="h-9 border-[#ced8cf] bg-white text-sm"
-                    aria-label="Filter budget-line records by person"
-                  >
-                    <NativeSelectOption value="all">All people</NativeSelectOption>
-                    {financeCreatorOptions.map(([email, name]) => (
-                      <NativeSelectOption key={email} value={email}>
-                        {name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                  <Input
-                    type="date"
-                    value={financeDateFrom}
-                    onChange={(event) => setFinanceDateFrom(event.target.value)}
-                    className="h-9 border-[#ced8cf] bg-white"
-                    aria-label="Filter budget-line records from date"
-                  />
-                  <Input
-                    type="date"
-                    value={financeDateTo}
-                    onChange={(event) => setFinanceDateTo(event.target.value)}
-                    className="h-9 border-[#ced8cf] bg-white"
-                    aria-label="Filter budget-line records to date"
-                  />
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">Person</span>
+                    <NativeSelect
+                      value={financeCreatorFilter}
+                      onChange={(event) => setFinanceCreatorFilter(event.target.value)}
+                      className="h-9 w-full border-[#ced8cf] bg-white text-sm"
+                      aria-label="Filter budget-line records by person"
+                    >
+                      <NativeSelectOption value="all">All people</NativeSelectOption>
+                      {financeCreatorOptions.map(([email, name]) => (
+                        <NativeSelectOption key={email} value={email}>
+                          {name}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">From</span>
+                    <Input
+                      type="date"
+                      value={financeDateFrom}
+                      onChange={(event) => setFinanceDateFrom(event.target.value)}
+                      className="h-9 border-[#ced8cf] bg-white"
+                      aria-label="Filter budget-line records from date"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">To</span>
+                    <Input
+                      type="date"
+                      value={financeDateTo}
+                      onChange={(event) => setFinanceDateTo(event.target.value)}
+                      className="h-9 border-[#ced8cf] bg-white"
+                      aria-label="Filter budget-line records to date"
+                    />
+                  </label>
                 </div>
                 <p className="mt-2 text-xs text-[#718178]">
                   Filters change the record lists only; financial totals always include every saved record.
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <div className="overflow-hidden rounded-xl border border-[#d7ded5] bg-white">
+                <div className="hidden grid-cols-[minmax(250px,1.6fr)_120px_repeat(4,minmax(90px,0.72fr))_118px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] lg:grid">
+                  <span>Activity</span>
+                  <span>Owners</span>
+                  <span className="text-right">Allocated</span>
+                  <span className="text-right">Committed</span>
+                  <span className="text-right">Expenditure</span>
+                  <span className="text-right">Available</span>
+                  <span className="text-right">Action</span>
+                </div>
+                <div className="max-h-[56vh] space-y-1.5 overflow-y-auto bg-[#f7f9f5] p-2">
                 {selectedBudgetTargets
                   .filter(
                     (target) =>
@@ -7744,6 +7783,10 @@ export default function Home() {
                       ? activityOwner(activity, updates)
                       : "";
                   const ownerName = canonicalOwnerName(ownerValue, teamMembers);
+                  const ownerResponsibility = responsibilityParts(
+                    ownerValue,
+                    teamMembers,
+                  );
                   const allocation = allocations.find(
                     (item) =>
                       item.budgetKey === selectedBudgetLine.id &&
@@ -7845,34 +7888,81 @@ export default function Home() {
                     target.activityId,
                   );
                   const recordsExpanded = expandedFinanceRecordKeys.has(target.key);
+                  const availableMnt =
+                    allocatedMnt -
+                    targetFinance.commitment -
+                    targetFinance.expenditure;
+                  const availableRatio =
+                    allocatedMnt > 0 ? availableMnt / allocatedMnt : 0;
+                  const availableTone =
+                    availableMnt < 0
+                      ? "text-rose-700"
+                      : allocatedMnt > 0 && availableRatio <= 0.15
+                        ? "text-amber-700"
+                        : "text-[#245f47]";
+                  const financeRecordCount =
+                    visibleTargetEntries.length + targetContracts.length;
                   return (
                     <article
                       key={target.key}
-                      className={`rounded-2xl border p-4 ${target.kind === "subactivity" ? "ml-3 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-2 border-[#6f9a7f] bg-[#e7f1e5] shadow-[0_6px_18px_rgba(20,65,47,0.12)]"}`}
+                      className={`overflow-hidden rounded-lg border transition hover:border-[#aebfb2] ${target.kind === "subactivity" ? "ml-4 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cfdacf] bg-white"}`}
                     >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${target.kind === "activity" ? "bg-[#236447] text-white shadow-sm" : "bg-[#eef3ec] text-[#597066]"}`}>
-                            <ListChecks className="h-4 w-4" />
-                          </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-4 lg:grid-cols-[minmax(250px,1.6fr)_120px_repeat(4,minmax(90px,0.72fr))_118px] lg:items-center lg:gap-x-2.5">
+                        <div className="col-span-2 flex min-w-0 items-start gap-2.5 sm:col-span-4 lg:col-span-1">
+                          {target.kind === "activity" && subactivityCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleFinanceActivity(target.activityId)}
+                              aria-expanded={activityExpanded}
+                              aria-label={activityExpanded ? "Hide sub-activities" : `View ${subactivityCount} sub-activities`}
+                              className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#b9c8bc] bg-white text-[#245f47] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                            >
+                              <ChevronRight className={`h-4 w-4 transition-transform ${activityExpanded ? "rotate-90" : ""}`} />
+                            </button>
+                          ) : (
+                            <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${target.kind === "activity" ? "bg-[#e5efe2] text-[#236447]" : "bg-[#eef3ec] text-[#718178]"}`}>
+                              <ListChecks className="h-3.5 w-3.5" />
+                            </div>
+                          )}
                           <div className="min-w-0">
-                            <p className={`text-xs font-bold uppercase tracking-[0.08em] ${target.kind === "activity" ? "text-[#1f6046]" : "text-[#718178]"}`}>
-                              {target.kind === "activity" ? "Main activity" : "Sub-activity"}
+                            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-[#6d8075]">
+                              {target.kind === "activity" ? `Main activity${subactivityCount ? ` · ${subactivityCount} subs` : ""}` : "Sub-activity"}
                             </p>
-                            <h3 className={`mt-1 text-sm font-black leading-6 ${target.kind === "activity" ? "text-[#143d2e]" : ""}`}>
+                            <h3
+                              className="mt-0.5 line-clamp-2 text-[13px] font-black leading-[1.15rem] text-[#183529]"
+                              title={localizedTargetLabel(target, allActivities, language)}
+                            >
                               {target.kind === "activity" ? `${target.code} · ` : ""}
                               {localizedTargetLabel(target, allActivities, language)}
                             </h3>
-                            <p className={`mt-2 flex items-center gap-2 text-xs font-semibold ${ownerName ? "text-[#5d7467]" : "text-rose-700"}`}>
-                              <span className={`h-2 w-2 rounded-full ${ownerName ? "bg-emerald-600" : "bg-rose-600"}`} />
-                              {ownerName || "Owner required"}
-                            </p>
                           </div>
                         </div>
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
+                        <div className="col-span-2 min-w-0 sm:col-span-1 lg:col-span-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#819087] lg:hidden">Owners</p>
+                          <p className={`truncate text-xs font-bold ${ownerResponsibility.accountable || ownerName ? "text-[#315845]" : "text-rose-700"}`}>
+                            {ownerResponsibility.accountable || ownerName || "Owner required"}
+                          </p>
+                          {ownerResponsibility.supporting.length > 0 && (
+                            <p className="mt-0.5 truncate text-[10px] text-[#718178]">
+                              +{ownerResponsibility.supporting.length} supporting
+                            </p>
+                          )}
+                        </div>
+                        {[
+                          ["Allocated", allocatedMnt, "text-[#315845]", allocation ? "Edit or remove" : "Not allocated"],
+                          ["Committed", targetFinance.commitment, "text-[#183529]", `${commitmentEntryCount} ${commitmentEntryCount === 1 ? "record" : "records"}`],
+                          ["Expenditure", targetFinance.expenditure, "text-[#183529]", `${expenditureEntryCount} ${expenditureEntryCount === 1 ? "record" : "records"}`],
+                          ["Available", availableMnt, availableTone, "Allocation − commitments − expenditure"],
+                        ].map(([label, amount, tone, helper]) => (
+                          <div key={String(label)} className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+                            <p className="text-[10px] font-semibold text-[#819087] lg:hidden">{label}</p>
+                            <p className={`truncate text-xs font-black tabular-nums ${tone}`}>{formatMnt(Number(amount))}</p>
+                            <p className="mt-0.5 truncate text-[9px] text-[#8a978f]" title={String(helper)}>{helper}</p>
+                          </div>
+                        ))}
+                        <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-4 lg:col-span-1">
+                          <button
+                            type="button"
                             onClick={() =>
                               openAllocationDialog(
                                 selectedBudgetLine.id,
@@ -7880,95 +7970,44 @@ export default function Home() {
                                 allocation,
                               )
                             }
+                            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-2.5 text-[11px] font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
                           >
-                            <WalletCards className="h-4 w-4" />
-                            {allocation ? "Edit allocation" : "Allocate"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => toggleFinanceRecords(target.key)}
-                            aria-expanded={recordsExpanded}
-                          >
-                            <ReceiptText className="h-4 w-4" />
-                            {recordsExpanded ? "Hide finance records" : "See finance records"}
-                            {visibleTargetEntries.length + targetContracts.length > 0 && (
-                              <span className="rounded-full bg-[#e8f0e8] px-1.5 py-0.5 text-[11px] font-black text-[#285d45]">
-                                {visibleTargetEntries.length + targetContracts.length}
-                              </span>
-                            )}
-                          </Button>
-                          {target.kind === "activity" && subactivityCount > 0 && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => toggleFinanceActivity(target.activityId)}
-                              aria-expanded={activityExpanded}
-                              className="border-[#8cad96] bg-white text-[#245f47] hover:bg-[#f2f7f1] hover:text-[#174d3a]"
-                            >
-                              <ChevronRight
-                                className={`h-4 w-4 transition-transform ${activityExpanded ? "rotate-90" : ""}`}
-                              />
-                              {activityExpanded
-                                ? "Hide sub-activities"
-                                : `View sub-activities (${subactivityCount})`}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openAllocationDialog(
-                              selectedBudgetLine.id,
-                              target.key,
-                              allocation,
-                            )
-                          }
-                          className="rounded-xl border border-transparent bg-[#f3f7f1] px-3 py-2.5 text-left transition hover:border-[#86aa91] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
-                        >
-                          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[#718178]">
-                            Allocated
-                            <PencilLine className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="mt-1 block text-sm font-black tabular-nums">
-                            {formatMnt(allocatedMnt)}
-                          </span>
-                          <span className="mt-1 block text-[11px] font-bold text-[#2f634c]">
-                            {allocation ? "Edit or remove" : "Add allocation"}
-                          </span>
-                        </button>
-                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
-                          <p className="text-xs font-semibold text-[#718178]">Committed</p>
-                          <p className="mt-1 text-sm font-black tabular-nums">
-                            {formatMnt(targetFinance.commitment)}
-                          </p>
-                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
-                            {commitmentEntryCount} {commitmentEntryCount === 1 ? "record" : "records"}
-                          </span>
-                        </div>
-                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
-                          <p className="text-xs font-semibold text-[#718178]">Expenditure</p>
-                          <p className="mt-1 text-sm font-black tabular-nums">
-                            {formatMnt(targetFinance.expenditure)}
-                          </p>
-                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
-                            {expenditureEntryCount} {expenditureEntryCount === 1 ? "record" : "records"}
-                          </span>
-                        </div>
-                        <div className="rounded-xl bg-[#f3f7f1] px-3 py-2.5">
-                          <p className="text-xs font-semibold text-[#718178]">Available</p>
-                          <p className="mt-1 text-sm font-black tabular-nums">
-                            {formatMnt(
-                              allocatedMnt -
-                                targetFinance.commitment -
-                                targetFinance.expenditure,
-                            )}
-                          </p>
-                          <span className="mt-1 block text-[11px] font-semibold text-[#718178]">
-                            Calculated automatically
-                          </span>
+                            <WalletCards className="h-3.5 w-3.5" />
+                            {allocation ? "Edit" : "Allocate"}
+                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="relative grid h-8 w-8 place-items-center rounded-md border border-[#b9c8bc] bg-white text-[#315845] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                                aria-label={`More actions for ${
+                                  target.kind === "activity"
+                                    ? target.code || "activity"
+                                    : localizedTargetLabel(
+                                        target,
+                                        allActivities,
+                                        language,
+                                      )
+                                }`}
+                              >
+                                <Ellipsis className="h-4 w-4" />
+                                {financeRecordCount > 0 && (
+                                  <span className="absolute -right-1.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#236447] px-1 text-[9px] font-black text-white">
+                                    {financeRecordCount}
+                                  </span>
+                                )}
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem onClick={() => toggleFinanceRecords(target.key)}>
+                                <ReceiptText className="h-4 w-4" />
+                                {recordsExpanded ? "Hide finance records" : "See finance records"}
+                                {financeRecordCount > 0 && (
+                                  <span className="ml-auto rounded-full bg-[#e8f0e8] px-1.5 py-0.5 text-[10px] font-black text-[#285d45]">{financeRecordCount}</span>
+                                )}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
                       {recordsExpanded && (
@@ -8137,6 +8176,7 @@ export default function Home() {
                     </p>
                   </div>
                 )}
+                </div>
               </div>
             </>
           )}
