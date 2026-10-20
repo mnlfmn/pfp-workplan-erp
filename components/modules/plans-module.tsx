@@ -1,6 +1,7 @@
 "use client";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { useMemo, useState } from "react";
 import { Banknote, ChevronRight, Download, FileSearch, History, ListChecks, PencilLine, Plus, ReceiptText, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsultantSelectionModule } from "@/components/consultant-selection-module";
@@ -10,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type StatusKey = string;
+type FinanceSortKey = "budget" | "allocated" | "committed" | "expenditure" | "remaining";
 
 export default function PlansModule({
   StatusPill,
@@ -97,6 +99,11 @@ export default function PlansModule({
   workstream,
   workstreams,
 }: any) {
+  const [financeSort, setFinanceSort] = useState<{
+    key: FinanceSortKey | null;
+    direction: "asc" | "desc";
+  }>({ key: null, direction: "desc" });
+
   const resetWorkplanFilters = () => {
     setQuery("");
     setSection("all");
@@ -157,6 +164,84 @@ export default function PlansModule({
     label: string;
     clear: () => void;
   }>;
+
+  const financeActiveFilters = [
+    query.trim()
+      ? { key: "query", label: `Search: ${query.trim()}`, clear: () => setQuery("") }
+      : null,
+    section !== "all"
+      ? {
+          key: "section",
+          label:
+            sectionOptions.find((item: any) => item.value === section)?.label ??
+            section,
+          clear: () => setSection("all"),
+        }
+      : null,
+    goal !== "all"
+      ? {
+          key: "goal",
+          label: goal === "All goals" ? "Cross-goal" : metadataLabel("goal", goal),
+          clear: () => setGoal("all"),
+        }
+      : null,
+    member !== "all"
+      ? {
+          key: "member",
+          label:
+            teamMembers.find((item: any) => item.id === member)?.name ?? member,
+          clear: () => setMember("all"),
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string;
+    clear: () => void;
+  }>;
+
+  const resetFinanceFilters = () => {
+    setQuery("");
+    setSection("all");
+    setGoal("all");
+    setMember("all");
+  };
+
+  const sortedBudgetLines = useMemo(() => {
+    if (!financeSort.key) return filteredBudgetLines;
+    const valueFor = (line: any) => {
+      const totals = financeByBudgetKey.get(line.id) ?? {
+        commitment: 0,
+        expenditure: 0,
+      };
+      const budget = Number(line.budgetMntMillion) * 1_000_000;
+      const allocated = allocationByBudgetKey.get(line.id) ?? 0;
+      if (financeSort.key === "budget") return budget;
+      if (financeSort.key === "allocated") return allocated;
+      if (financeSort.key === "committed") return totals.commitment;
+      if (financeSort.key === "expenditure") return totals.expenditure;
+      return budget - totals.commitment - totals.expenditure;
+    };
+    return [...filteredBudgetLines].sort((a: any, b: any) => {
+      const difference = valueFor(a) - valueFor(b);
+      return financeSort.direction === "asc" ? difference : -difference;
+    });
+  }, [
+    allocationByBudgetKey,
+    filteredBudgetLines,
+    financeByBudgetKey,
+    financeSort,
+  ]);
+
+  const toggleFinanceSort = (key: FinanceSortKey) => {
+    setFinanceSort((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === "desc" ? "asc" : "desc",
+    }));
+  };
+
+  const financeSortIndicator = (key: FinanceSortKey) =>
+    financeSort.key === key ? (financeSort.direction === "asc" ? "↑" : "↓") : "↕";
 
   return (
     <>
@@ -684,7 +769,7 @@ export default function PlansModule({
               )}
             </nav>
             <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_12px_32px_rgba(20,36,27,0.05)]">
-              <div className="border-b border-[#e2e7e0] p-4 lg:p-5">
+              <div className="sticky top-0 z-20 border-b border-[#e2e7e0] bg-white/95 p-4 backdrop-blur lg:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Budget monitoring</h2>
@@ -705,8 +790,8 @@ export default function PlansModule({
                     Add budget line
                   </Button>
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <label className="relative block min-w-[230px]">
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <label className="relative min-w-[260px] flex-[1_1_360px] xl:max-w-[460px]">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#718178]" />
                     <Input
                       value={query}
@@ -719,7 +804,7 @@ export default function PlansModule({
                   <NativeSelect
                     value={section}
                     onChange={(event) => setSection(event.target.value)}
-                    className="h-10 min-w-[145px] border-[#ced8cf] bg-[#f8faf7]"
+                    className="h-10 w-[160px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                     aria-label="Filter finance by workplan section"
                   >
                     <NativeSelectOption value="all">All sections</NativeSelectOption>
@@ -730,7 +815,7 @@ export default function PlansModule({
                   <NativeSelect
                     value={goal}
                     onChange={(event) => setGoal(event.target.value)}
-                    className="h-10 min-w-[140px] border-[#ced8cf] bg-[#f8faf7]"
+                    className="h-10 w-[150px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                     aria-label="Filter finance by goal"
                   >
                     <NativeSelectOption value="all">Every goal</NativeSelectOption>
@@ -743,7 +828,7 @@ export default function PlansModule({
                   <NativeSelect
                     value={member}
                     onChange={(event) => setMember(event.target.value)}
-                    className="h-10 min-w-[220px] border-[#ced8cf] bg-[#f8faf7]"
+                    className="h-10 w-[230px] shrink-0 border-[#ced8cf] bg-[#f8faf7]"
                     aria-label="Filter finance by team member"
                   >
                     <NativeSelectOption value="all">All team members</NativeSelectOption>
@@ -754,79 +839,162 @@ export default function PlansModule({
                     ))}
                   </NativeSelect>
                 </div>
+                {financeActiveFilters.length > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#edf1eb] pt-3">
+                    <span className="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#819087]">
+                      Active filters
+                    </span>
+                    {financeActiveFilters.map((filter) => (
+                      <button
+                        key={filter.key}
+                        type="button"
+                        onClick={filter.clear}
+                        className="inline-flex max-w-[240px] items-center gap-1 rounded-full border border-[#bfd0c2] bg-[#edf5e9] px-2.5 py-1 text-[11px] font-bold text-[#315845] transition hover:border-[#88a895] hover:bg-[#e3efde]"
+                        title={`Remove ${filter.label} filter`}
+                      >
+                        <span className="truncate">{filter.label}</span>
+                        <span aria-hidden="true" className="text-sm leading-none">×</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={resetFinanceFilters}
+                      className="ml-1 text-[11px] font-black text-[#245f47] underline decoration-[#9eb5a6] underline-offset-4 hover:text-[#0c3b2d]"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="hidden xl:block">
                 <Table className="w-full table-fixed">
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 z-10 bg-[#f7f9f5]">
                     <TableRow className="bg-[#f7f9f5] hover:bg-[#f7f9f5]">
-                      <TableHead className="w-[28%] pl-5">Budget line</TableHead>
-                      <TableHead className="w-[12%] text-right">Budget</TableHead>
-                      <TableHead className="w-[12%] text-right">Allocated</TableHead>
-                      <TableHead className="w-[12%] text-right">Committed</TableHead>
-                      <TableHead className="w-[12%] text-right">Expenditure</TableHead>
-                      <TableHead className="w-[12%] text-right">Remaining</TableHead>
-                      <TableHead className="w-[12%] pr-5 text-right">Details</TableHead>
+                      <TableHead className="w-[32%] pl-5">Budget line</TableHead>
+                      {([
+                        ["budget", "Budget"],
+                        ["allocated", "Allocated"],
+                        ["committed", "Committed"],
+                        ["expenditure", "Expenditure"],
+                        ["remaining", "Remaining"],
+                      ] as Array<[FinanceSortKey, string]>).map(([key, label]) => (
+                        <TableHead
+                          key={key}
+                          className={key === "remaining" ? "w-[15%] text-right" : "w-[11%] text-right"}
+                          aria-sort={
+                            financeSort.key === key
+                              ? financeSort.direction === "asc"
+                                ? "ascending"
+                                : "descending"
+                              : "none"
+                          }
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleFinanceSort(key)}
+                            className="ml-auto inline-flex items-center gap-1 rounded px-1 py-1 font-bold text-[#53685c] transition hover:bg-[#e8eee6] hover:text-[#174734] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
+                            title={`Sort by ${label.toLocaleLowerCase()}`}
+                          >
+                            {label}
+                            <span aria-hidden="true" className="w-3 text-center text-[10px] text-[#7d8d83]">
+                              {financeSortIndicator(key)}
+                            </span>
+                          </button>
+                        </TableHead>
+                      ))}
+                      <TableHead className="w-[9%] pr-5 text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredBudgetLines.map((line) => {
+                    {sortedBudgetLines.map((line: any) => {
                       const totals = financeByBudgetKey.get(line.id) ?? {
                         commitment: 0,
                         expenditure: 0,
                       };
                       const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
+                      const usedMnt = totals.commitment + totals.expenditure;
                       const remainingMnt =
-                        budgetMnt - totals.commitment - totals.expenditure;
+                        budgetMnt - usedMnt;
                       const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
+                      const utilizationPercent =
+                        budgetMnt > 0 ? Math.round((usedMnt / budgetMnt) * 100) : 0;
+                      const remainingRatio = budgetMnt > 0 ? remainingMnt / budgetMnt : 0;
+                      const remainingTone =
+                        remainingMnt < 0
+                          ? "text-rose-700"
+                          : remainingRatio <= 0.15
+                            ? "text-amber-700"
+                            : "text-[#245f47]";
+                      const utilizationTone =
+                        utilizationPercent > 100
+                          ? "bg-rose-600"
+                          : utilizationPercent >= 85
+                            ? "bg-amber-500"
+                            : "bg-[#2c795a]";
                       return (
-                        <TableRow key={line.id}>
-                          <TableCell className="whitespace-normal pl-5 align-top">
+                        <TableRow key={line.id} className="hover:bg-[#f6f9f4]">
+                          <TableCell className="whitespace-normal py-2.5 pl-5 align-middle">
                             <div className="flex items-start gap-3">
-                              <span className="mt-0.5 shrink-0 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
+                              <span className="mt-0.5 shrink-0 rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-[11px] font-black text-[#2f634c]">
                                 {line.code}
                               </span>
                               <div className="min-w-0">
                                 <button
                                   type="button"
                                   onClick={() => openFinanceBudgetLine(line.id)}
-                                  className="whitespace-normal break-words text-left font-bold leading-5 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                                  className="line-clamp-2 whitespace-normal break-words text-left text-[13px] font-bold leading-[1.15rem] text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                                  title={line.title}
                                 >
                                   {line.title}
                                 </button>
-                                <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-[#718178]">
+                                <p className="mt-1 truncate text-[11px] leading-4 text-[#718178]">
                                   {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
                                 </p>
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] font-bold tabular-nums">
-                            {formatMnt(Number(line.budgetMntMillion) * 1_000_000)}
+                          <TableCell className="whitespace-nowrap py-2.5 text-right text-[13px] font-bold tabular-nums">
+                            {formatMnt(budgetMnt)}
                           </TableCell>
-                          <TableCell className={`whitespace-nowrap text-right text-[13px] font-bold tabular-nums ${allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#315845]"}`}>
+                          <TableCell className={`whitespace-nowrap py-2.5 text-right text-[13px] font-bold tabular-nums ${allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#53685c]"}`}>
                             {formatMnt(allocatedMnt)}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
+                          <TableCell className="whitespace-nowrap py-2.5 text-right text-[13px] tabular-nums">
                             {formatMnt(totals.commitment)}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-right text-[13px] tabular-nums">
+                          <TableCell className="whitespace-nowrap py-2.5 text-right text-[13px] tabular-nums">
                             {formatMnt(totals.expenditure)}
                           </TableCell>
-                          <TableCell
-                            className={`whitespace-nowrap text-right text-[13px] font-black tabular-nums ${remainingMnt < 0 ? "text-rose-700" : "text-[#245f47]"}`}
-                          >
-                            {formatMnt(remainingMnt)}
+                          <TableCell className="py-2.5 text-right">
+                            <div className="ml-auto max-w-[130px]">
+                              <p className={`whitespace-nowrap text-[13px] font-black tabular-nums ${remainingTone}`}>
+                                {formatMnt(remainingMnt)}
+                              </p>
+                              <div
+                                className="mt-1.5 ml-auto h-1.5 w-20 overflow-hidden rounded-full bg-[#dfe7dc]"
+                                title={`${utilizationPercent}% of budget used`}
+                              >
+                                <div
+                                  className={`h-full rounded-full ${utilizationTone}`}
+                                  style={{ width: `${Math.min(Math.max(utilizationPercent, 0), 100)}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[9px] font-semibold tabular-nums text-[#819087]">
+                                {utilizationPercent}% used
+                              </p>
+                            </div>
                           </TableCell>
-                          <TableCell className="pr-5 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
+                          <TableCell className="py-2.5 pr-5 text-right">
+                            <button
+                              type="button"
                               onClick={() => openFinanceBudgetLine(line.id)}
                               aria-label={`Open budget line ${line.code}`}
+                              className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-2.5 text-[11px] font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
                             >
-                              Open
-                              <ChevronRight className="h-4 w-4" />
-                            </Button>
+                              View
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
                           </TableCell>
                         </TableRow>
                       );
@@ -836,17 +1004,32 @@ export default function PlansModule({
               </div>
 
               <div className="divide-y divide-[#e2e7e0] xl:hidden">
-                {filteredBudgetLines.map((line) => {
+                {sortedBudgetLines.map((line: any) => {
                   const totals = financeByBudgetKey.get(line.id) ?? {
                     commitment: 0,
                     expenditure: 0,
                   };
                   const budgetMnt = Number(line.budgetMntMillion) * 1_000_000;
-                  const remainingMnt =
-                    budgetMnt - totals.commitment - totals.expenditure;
+                  const usedMnt = totals.commitment + totals.expenditure;
+                  const remainingMnt = budgetMnt - usedMnt;
                   const allocatedMnt = allocationByBudgetKey.get(line.id) ?? 0;
+                  const utilizationPercent =
+                    budgetMnt > 0 ? Math.round((usedMnt / budgetMnt) * 100) : 0;
+                  const remainingRatio = budgetMnt > 0 ? remainingMnt / budgetMnt : 0;
+                  const remainingTone =
+                    remainingMnt < 0
+                      ? "text-rose-700"
+                      : remainingRatio <= 0.15
+                        ? "text-amber-700"
+                        : "text-[#245f47]";
+                  const utilizationTone =
+                    utilizationPercent > 100
+                      ? "bg-rose-600"
+                      : utilizationPercent >= 85
+                        ? "bg-amber-500"
+                        : "bg-[#2c795a]";
                   return (
-                    <article key={line.id} className="p-4 sm:p-5">
+                    <article key={line.id} className="p-4 transition hover:bg-[#f8faf7] sm:p-5">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <span className="inline-flex rounded-md bg-[#e9f0e6] px-2 py-1 font-mono text-xs font-black text-[#2f634c]">
@@ -855,7 +1038,8 @@ export default function PlansModule({
                           <button
                             type="button"
                             onClick={() => openFinanceBudgetLine(line.id)}
-                            className="mt-2 whitespace-normal break-words text-left font-bold leading-6 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                            className="mt-2 line-clamp-2 whitespace-normal break-words text-left font-bold leading-5 text-[#183529] underline-offset-4 hover:text-[#277255] hover:underline"
+                            title={line.title}
                           >
                             {line.title}
                           </button>
@@ -863,32 +1047,46 @@ export default function PlansModule({
                             {metadataLabel("section", line.section)} · {metadataLabel("goal", line.goal) || "No goal"} · {metadataLabel("workstream", line.workstream) || line.level}
                           </p>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
+                        <button
+                          type="button"
                           onClick={() => openFinanceBudgetLine(line.id)}
-                          className="shrink-0"
+                          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-3 text-xs font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7]"
                         >
-                          Open line
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
+                          View
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                        {[
-                          ["Budget", formatMnt(budgetMnt)],
-                          ["Allocated", formatMnt(allocatedMnt)],
-                          ["Committed", formatMnt(totals.commitment)],
-                          ["Expenditure", formatMnt(totals.expenditure)],
-                          ["Remaining", formatMnt(remainingMnt)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-xl bg-[#f5f8f3] p-3">
-                            <dt className="text-xs font-semibold text-[#718178]">{label}</dt>
-                            <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums text-[#183529]">
-                              {value}
-                            </dd>
+                      <dl className="mt-3 grid grid-cols-1 gap-2 min-[520px]:grid-cols-3">
+                        <div className="rounded-lg bg-[#f5f8f3] p-2.5">
+                          <dt className="text-[11px] font-semibold text-[#718178]">Budget</dt>
+                          <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums text-[#183529]">{formatMnt(budgetMnt)}</dd>
+                        </div>
+                        <div className="rounded-lg bg-[#f5f8f3] p-2.5">
+                          <dt className="text-[11px] font-semibold text-[#718178]">Expenditure</dt>
+                          <dd className="mt-1 whitespace-nowrap text-sm font-black tabular-nums text-[#183529]">{formatMnt(totals.expenditure)}</dd>
+                        </div>
+                        <div className="rounded-lg bg-[#f5f8f3] p-2.5">
+                          <dt className="text-[11px] font-semibold text-[#718178]">Remaining</dt>
+                          <dd className={`mt-1 whitespace-nowrap text-sm font-black tabular-nums ${remainingTone}`}>{formatMnt(remainingMnt)}</dd>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dfe7dc]">
+                            <div className={`h-full rounded-full ${utilizationTone}`} style={{ width: `${Math.min(Math.max(utilizationPercent, 0), 100)}%` }} />
                           </div>
-                        ))}
+                          <p className="mt-1 text-[9px] font-semibold tabular-nums text-[#819087]">{utilizationPercent}% used</p>
+                        </div>
                       </dl>
+                      <details className="mt-2 rounded-lg border border-[#dce4da] bg-white px-3 py-2">
+                        <summary className="cursor-pointer text-xs font-bold text-[#315845]">More financial details</summary>
+                        <dl className="mt-2 grid grid-cols-2 gap-2 border-t border-[#edf1eb] pt-2">
+                          <div>
+                            <dt className="text-[11px] font-semibold text-[#718178]">Allocated</dt>
+                            <dd className={`mt-0.5 text-sm font-black tabular-nums ${allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#53685c]"}`}>{formatMnt(allocatedMnt)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-[11px] font-semibold text-[#718178]">Committed</dt>
+                            <dd className="mt-0.5 text-sm font-black tabular-nums text-[#183529]">{formatMnt(totals.commitment)}</dd>
+                          </div>
+                        </dl>
+                      </details>
                     </article>
                   );
                 })}
@@ -910,10 +1108,7 @@ export default function PlansModule({
                         openAddBudgetLine();
                         return;
                       }
-                      setQuery("");
-                      setSection("all");
-                      setGoal("all");
-                      setMember("all");
+                      resetFinanceFilters();
                     }}
                   >
                     {allBudgetLines.length ? "Clear filters" : "Add first budget line"}
