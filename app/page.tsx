@@ -264,11 +264,6 @@ type SubactivityPlanDraft = {
   progressSummary: string;
 };
 
-type WorkplanPreview = {
-  activityId: string;
-  subactivityId?: string;
-};
-
 type BudgetLineDraft = {
   code: string;
   title: string;
@@ -1493,8 +1488,6 @@ export default function Home() {
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activityTitleExpanded, setActivityTitleExpanded] = useState(false);
-  const [workplanPreview, setWorkplanPreview] =
-    useState<WorkplanPreview | null>(null);
   const [expandedWorkplanIds, setExpandedWorkplanIds] =
     useState<Set<string>>(new Set());
   const [workplanDensity, setWorkplanDensity] = useState<
@@ -1834,22 +1827,6 @@ export default function Home() {
       ? selected.titleMn
       : selected.title
     : "";
-
-  const workplanPreviewActivity = useMemo(
-    () =>
-      allActivities.find(
-        (item) => item.id === workplanPreview?.activityId,
-      ) ?? null,
-    [allActivities, workplanPreview],
-  );
-
-  const workplanPreviewSubactivity = useMemo(
-    () =>
-      workplanPreviewActivity?.subactivities.find(
-        (item) => item.id === workplanPreview?.subactivityId,
-      ) ?? null,
-    [workplanPreview, workplanPreviewActivity],
-  );
 
   const selectableTargets = useMemo(() => {
     if (!selected) return [];
@@ -3745,11 +3722,6 @@ export default function Home() {
       applyPlanResult(result);
       setPlanDialogOpen(false);
       setFormDirty(false);
-      setWorkplanPreview(
-        isActivity
-          ? { activityId: key }
-          : { activityId: editingPlanParentKey, subactivityId: key },
-      );
       if (isActivity && selectedId) setSelectedId(key);
       toast.success(editingPlanKey ? "Workplan item updated" : "Workplan item added");
     } catch (error) {
@@ -3787,15 +3759,6 @@ export default function Home() {
       applyPlanResult(result);
       if (planRecordType === "activity") {
         setSelectedId(null);
-        if (workplanPreview?.activityId === editingPlanKey) {
-          setWorkplanPreview(null);
-        }
-      } else if (workplanPreview?.subactivityId === editingPlanKey) {
-        setWorkplanPreview(
-          workplanPreview?.activityId
-            ? { activityId: workplanPreview.activityId }
-            : null,
-        );
       }
       setPlanDeleteOpen(false);
       setPlanDialogOpen(false);
@@ -6370,7 +6333,6 @@ export default function Home() {
                       setSelectedBudgetKey,
                       setStatus,
                       setWorkplanDensity,
-                      setWorkplanPreview,
                       setWorkplanSection,
                       setWorkstream,
                       status,
@@ -6384,9 +6346,6 @@ export default function Home() {
                       visibleProcurementItems,
                       workplanDensity,
                       workplanExporting,
-                      workplanPreview,
-                      workplanPreviewActivity,
-                      workplanPreviewSubactivity,
                       workplanSection,
                       workstream,
                       workstreams

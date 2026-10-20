@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Banknote, ChevronRight, CircleCheck, Download, FileSearch, History, ListChecks, PencilLine, Plus, ReceiptText, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Banknote, ChevronRight, Download, FileSearch, History, ListChecks, PencilLine, Plus, ReceiptText, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConsultantSelectionModule } from "@/components/consultant-selection-module";
 import { Input } from "@/components/ui/input";
@@ -80,7 +80,6 @@ export default function PlansModule({
   setSelectedBudgetKey,
   setStatus,
   setWorkplanDensity,
-  setWorkplanPreview,
   setWorkplanSection,
   setWorkstream,
   status,
@@ -94,9 +93,6 @@ export default function PlansModule({
   visibleProcurementItems,
   workplanDensity,
   workplanExporting,
-  workplanPreview,
-  workplanPreviewActivity,
-  workplanPreviewSubactivity,
   workplanSection,
   workstream,
   workstreams,
@@ -318,17 +314,18 @@ export default function PlansModule({
             )}
           </div>
 
-          <div className="grid min-[1380px]:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0 min-[1380px]:border-r min-[1380px]:border-[#dbe3d9]">
+          <div>
+            <div className="min-w-0">
               <div className="overflow-x-auto">
-                <div className="min-w-[912px]">
-                  <div className="sticky top-0 z-10 grid grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-[#718178]">
+                <div className="min-w-[1100px]">
+                  <div className="sticky top-0 z-10 grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-[#718178]">
                     <span>Code</span>
                     <span>Activity</span>
                     <span>Owner</span>
                     <span>Status</span>
                     <span>Progress</span>
                     <span className="text-right">Budget</span>
+                    <span className="text-right">Action</span>
                   </div>
 
                   <div className="max-h-[720px] overflow-y-auto">
@@ -356,9 +353,6 @@ export default function PlansModule({
                       );
                       const isExpanded =
                         expandedWorkplanIds.has(item.id) || matchingSubactivity;
-                      const isSelected =
-                        workplanPreview?.activityId === item.id &&
-                        !workplanPreview?.subactivityId;
                       const allocatedMnt =
                         allocationByActivityKey.get(item.id) ??
                         item.subactivities.reduce(
@@ -373,25 +367,9 @@ export default function PlansModule({
                       return (
                         <div key={item.id} className="border-b border-[#e4e9e2]">
                           <div
-                            role="button"
-                            tabIndex={0}
-                            aria-current={isSelected ? "true" : undefined}
-                            onClick={() =>
-                              setWorkplanPreview({ activityId: item.id })
-                            }
-                            onKeyDown={(event) => {
-                              if (event.target !== event.currentTarget) return;
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                setWorkplanPreview({ activityId: item.id });
-                              }
-                            }}
                             className={[
-                              "grid cursor-pointer grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] items-center gap-3 border-l-[3px] px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2c795a]",
+                              "grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] items-center gap-3 border-l-[3px] border-l-transparent bg-white px-3 text-left transition hover:bg-[#f4f8f1]",
                               rowSpacing,
-                              isSelected
-                                ? "relative z-[1] border-l-[#1d6c4d] bg-[#e6f0df]"
-                                : "border-l-transparent bg-white hover:bg-[#f4f8f1]",
                             ].join(" ")}
                           >
                             <div className="flex min-w-0 items-center gap-2">
@@ -421,9 +399,6 @@ export default function PlansModule({
                                   ].join(" ")}
                                 />
                               </button>
-                              {isSelected && (
-                                <CircleCheck className="h-3.5 w-3.5 shrink-0 text-[#1d6c4d]" aria-label="Selected" />
-                              )}
                               <span className="truncate font-mono text-xs font-black text-[#245f47]">
                                 {item.code || item.uid}
                               </span>
@@ -475,6 +450,14 @@ export default function PlansModule({
                             <p className={`text-right text-xs tabular-nums ${allocatedMnt === 0 ? "font-semibold text-[#9aa79f]" : "font-black text-[#315845]"}`}>
                               {formatMnt(allocatedMnt)}
                             </p>
+                            <button
+                              type="button"
+                              onClick={() => openActivity(item)}
+                              className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-2.5 text-[11px] font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
+                              aria-label={`Open full view for ${item.code || item.uid}`}
+                            >
+                              Full view
+                            </button>
                           </div>
 
                           {isExpanded && (
@@ -494,44 +477,16 @@ export default function PlansModule({
                                   subactivityOwner(subactivity, updates),
                                   teamMembers,
                                 );
-                                const subSelected =
-                                  workplanPreview?.subactivityId === subactivity.id;
                                 return (
                                   <div
                                     key={subactivity.id}
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-current={subSelected ? "true" : undefined}
-                                    onClick={() =>
-                                      setWorkplanPreview({
-                                        activityId: item.id,
-                                        subactivityId: subactivity.id,
-                                      })
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.target !== event.currentTarget) return;
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        setWorkplanPreview({
-                                          activityId: item.id,
-                                          subactivityId: subactivity.id,
-                                        });
-                                      }
-                                    }}
                                     className={[
-                                      "grid cursor-pointer grid-cols-[120px_minmax(258px,1fr)_118px_110px_98px_100px] items-center gap-3 border-t border-[#edf0eb] border-l-[3px] px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2c795a]",
+                                      "grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] items-center gap-3 border-t border-[#edf0eb] border-l-[3px] border-l-transparent px-3 text-left transition hover:bg-[#f8faf7]",
                                       workplanDensity === "compact" ? "py-1.5" : "py-3",
-                                      subSelected
-                                        ? "relative z-[1] border-l-[#1d6c4d] bg-[#edf5e8]"
-                                        : "border-l-transparent hover:bg-[#f8faf7]",
                                     ].join(" ")}
                                   >
                                     <div className="flex items-center gap-2 pl-9">
-                                      {subSelected ? (
-                                        <CircleCheck className="h-3 w-3 shrink-0 text-[#1d6c4d]" aria-label="Selected" />
-                                      ) : (
-                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
-                                      )}
+                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#83a18f]" />
                                       <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#718178]">
                                         Sub {subIndex + 1}
                                       </span>
@@ -589,6 +544,7 @@ export default function PlansModule({
                                         </p>
                                       );
                                     })()}
+                                    <span aria-hidden="true" />
                                   </div>
                                 );
                               })}
@@ -649,163 +605,6 @@ export default function PlansModule({
               </div>
             </div>
 
-            <aside className="border-t border-[#dbe3d9] bg-[#f7f9f5] p-3 min-[1380px]:border-t-0">
-              <div className="min-[1380px]:sticky min-[1380px]:top-4">
-                {workplanPreviewActivity ? (
-                  (() => {
-                    const activity = workplanPreviewActivity;
-                    const subactivity = workplanPreviewSubactivity;
-                    const previewStatus = subactivity
-                      ? recordStatus(
-                          subactivity.id,
-                          subactivity.status as StatusKey,
-                          updates,
-                        )
-                      : deriveActivityStatus(activity, updates);
-                    const previewProgress = subactivity
-                      ? recordProgress(
-                          subactivity.id,
-                          statusMetaFor(subactivity.status as StatusKey).weight,
-                          updates,
-                        )
-                      : deriveActivityProgress(activity, updates);
-                    const previewResponsibility = responsibilityParts(
-                      subactivity
-                        ? subactivityOwner(subactivity, updates)
-                        : activityOwner(activity, updates),
-                      teamMembers,
-                    );
-                    const previewAllocation = subactivity
-                      ? allocationByActivityKey.get(subactivity.id) ?? 0
-                      : allocationByActivityKey.get(activity.id) ??
-                        activity.subactivities.reduce(
-                          (total, item) =>
-                            total + (allocationByActivityKey.get(item.id) ?? 0),
-                          0,
-                        );
-
-                    return (
-                      <div className="flex min-h-[500px] flex-col overflow-hidden rounded-xl border border-[#cfdacf] bg-white shadow-[0_8px_24px_rgba(20,36,27,0.07)]">
-                        <div className="bg-[#0c3b2d] p-3.5 text-white">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-100/65">
-                                {subactivity ? "Sub-activity" : "Main activity"}
-                              </p>
-                              <p className="mt-0.5 font-mono text-xs font-black text-[#dbf081]">
-                                {activity.code || activity.uid}
-                              </p>
-                            </div>
-                            <StatusPill status={previewStatus} label={metadataLabel("status", previewStatus)} />
-                          </div>
-                          <h3 className="mt-2.5 line-clamp-4 text-[15px] font-black leading-5">
-                            {subactivity
-                              ? subactivity.title
-                              : language === "mn" && activity.titleMn?.trim()
-                                ? activity.titleMn
-                                : activity.title}
-                          </h3>
-                          <div className="mt-3 flex items-end justify-between gap-3">
-                            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/55">
-                              Progress
-                            </span>
-                            <span className="text-lg font-black text-[#dbf081]">
-                              {previewProgress}%
-                            </span>
-                          </div>
-                          <Progress
-                            value={previewProgress}
-                            className="mt-1.5 h-1.5 bg-white/15 [&_[data-slot=progress-indicator]]:bg-[#dbf081]"
-                          />
-                        </div>
-
-                        <div className="flex flex-1 flex-col p-3.5">
-                          <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
-                            <div>
-                              <dt className="font-bold text-[#819087]">Start</dt>
-                              <dd className="mt-1 font-black text-[#294438]">
-                                {formatDate(
-                                  subactivity?.startDate || activity.startDate,
-                                  language,
-                                )}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="font-bold text-[#819087]">Due</dt>
-                              <dd className="mt-1 font-black text-[#294438]">
-                                {formatDate(
-                                  subactivity?.endDate || activity.endDate,
-                                  language,
-                                )}
-                              </dd>
-                            </div>
-                            <div className="col-span-2 border-t border-[#edf1eb] pt-3">
-                              <dt className="font-bold text-[#819087]">Accountable owner</dt>
-                              <dd
-                                className={[
-                                  "mt-1 font-black",
-                                  previewResponsibility.accountable
-                                    ? "text-[#294438]"
-                                    : "text-rose-700",
-                                ].join(" ")}
-                              >
-                                {previewResponsibility.accountable || "Owner required"}
-                              </dd>
-                              {previewResponsibility.supporting.length > 0 && (
-                                <div className="mt-2 rounded-lg bg-[#f1f6ee] p-2.5">
-                                  <dt className="font-bold text-[#819087]">Supporting owner</dt>
-                                  <dd className="mt-1 font-bold text-[#294438]">
-                                    {previewResponsibility.supporting.join(", ")}
-                                  </dd>
-                                </div>
-                              )}
-                            </div>
-                            {!subactivity && (
-                              <div>
-                                <dt className="font-bold text-[#819087]">Sub-activities</dt>
-                                <dd className="mt-1 text-base font-black text-[#245f47]">
-                                  {activity.subactivities.length}
-                                </dd>
-                              </div>
-                            )}
-                            <div className={subactivity ? "col-span-2" : ""}>
-                              <dt className="font-bold text-[#819087]">Allocated budget</dt>
-                              <dd className="mt-1 text-base font-black text-[#245f47]">
-                                {formatMnt(previewAllocation)}
-                              </dd>
-                            </div>
-                            {subactivity && (
-                              <div className="col-span-2">
-                                <dt className="font-bold text-[#819087]">Type of procurement</dt>
-                                <dd className="mt-1 font-bold text-[#294438]">
-                                  {metadataLabel("procurement_type", procurementTypeForSubactivity(subactivity))}
-                                </dd>
-                              </div>
-                            )}
-                          </dl>
-
-                          <Button
-                            size="sm"
-                            onClick={() => openActivity(activity)}
-                            className="mt-auto h-9 w-full bg-[#0c3b2d] text-xs font-black text-white hover:bg-[#174d3a]"
-                          >
-                            Full view
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-[#bac9bd] bg-white px-5 py-12 text-center">
-                    <ListChecks className="mx-auto h-7 w-7 text-[#6f8a7b]" />
-                    <h3 className="mt-3 font-black">Quick details</h3>
-                    <p className="mt-1 text-xs leading-5 text-[#718178]">
-                      Select a main activity or sub-activity to view its owner, status, progress, budget, and available actions.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </aside>
           </div>
         </section>
         ) : workplanSection === "procurement" ? (
