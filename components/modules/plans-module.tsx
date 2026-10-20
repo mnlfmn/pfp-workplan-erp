@@ -81,7 +81,6 @@ export default function PlansModule({
   setSection,
   setSelectedBudgetKey,
   setStatus,
-  setWorkplanDensity,
   setWorkplanSection,
   setWorkstream,
   status,
@@ -93,7 +92,6 @@ export default function PlansModule({
   visibleAllocations,
   visibleFinanceEntries,
   visibleProcurementItems,
-  workplanDensity,
   workplanExporting,
   workplanSection,
   workstream,
@@ -103,6 +101,7 @@ export default function PlansModule({
     key: FinanceSortKey | null;
     direction: "asc" | "desc";
   }>({ key: null, direction: "desc" });
+  const [selectedWorkplanRowKey, setSelectedWorkplanRowKey] = useState<string | null>(null);
 
   const resetWorkplanFilters = () => {
     setQuery("");
@@ -267,23 +266,6 @@ export default function PlansModule({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-lg border border-[#cbd6cc] bg-[#f5f8f3] p-1">
-                  {(["compact", "comfortable"] as const).map((density) => (
-                    <button
-                      type="button"
-                      key={density}
-                      onClick={() => setWorkplanDensity(density)}
-                      className={[
-                        "h-7 rounded-md px-2.5 text-xs font-black capitalize transition",
-                        workplanDensity === density
-                          ? "bg-white text-[#174734] shadow-sm"
-                          : "text-[#718178] hover:text-[#174734]",
-                      ].join(" ")}
-                    >
-                      {density}
-                    </button>
-                  ))}
-                </div>
                 <Button
                   onClick={openAddActivity}
                   className="h-9 bg-[#0c3b2d] px-3 text-xs text-white hover:bg-[#174d3a]"
@@ -402,8 +384,8 @@ export default function PlansModule({
           <div>
             <div className="min-w-0">
               <div className="overflow-x-auto">
-                <div className="min-w-[1100px]">
-                  <div className="sticky top-0 z-10 grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-[#718178]">
+                <div className="min-w-[1140px]">
+                  <div className="sticky top-0 z-10 grid grid-cols-[120px_minmax(320px,1fr)_140px_132px_105px_120px_90px] gap-3 border-b border-[#dfe6dd] bg-[#f5f8f3] px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-[#718178]">
                     <span>Code</span>
                     <span>Activity</span>
                     <span>Owner</span>
@@ -446,15 +428,17 @@ export default function PlansModule({
                             (allocationByActivityKey.get(subactivity.id) ?? 0),
                           0,
                         );
-                      const rowSpacing =
-                        workplanDensity === "compact" ? "py-2" : "py-3.5";
+                      const isSelected = selectedWorkplanRowKey === item.id;
 
                       return (
                         <div key={item.id} className="border-b border-[#e4e9e2]">
                           <div
+                            onClick={() => setSelectedWorkplanRowKey(item.id)}
                             className={[
-                              "grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] items-center gap-3 border-l-[3px] border-l-transparent bg-white px-3 text-left transition hover:bg-[#f4f8f1]",
-                              rowSpacing,
+                              "grid cursor-pointer grid-cols-[120px_minmax(320px,1fr)_140px_132px_105px_120px_90px] items-center gap-3 border-l-[3px] px-3 py-2 text-left transition",
+                              isSelected
+                                ? "border-l-[#2c795a] bg-[#e7f1df] ring-1 ring-inset ring-[#9bb69f] hover:bg-[#e7f1df]"
+                                : "border-l-transparent bg-white hover:bg-[#f4f8f1]",
                             ].join(" ")}
                           >
                             <div className="flex min-w-0 items-center gap-2">
@@ -490,14 +474,7 @@ export default function PlansModule({
                             </div>
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-2">
-                                <p
-                                  className={[
-                                    "min-w-0 flex-1 font-black text-[#173228]",
-                                    workplanDensity === "compact"
-                                      ? "line-clamp-2 text-sm leading-4"
-                                      : "line-clamp-2 text-[15px] leading-5",
-                                  ].join(" ")}
-                                >
+                                <p className="min-w-0 flex-1 break-words text-sm font-black leading-5 text-[#173228]">
                                   {language === "mn" && item.titleMn?.trim()
                                     ? item.titleMn
                                     : item.title}
@@ -537,7 +514,11 @@ export default function PlansModule({
                             </p>
                             <button
                               type="button"
-                              onClick={() => openActivity(item)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedWorkplanRowKey(item.id);
+                                openActivity(item);
+                              }}
                               className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-2.5 text-[11px] font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2c795a]"
                               aria-label={`Open full view for ${item.code || item.uid}`}
                             >
@@ -562,12 +543,25 @@ export default function PlansModule({
                                   subactivityOwner(subactivity, updates),
                                   teamMembers,
                                 );
+                                const isSelectedSubactivity =
+                                  selectedWorkplanRowKey === subactivity.id;
                                 return (
                                   <div
                                     key={subactivity.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setSelectedWorkplanRowKey(subactivity.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        setSelectedWorkplanRowKey(subactivity.id);
+                                      }
+                                    }}
                                     className={[
-                                      "grid grid-cols-[120px_minmax(320px,1fr)_140px_112px_105px_120px_90px] items-center gap-3 border-t border-[#edf0eb] border-l-[3px] border-l-transparent px-3 text-left transition hover:bg-[#f8faf7]",
-                                      workplanDensity === "compact" ? "py-1.5" : "py-3",
+                                      "grid cursor-pointer grid-cols-[120px_minmax(320px,1fr)_140px_132px_105px_120px_90px] items-center gap-3 border-t border-[#edf0eb] border-l-[3px] px-3 py-1.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2c795a]",
+                                      isSelectedSubactivity
+                                        ? "border-l-[#2c795a] bg-[#edf5e8] ring-1 ring-inset ring-[#adc3ae] hover:bg-[#edf5e8]"
+                                        : "border-l-transparent bg-white hover:bg-[#f8faf7]",
                                     ].join(" ")}
                                   >
                                     <div className="flex items-center gap-2 pl-9">
@@ -578,14 +572,7 @@ export default function PlansModule({
                                     </div>
                                     <div className="min-w-0">
                                       <div className="flex min-w-0 items-center gap-2">
-                                        <p
-                                          className={[
-                                            "min-w-0 flex-1 font-bold text-[#294438]",
-                                            workplanDensity === "compact"
-                                              ? "line-clamp-1 text-xs"
-                                              : "line-clamp-2 text-sm",
-                                          ].join(" ")}
-                                        >
+                                        <p className="min-w-0 flex-1 break-words text-xs font-bold leading-4 text-[#294438]">
                                           {subactivity.title}
                                         </p>
                                       </div>

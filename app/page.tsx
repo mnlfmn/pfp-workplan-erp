@@ -885,7 +885,7 @@ function StatusPill({ status, label }: { status: StatusKey; label?: string }) {
   const meta = statusMetaFor(status);
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
       {label ?? meta.label}
@@ -1494,9 +1494,6 @@ export default function Home() {
   const [subactivityOrderSaving, setSubactivityOrderSaving] = useState(false);
   const [expandedWorkplanIds, setExpandedWorkplanIds] =
     useState<Set<string>>(new Set());
-  const [workplanDensity, setWorkplanDensity] = useState<
-    "compact" | "comfortable"
-  >("compact");
   const [workplanSection, setWorkplanSection] = useState<
     "finance" | "activities" | "procurement" | "consultant-selection"
   >("activities");
@@ -2323,9 +2320,7 @@ export default function Home() {
         }
       }
       setFormDirty(false);
-      if (activeTarget.kind === "subactivity") {
-        setEditKey("");
-      }
+      setEditKey("");
       toast.success("Workplan update saved", {
         description: `${metadataLabel("status", update.status)} · ${update.progress}%`,
       });
@@ -4621,6 +4616,10 @@ export default function Home() {
       ),
     [allActivities, metadata.status, updates],
   );
+  const dashboardStatusKeys = useMemo(
+    () => statusKeys.filter((key) => key !== "not_reported"),
+    [statusKeys],
+  );
 
   const memberActivities = useMemo(
     () =>
@@ -5434,15 +5433,15 @@ export default function Home() {
 
   const overallStatusSummary = useMemo(() => {
     const counts = Object.fromEntries(
-      statusKeys.map((key) => [key, 0]),
+      dashboardStatusKeys.map((key) => [key, 0]),
     ) as Record<StatusKey, number>;
     for (const activity of dashboardActivities) {
       const key = deriveActivityStatus(activity, updates);
-      counts[key] = (counts[key] ?? 0) + 1;
+      if (key !== "not_reported") counts[key] = (counts[key] ?? 0) + 1;
     }
-    const total = dashboardActivities.length;
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
     let cursor = 0;
-    const segments = statusKeys.flatMap((key) => {
+    const segments = dashboardStatusKeys.flatMap((key) => {
       const start = cursor;
       cursor += total ? (counts[key] / total) * 100 : 0;
       return counts[key]
@@ -5456,7 +5455,7 @@ export default function Home() {
         ? `conic-gradient(${segments.join(", ")})`
         : "conic-gradient(#e1e6e2 0 100%)",
     };
-  }, [dashboardActivities, statusKeys, updates]);
+  }, [dashboardActivities, dashboardStatusKeys, updates]);
 
   const goalRows = useMemo(() => {
     const orderedGoals = [...goals].sort((a, b) => {
@@ -6335,7 +6334,7 @@ export default function Home() {
                       setStatus,
                       setWorkplanSection,
                       statusChartColor,
-                      statusKeys,
+                      statusKeys: dashboardStatusKeys,
                       teamMembers
                     }}
                   />
@@ -6417,7 +6416,6 @@ export default function Home() {
                       setSection,
                       setSelectedBudgetKey,
                       setStatus,
-                      setWorkplanDensity,
                       setWorkplanSection,
                       setWorkstream,
                       status,
@@ -6429,7 +6427,6 @@ export default function Home() {
                       visibleAllocations,
                       visibleFinanceEntries,
                       visibleProcurementItems,
-                      workplanDensity,
                       workplanExporting,
                       workplanSection,
                       workstream,
@@ -7241,25 +7238,6 @@ export default function Home() {
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1.5 block text-sm font-bold">Type of procurement</span>
-                    <NativeSelect
-                      value={subactivityPlanDraft.procurementType}
-                      onChange={(event) =>
-                        setSubactivityPlanDraft((current) => ({
-                          ...current,
-                          procurementType: event.target.value as ProcurementType,
-                        }))
-                      }
-                      className="h-11 w-full border-[#cbd6cc] bg-white"
-                    >
-                      {procurementTypeOptions.map((item) => (
-                        <NativeSelectOption key={item.value} value={item.value}>
-                          {item.label}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </label>
-                  <label className="block">
                     <span className="mb-1.5 block text-sm font-bold">Start date</span>
                     <Input
                       type="date"
@@ -7280,6 +7258,25 @@ export default function Home() {
                       }
                       className="h-11 border-[#cbd6cc] bg-white"
                     />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 block text-sm font-bold">Type of procurement</span>
+                    <NativeSelect
+                      value={subactivityPlanDraft.procurementType}
+                      onChange={(event) =>
+                        setSubactivityPlanDraft((current) => ({
+                          ...current,
+                          procurementType: event.target.value as ProcurementType,
+                        }))
+                      }
+                      className="h-11 w-full border-[#cbd6cc] bg-white"
+                    >
+                      {procurementTypeOptions.map((item) => (
+                        <NativeSelectOption key={item.value} value={item.value}>
+                          {item.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
                   </label>
                 </div>
               )}
