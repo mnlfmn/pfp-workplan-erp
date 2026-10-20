@@ -34,6 +34,7 @@ type ActivityRecord = JsonRecord & {
 type SubactivityRecord = JsonRecord & {
   id: string;
   activityId: string;
+  sortOrder?: unknown;
 };
 type BudgetRecord = JsonRecord & {
   id: string;
@@ -152,10 +153,21 @@ async function materializeYear(year: number) {
   for (const activity of activityMap.values()) {
     activity.subactivities = [...subactivityMap.values()]
       .filter((item) => item.activityId === activity.id)
-      .sort((a, b) =>
-        String(a.startDate ?? "").localeCompare(String(b.startDate ?? "")) ||
-        String(a.title ?? "").localeCompare(String(b.title ?? "")),
-      );
+      .sort((a, b) => {
+        const aOrder = Number(a.sortOrder);
+        const bOrder = Number(b.sortOrder);
+        const aHasOrder = Number.isFinite(aOrder);
+        const bHasOrder = Number.isFinite(bOrder);
+        if (aHasOrder || bHasOrder) {
+          if (!aHasOrder) return 1;
+          if (!bHasOrder) return -1;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+        }
+        return (
+          String(a.startDate ?? "").localeCompare(String(b.startDate ?? "")) ||
+          String(a.title ?? "").localeCompare(String(b.title ?? ""))
+        );
+      });
   }
 
   const budgetMap = new Map(budgets.map((item) => [item.id, item]));
@@ -267,6 +279,7 @@ export async function POST(request: Request) {
       recordType?: string;
       recordKey?: string;
       parentKey?: string;
+      orderedKeys?: string[];
       record?: JsonRecord;
     };
     const db = getDb();
@@ -779,6 +792,68 @@ export async function POST(request: Request) {
         },
         { status: 201 },
       );
+    }
+
+    if (payload.action === "reorder_subactivities") {
+      const year = Number(payload.year);
+      const parentKey = payload.parentKey?.trim() ?? "";
+      const orderedKeys = Array.isArray(payload.orderedKeys)
+        ? payload.orderedKeys.filter(
+            (key): key is string => typeof key === "string" && Boolean(key.trim()),
+          )
+        : [];
+      if (
+        !Number.isInteger(year) ||
+        year < BASE_YEAR ||
+        year > 2100 ||
+        !parentKey ||
+        orderedKeys.length > 250 ||
+        new Set(orderedKeys).size !== orderedKeys.length
+      ) {
+        return Response.json({ error: "Choose a valid sub-activity order." }, { status: 400 });
+      }
+
+      const currentPlan = await materializeYear(year);
+      const activity = currentPlan.activities.find((item) => item.id === parentKey);
+      const currentKeys = activity?.subactivities.map((item) => item.id) ?? [];
+      if (
+        !activity ||
+        orderedKeys.length !== currentKeys.length ||
+        currentKeys.some((key) => !orderedKeys.includes(key))
+      ) {
+        return Response.json(
+          { error: "The sub-activity list changed. Refresh and try again." },
+          { status: 409 },
+        );
+      }
+
+      if (orderedKeys.length) {
+        const byId = new Map(activity.subactivities.map((item) => [item.id, item]));
+        const writes: BatchItem<"sqlite">[] = orderedKeys.map((key, index) => {
+          const record = byId.get(key)!;
+          const values = {
+            id: recordId(year, "subactivity", key),
+            planYear: year,
+            recordType: "subactivity",
+            recordKey: key,
+            parentKey,
+            payload: JSON.stringify({ ...record, sortOrder: index }),
+            isDeleted: 0,
+            updatedAt: now,
+            updatedBy,
+          };
+          return db
+            .insert(workplanRecords)
+            .values({ ...values, createdAt: now })
+            .onConflictDoUpdate({ target: workplanRecords.id, set: values });
+        });
+        await db.batch(
+          writes as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+        );
+      }
+
+      const plan = await materializeYear(year);
+      return Response.json({ year, ...plan });
     }
 
     const year = Number(payload.year);

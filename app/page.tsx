@@ -2,12 +2,15 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   AlertTriangle,
   BarChart3,
   CalendarDays,
   ChevronRight,
   CircleCheck,
   Ellipsis,
+  GripVertical,
   History,
   LayoutDashboard,
   ListChecks,
@@ -86,6 +89,7 @@ type BaseActivity = (typeof workplan.activities)[number];
 type ProcurementType = string;
 type Subactivity = BaseActivity["subactivities"][number] & {
   procurementType?: ProcurementType;
+  sortOrder?: number;
 };
 type Activity = Omit<BaseActivity, "subactivities"> & {
   subactivities: Subactivity[];
@@ -1487,6 +1491,9 @@ export default function Home() {
   const [workstream, setWorkstream] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activityTitleExpanded, setActivityTitleExpanded] = useState(false);
+  const [draggedSubactivityId, setDraggedSubactivityId] = useState<string | null>(null);
+  const [dragOverSubactivityId, setDragOverSubactivityId] = useState<string | null>(null);
+  const [subactivityOrderSaving, setSubactivityOrderSaving] = useState(false);
   const [expandedWorkplanIds, setExpandedWorkplanIds] =
     useState<Set<string>>(new Set());
   const [workplanDensity, setWorkplanDensity] = useState<
@@ -3619,6 +3626,83 @@ export default function Home() {
     setPlanDialogOpen(true);
   }
 
+  async function saveSubactivityOrder(activity: Activity, orderedIds: string[]) {
+    if (subactivityOrderSaving) return;
+    const currentIds = activity.subactivities.map((item) => item.id);
+    if (
+      orderedIds.length !== currentIds.length ||
+      orderedIds.every((id, index) => id === currentIds[index])
+    ) {
+      return;
+    }
+
+    const previousActivities = allActivities;
+    const byId = new Map(activity.subactivities.map((item) => [item.id, item]));
+    const reordered = orderedIds
+      .map((id, index) => {
+        const item = byId.get(id);
+        return item ? { ...item, sortOrder: index } : null;
+      })
+      .filter((item): item is Subactivity => Boolean(item));
+
+    setAllActivities((current) =>
+      current.map((item) =>
+        item.id === activity.id ? { ...item, subactivities: reordered } : item,
+      ),
+    );
+    setSubactivityOrderSaving(true);
+    try {
+      const response = await fetch("/api/workplan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "reorder_subactivities",
+          year: selectedYear,
+          parentKey: activity.id,
+          orderedKeys: orderedIds,
+        }),
+      });
+      const result = (await response.json()) as {
+        activities?: Activity[];
+        budgetLines?: BudgetLine[];
+        error?: string;
+      };
+      if (!response.ok || !result.activities || !result.budgetLines) {
+        throw new Error(result.error || "The sub-activity order could not be saved.");
+      }
+      applyPlanResult(result);
+      toast.success("Sub-activity order updated");
+    } catch (error) {
+      setAllActivities(previousActivities);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The sub-activity order could not be saved.",
+      );
+    } finally {
+      setSubactivityOrderSaving(false);
+      setDraggedSubactivityId(null);
+      setDragOverSubactivityId(null);
+    }
+  }
+
+  function moveSubactivity(activity: Activity, fromIndex: number, toIndex: number) {
+    if (
+      subactivityOrderSaving ||
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= activity.subactivities.length ||
+      toIndex >= activity.subactivities.length
+    ) {
+      return;
+    }
+    const orderedIds = activity.subactivities.map((item) => item.id);
+    const [movedId] = orderedIds.splice(fromIndex, 1);
+    orderedIds.splice(toIndex, 0, movedId);
+    void saveSubactivityOrder(activity, orderedIds);
+  }
+
   async function savePlanRecord() {
     const isActivity = planRecordType === "activity";
     const title = isActivity
@@ -3695,6 +3779,10 @@ export default function Home() {
           executor: currentSubactivity?.executor ?? "",
           id: key,
           activityId: editingPlanParentKey,
+          sortOrder:
+            currentSubactivity?.sortOrder ??
+            allActivities.find((item) => item.id === editingPlanParentKey)?.subactivities.length ??
+            0,
           rawStatus: currentSubactivity?.rawStatus ?? "Not started",
           sourceRow: currentSubactivity?.sourceRow ?? 0,
         };
@@ -9778,7 +9866,7 @@ export default function Home() {
                     <div>
                       <h3 className="text-base font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
-                        {selected.subactivities.length} items · use the action menu to update, edit details, or view history
+                        {selected.subactivities.length} items · drag the handle to reorder, or use the action menu
                       </p>
                     </div>
                     <Button
@@ -9803,17 +9891,59 @@ export default function Home() {
                       return (
                         <article
                           key={sub.id}
-                          className={isEditing ? "bg-[#f1f7ee] px-1.5 py-2 ring-1 ring-inset ring-[#4c8166]" : "bg-white px-1.5 py-2 transition-colors hover:bg-[#f8faf7]"}
+                          onDragOver={(event) => {
+                            if (!draggedSubactivityId || subactivityOrderSaving) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragOverSubactivityId(sub.id);
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverSubactivityId === sub.id) setDragOverSubactivityId(null);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const draggedId =
+                              draggedSubactivityId || event.dataTransfer.getData("text/plain");
+                            const fromIndex = selected.subactivities.findIndex(
+                              (item) => item.id === draggedId,
+                            );
+                            moveSubactivity(selected, fromIndex, index);
+                          }}
+                          className={`${
+                            isEditing
+                              ? "bg-[#f1f7ee] ring-1 ring-inset ring-[#4c8166]"
+                              : "bg-white hover:bg-[#f8faf7]"
+                          } ${
+                            dragOverSubactivityId === sub.id && draggedSubactivityId !== sub.id
+                              ? "bg-[#edf6e8] ring-2 ring-inset ring-[#2c795a]"
+                              : ""
+                          } px-1.5 py-2 transition-colors`}
                         >
                           <div className="grid min-h-[58px] items-center gap-2.5 sm:grid-cols-[36px_minmax(0,1fr)_130px_104px_34px]">
-                            <span className="hidden h-8 w-8 place-items-center rounded-lg bg-[#e8f1e6] text-[#2c795a] sm:grid">
-                              <ListChecks className="h-3.5 w-3.5" />
-                            </span>
+                            <button
+                              type="button"
+                              draggable={!subactivityOrderSaving}
+                              disabled={subactivityOrderSaving}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/plain", sub.id);
+                                setDraggedSubactivityId(sub.id);
+                              }}
+                              onDragEnd={() => {
+                                setDraggedSubactivityId(null);
+                                setDragOverSubactivityId(null);
+                              }}
+                              className="hidden h-8 w-8 cursor-grab place-items-center rounded-lg bg-[#e8f1e6] text-[#2c795a] hover:bg-[#dcebd9] active:cursor-grabbing disabled:cursor-wait disabled:opacity-50 sm:grid"
+                              aria-label={`Drag to reorder sub-activity ${index + 1}`}
+                              title="Drag to reorder"
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </button>
                             <div className="min-w-0">
                               <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#5f796a]">
                                 Sub-activity {index + 1}
                               </p>
-                              <p className={`mt-0.5 text-sm font-black leading-5 ${isEditing ? "" : "line-clamp-2"}`}>
+                              <p className="mt-0.5 break-words text-sm font-black leading-5">
                                 {sub.title}
                               </p>
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#718178]">
@@ -9856,6 +9986,23 @@ export default function Home() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem
+                                  disabled={index === 0 || subactivityOrderSaving}
+                                  onClick={() => moveSubactivity(selected, index, index - 1)}
+                                >
+                                  <ArrowUp className="h-4 w-4" />
+                                  Move up
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={
+                                    index === selected.subactivities.length - 1 ||
+                                    subactivityOrderSaving
+                                  }
+                                  onClick={() => moveSubactivity(selected, index, index + 1)}
+                                >
+                                  <ArrowDown className="h-4 w-4" />
+                                  Move down
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openUpdateEditor(targetForSubactivity(sub))}>
                                   <PencilLine className="h-4 w-4" />
                                   Update
