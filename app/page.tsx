@@ -2,8 +2,6 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
-  ArrowUp,
   AlertTriangle,
   BarChart3,
   CalendarDays,
@@ -9866,7 +9864,7 @@ export default function Home() {
                     <div>
                       <h3 className="text-base font-black">Sub-activities</h3>
                       <p className="mt-0.5 text-xs text-[#718178]">
-                        {selected.subactivities.length} items · drag the handle to reorder, or use the action menu
+                        {selected.subactivities.length} items · drag the handle to change their order
                       </p>
                     </div>
                     <Button
@@ -9986,23 +9984,6 @@ export default function Home() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-44">
-                                <DropdownMenuItem
-                                  disabled={index === 0 || subactivityOrderSaving}
-                                  onClick={() => moveSubactivity(selected, index, index - 1)}
-                                >
-                                  <ArrowUp className="h-4 w-4" />
-                                  Move up
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={
-                                    index === selected.subactivities.length - 1 ||
-                                    subactivityOrderSaving
-                                  }
-                                  onClick={() => moveSubactivity(selected, index, index + 1)}
-                                >
-                                  <ArrowDown className="h-4 w-4" />
-                                  Move down
-                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openUpdateEditor(targetForSubactivity(sub))}>
                                   <PencilLine className="h-4 w-4" />
                                   Update
