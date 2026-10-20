@@ -1574,7 +1574,6 @@ export default function Home() {
   const [financeCreatorFilter, setFinanceCreatorFilter] = useState("all");
   const [financeDateFrom, setFinanceDateFrom] = useState("");
   const [financeDateTo, setFinanceDateTo] = useState("");
-  const [budgetDetailFiltersOpen, setBudgetDetailFiltersOpen] = useState(false);
   const [financeEntriesExpanded, setFinanceEntriesExpanded] = useState(false);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
@@ -5006,13 +5005,6 @@ export default function Home() {
     [financeCreatorFilter, financeDateFrom, financeDateTo],
   );
 
-  const financeEntryMatchesBudgetDetailFilters = useCallback(
-    (entry: FinanceEntry) =>
-      (!financeDateFrom || entry.entryDate >= financeDateFrom) &&
-      (!financeDateTo || entry.entryDate <= financeDateTo),
-    [financeDateFrom, financeDateTo],
-  );
-
   const visibleFinanceEntries = useMemo(
     () => financeStats.relevantEntries.filter(financeEntryMatchesFilters),
     [financeEntryMatchesFilters, financeStats.relevantEntries],
@@ -7687,7 +7679,6 @@ export default function Home() {
             setSelectedBudgetKey(null);
             setExpandedFinanceActivityKeys(new Set());
             setExpandedFinanceRecordKeys(new Set());
-            setBudgetDetailFiltersOpen(false);
           }
         }}
       >
@@ -7786,78 +7777,8 @@ export default function Home() {
                 );
               })()}
 
-              <div className="shrink-0 rounded-xl border border-[#dce4da] bg-[#f7faf5] p-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#496458]">
-                      Finance record filters
-                    </p>
-                    {!budgetDetailFiltersOpen && (
-                      <p className="mt-0.5 text-[11px] text-[#718178]">
-                        {financeDateFrom || financeDateTo
-                          ? "Filters are active"
-                          : "All dates"}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {(financeDateFrom || financeDateTo) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setFinanceDateFrom("");
-                          setFinanceDateTo("");
-                        }}
-                        className="h-7 px-2 text-xs"
-                      >
-                        Clear
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setBudgetDetailFiltersOpen((current) => !current)}
-                      aria-expanded={budgetDetailFiltersOpen}
-                      className="h-7 px-2.5 text-xs"
-                    >
-                      {budgetDetailFiltersOpen ? "Hide filters" : "Show filters"}
-                    </Button>
-                  </div>
-                </div>
-                {budgetDetailFiltersOpen && (
-                  <>
-                    <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
-                      <label className="block">
-                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">From</span>
-                        <Input
-                          type="date"
-                          value={financeDateFrom}
-                          onChange={(event) => setFinanceDateFrom(event.target.value)}
-                          className="h-8 border-[#ced8cf] bg-white"
-                          aria-label="Filter budget-line records from date"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">To</span>
-                        <Input
-                          type="date"
-                          value={financeDateTo}
-                          onChange={(event) => setFinanceDateTo(event.target.value)}
-                          className="h-8 border-[#ced8cf] bg-white"
-                          aria-label="Filter budget-line records to date"
-                        />
-                      </label>
-                    </div>
-                    <p className="mt-1.5 text-[10px] text-[#718178]">
-                      Filters change record lists only; totals always include every saved record.
-                    </p>
-                  </>
-                )}
-              </div>
-
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d7ded5] bg-white">
-                <div className="hidden shrink-0 grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_88px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] xl:grid">
+                <div className="hidden shrink-0 grid-cols-[minmax(320px,1.6fr)_100px_140px_125px_135px_125px_112px] gap-2 border-b border-[#dfe6dd] bg-[#f5f8f3] px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] xl:grid">
                   <span>Activity</span>
                   <span>Owners</span>
                   <span className="text-right">Allocation</span>
@@ -7904,9 +7825,6 @@ export default function Home() {
                     (entry) =>
                       entry.budgetKey === selectedBudgetLine.id &&
                       rollupKeys.has(entry.activityKey),
-                  );
-                  const visibleTargetEntries = targetEntries.filter(
-                    financeEntryMatchesBudgetDetailFilters,
                   );
                   const targetContracts = contracts.filter(
                     (contract) =>
@@ -8005,26 +7923,26 @@ export default function Home() {
                         ? "text-amber-700"
                         : "text-[#245f47]";
                   const financeRecordCount =
-                    visibleTargetEntries.length + targetContracts.length;
+                    targetEntries.length + targetContracts.length;
                   return (
                     <article
                       key={target.key}
-                      className={`overflow-hidden rounded-lg border transition hover:border-[#aebfb2] ${target.kind === "subactivity" ? "ml-4 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cfdacf] bg-white"}`}
+                      className={`overflow-hidden rounded-lg border transition hover:border-[#aebfb2] ${target.kind === "subactivity" ? "ml-2 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-4" : "border-[#cfdacf] bg-white"}`}
                     >
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-3 xl:grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_88px] xl:items-center xl:gap-x-2.5">
-                        <div className="col-span-2 flex min-w-0 items-start gap-2.5 sm:col-span-3 xl:col-span-1">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-2.5 sm:grid-cols-3 xl:grid-cols-[minmax(320px,1.6fr)_100px_140px_125px_135px_125px_112px] xl:items-center xl:gap-x-2">
+                        <div className="col-span-2 flex min-w-0 items-start gap-1.5 sm:col-span-3 xl:col-span-1">
                           {target.kind === "activity" && subactivityCount > 0 ? (
                             <button
                               type="button"
                               onClick={() => toggleFinanceActivity(target.activityId)}
                               aria-expanded={activityExpanded}
                               aria-label={activityExpanded ? "Hide sub-activities" : `View ${subactivityCount} sub-activities`}
-                              className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#b9c8bc] bg-white text-[#245f47] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                              className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border border-[#b9c8bc] bg-white text-[#245f47] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
                             >
-                              <ChevronRight className={`h-4 w-4 transition-transform ${activityExpanded ? "rotate-90" : ""}`} />
+                              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${activityExpanded ? "rotate-90" : ""}`} />
                             </button>
                           ) : (
-                            <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${target.kind === "activity" ? "bg-[#e5efe2] text-[#236447]" : "bg-[#eef3ec] text-[#718178]"}`}>
+                            <div className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md ${target.kind === "activity" ? "bg-[#e5efe2] text-[#236447]" : "bg-[#eef3ec] text-[#718178]"}`}>
                               <ListChecks className="h-3.5 w-3.5" />
                             </div>
                           )}
@@ -8054,45 +7972,28 @@ export default function Home() {
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Allocation</p>
-                          <div className="flex items-center gap-1 xl:justify-end">
-                            <p className="truncate text-xs font-black tabular-nums text-[#315845]">{formatMnt(allocatedMnt)}</p>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openAllocationDialog(
-                                  selectedBudgetLine.id,
-                                  target.key,
-                                  allocation,
-                                )
-                              }
-                              className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c9d5ca] bg-white text-[#276449] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
-                              aria-label={`${allocation ? "Edit" : "Set"} allocation for ${target.kind === "activity" ? target.code : localizedTargetLabel(target, allActivities, language)}`}
-                              title={allocation ? "Edit allocation" : "Set allocation"}
-                            >
-                              <PencilLine className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <p className="whitespace-nowrap text-xs font-black tabular-nums text-[#315845]">{formatMnt(allocatedMnt)}</p>
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Committed</p>
-                          <p className="truncate text-xs font-black tabular-nums text-[#183529]">{formatMnt(targetFinance.commitment)}</p>
-                          <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">{commitmentEntryCount} {commitmentEntryCount === 1 ? "record" : "records"}</p>
+                          <p className="whitespace-nowrap text-xs font-black tabular-nums text-[#183529]">{formatMnt(targetFinance.commitment)}</p>
+                          <p className="mt-0.5 whitespace-nowrap text-[9px] text-[#8a978f]">{commitmentEntryCount} {commitmentEntryCount === 1 ? "record" : "records"}</p>
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Expenditure</p>
-                          <p className="truncate text-xs font-black tabular-nums text-[#183529]">{formatMnt(targetFinance.expenditure)}</p>
-                          <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">{expenditureEntryCount} {expenditureEntryCount === 1 ? "record" : "records"}</p>
+                          <p className="whitespace-nowrap text-xs font-black tabular-nums text-[#183529]">{formatMnt(targetFinance.expenditure)}</p>
+                          <p className="mt-0.5 whitespace-nowrap text-[9px] text-[#8a978f]">{expenditureEntryCount} {expenditureEntryCount === 1 ? "record" : "records"}</p>
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Remaining</p>
                           {allocatedMnt > 0 ? (
                             <>
-                              <p className={`truncate text-xs font-black tabular-nums ${allocationBalanceTone}`}>{formatMnt(allocationBalanceMnt)}</p>
-                              <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">Allocation − finance</p>
+                              <p className={`whitespace-nowrap text-xs font-black tabular-nums ${allocationBalanceTone}`}>{formatMnt(allocationBalanceMnt)}</p>
+                              <p className="mt-0.5 whitespace-nowrap text-[9px] text-[#8a978f]">Allocation − finance</p>
                             </>
                           ) : (
                             <>
-                              <p className={`truncate text-xs font-black ${activityFinanceMnt > 0 ? "text-amber-700" : "text-[#718178]"}`}>
+                              <p className={`whitespace-nowrap text-xs font-black ${activityFinanceMnt > 0 ? "text-amber-700" : "text-[#718178]"}`}>
                                 Not allocated
                               </p>
                               <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">
@@ -8101,7 +8002,22 @@ export default function Home() {
                             </>
                           )}
                         </div>
-                        <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-3 xl:col-span-1 xl:justify-center">
+                        <div className="col-span-2 flex items-center justify-end gap-1 sm:col-span-3 xl:col-span-1 xl:justify-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAllocationDialog(
+                                selectedBudgetLine.id,
+                                target.key,
+                                allocation,
+                              )
+                            }
+                            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#c9d5ca] bg-white text-[#276449] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                            aria-label={`${allocation ? "Edit" : "Set"} allocation for ${target.kind === "activity" ? target.code : localizedTargetLabel(target, allActivities, language)}`}
+                            title={allocation ? "Edit allocation" : "Set allocation"}
+                          >
+                            <PencilLine className="h-3.5 w-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={() =>
@@ -8138,8 +8054,8 @@ export default function Home() {
                               Finance records
                             </p>
                             <p className="mt-0.5 text-xs text-[#718178]">
-                              {visibleTargetEntries.length + targetContracts.length
-                                ? `${visibleTargetEntries.length} matching manual ${visibleTargetEntries.length === 1 ? "entry" : "entries"} · ${targetContracts.length} ${targetContracts.length === 1 ? "contract" : "contracts"}`
+                              {targetEntries.length + targetContracts.length
+                                ? `${targetEntries.length} manual ${targetEntries.length === 1 ? "entry" : "entries"} · ${targetContracts.length} ${targetContracts.length === 1 ? "contract" : "contracts"}`
                                 : "No finance entries or contracts yet"}
                             </p>
                           </div>
@@ -8154,9 +8070,9 @@ export default function Home() {
                             Add
                           </Button>
                         </div>
-                        {visibleTargetEntries.length > 0 && (
+                        {targetEntries.length > 0 && (
                           <div className="mt-3 space-y-2">
-                            {visibleTargetEntries.map((entry) => (
+                            {targetEntries.map((entry) => (
                               <div
                                 key={entry.id}
                                 className="flex flex-col gap-3 rounded-lg border border-[#e2e7e0] bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
