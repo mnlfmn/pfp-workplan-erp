@@ -1570,6 +1570,7 @@ export default function Home() {
   const [financeCreatorFilter, setFinanceCreatorFilter] = useState("all");
   const [financeDateFrom, setFinanceDateFrom] = useState("");
   const [financeDateTo, setFinanceDateTo] = useState("");
+  const [budgetDetailFiltersOpen, setBudgetDetailFiltersOpen] = useState(false);
   const [financeEntriesExpanded, setFinanceEntriesExpanded] = useState(false);
   const [financeDraft, setFinanceDraft] = useState<FinanceDraft>({
     budgetKey: baseBudgetLines[0]?.id ?? "",
@@ -7594,22 +7595,23 @@ export default function Home() {
             setSelectedBudgetKey(null);
             setExpandedFinanceActivityKeys(new Set());
             setExpandedFinanceRecordKeys(new Set());
+            setBudgetDetailFiltersOpen(false);
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto bg-white text-[#14241b] sm:max-w-6xl!">
+        <DialogContent className="max-h-[92vh] w-[min(96vw,1120px)] max-w-none! overflow-y-auto bg-white text-[#14241b] sm:max-w-none!">
           {selectedBudgetLine && (
             <>
-              <DialogHeader className="sticky top-0 z-30 -mx-6 -mt-6 border-b border-[#e2e7e0] bg-white/95 px-6 py-4 pr-14 text-left backdrop-blur">
-                <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
+              <DialogHeader className="sticky top-0 z-30 -mx-6 -mt-6 border-b border-[#e2e7e0] bg-white/95 px-6 py-3 pr-14 text-left backdrop-blur">
+                <div className="flex flex-col gap-2 pr-8 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-mono text-sm font-black text-[#2f634c]">
                       {selectedBudgetLine.code}
                     </p>
-                    <DialogTitle className="mt-1 text-2xl font-black leading-tight">
+                    <DialogTitle className="mt-1 text-xl font-black leading-tight">
                       {selectedBudgetLine.title}
                     </DialogTitle>
-                    <DialogDescription className="mt-2">
+                    <DialogDescription className="mt-1">
                       Allocation and finance position by connected workplan activity.
                     </DialogDescription>
                   </div>
@@ -7660,7 +7662,7 @@ export default function Home() {
                       <dl className="grid grid-cols-2 divide-x divide-y divide-[#e1e8df] sm:grid-cols-5 sm:divide-y-0">
                         {[
                           ["Budget", formatMnt(budgetMnt), "text-[#183529]"],
-                          ["Allocated", formatMnt(allocatedMnt), allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#53685c]"],
+                          ["Activity allocations", formatMnt(allocatedMnt), allocatedMnt > budgetMnt ? "text-rose-700" : "text-[#53685c]"],
                           ["Committed", formatMnt(totals.commitment), "text-[#183529]"],
                           ["Expenditure", formatMnt(totals.expenditure), "text-[#183529]"],
                           ["Remaining", formatMnt(remainingMnt), remainingTone],
@@ -7690,78 +7692,101 @@ export default function Home() {
                 );
               })()}
 
-              <div className="rounded-xl border border-[#dce4da] bg-[#f7faf5] p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[#496458]">
-                    Finance record filters
-                  </p>
-                  {(financeCreatorFilter !== "all" || financeDateFrom || financeDateTo) && (
+              <div className="rounded-xl border border-[#dce4da] bg-[#f7faf5] p-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#496458]">
+                      Finance record filters
+                    </p>
+                    {!budgetDetailFiltersOpen && (
+                      <p className="mt-0.5 text-[11px] text-[#718178]">
+                        {financeCreatorFilter !== "all" || financeDateFrom || financeDateTo
+                          ? "Filters are active"
+                          : "All people and dates"}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {(financeCreatorFilter !== "all" || financeDateFrom || financeDateTo) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setFinanceCreatorFilter("all");
+                          setFinanceDateFrom("");
+                          setFinanceDateTo("");
+                        }}
+                        className="h-7 px-2 text-xs"
+                      >
+                        Clear
+                      </Button>
+                    )}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      onClick={() => {
-                        setFinanceCreatorFilter("all");
-                        setFinanceDateFrom("");
-                        setFinanceDateTo("");
-                      }}
-                      className="h-7 px-2 text-xs"
+                      onClick={() => setBudgetDetailFiltersOpen((current) => !current)}
+                      aria-expanded={budgetDetailFiltersOpen}
+                      className="h-7 px-2.5 text-xs"
                     >
-                      Clear filters
+                      {budgetDetailFiltersOpen ? "Hide filters" : "Show filters"}
                     </Button>
-                  )}
+                  </div>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">Person</span>
-                    <NativeSelect
-                      value={financeCreatorFilter}
-                      onChange={(event) => setFinanceCreatorFilter(event.target.value)}
-                      className="h-9 w-full border-[#ced8cf] bg-white text-sm"
-                      aria-label="Filter budget-line records by person"
-                    >
-                      <NativeSelectOption value="all">All people</NativeSelectOption>
-                      {financeCreatorOptions.map(([email, name]) => (
-                        <NativeSelectOption key={email} value={email}>
-                          {name}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">From</span>
-                    <Input
-                      type="date"
-                      value={financeDateFrom}
-                      onChange={(event) => setFinanceDateFrom(event.target.value)}
-                      className="h-9 border-[#ced8cf] bg-white"
-                      aria-label="Filter budget-line records from date"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold text-[#65766d]">To</span>
-                    <Input
-                      type="date"
-                      value={financeDateTo}
-                      onChange={(event) => setFinanceDateTo(event.target.value)}
-                      className="h-9 border-[#ced8cf] bg-white"
-                      aria-label="Filter budget-line records to date"
-                    />
-                  </label>
-                </div>
-                <p className="mt-2 text-xs text-[#718178]">
-                  Filters change the record lists only; financial totals always include every saved record.
-                </p>
+                {budgetDetailFiltersOpen && (
+                  <>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">Person</span>
+                        <NativeSelect
+                          value={financeCreatorFilter}
+                          onChange={(event) => setFinanceCreatorFilter(event.target.value)}
+                          className="h-8 w-full border-[#ced8cf] bg-white text-sm"
+                          aria-label="Filter budget-line records by person"
+                        >
+                          <NativeSelectOption value="all">All people</NativeSelectOption>
+                          {financeCreatorOptions.map(([email, name]) => (
+                            <NativeSelectOption key={email} value={email}>
+                              {name}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">From</span>
+                        <Input
+                          type="date"
+                          value={financeDateFrom}
+                          onChange={(event) => setFinanceDateFrom(event.target.value)}
+                          className="h-8 border-[#ced8cf] bg-white"
+                          aria-label="Filter budget-line records from date"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">To</span>
+                        <Input
+                          type="date"
+                          value={financeDateTo}
+                          onChange={(event) => setFinanceDateTo(event.target.value)}
+                          className="h-8 border-[#ced8cf] bg-white"
+                          aria-label="Filter budget-line records to date"
+                        />
+                      </label>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-[#718178]">
+                      Filters change record lists only; totals always include every saved record.
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="overflow-hidden rounded-xl border border-[#d7ded5] bg-white">
-                <div className="hidden grid-cols-[minmax(250px,1.6fr)_120px_repeat(4,minmax(90px,0.72fr))_118px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] lg:grid">
+                <div className="hidden grid-cols-[minmax(260px,1.8fr)_110px_100px_130px_120px_40px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] lg:grid">
                   <span>Activity</span>
                   <span>Owners</span>
-                  <span className="text-right">Allocated</span>
-                  <span className="text-right">Committed</span>
-                  <span className="text-right">Expenditure</span>
-                  <span className="text-right">Available</span>
-                  <span className="text-right">Action</span>
+                  <span className="text-right">Allocation</span>
+                  <span className="text-right">Finance</span>
+                  <span className="text-right">Balance</span>
+                  <span className="text-center">Actions</span>
                 </div>
                 <div className="max-h-[56vh] space-y-1.5 overflow-y-auto bg-[#f7f9f5] p-2">
                 {selectedBudgetTargets
@@ -7888,16 +7913,17 @@ export default function Home() {
                     target.activityId,
                   );
                   const recordsExpanded = expandedFinanceRecordKeys.has(target.key);
-                  const availableMnt =
+                  const activityFinanceMnt =
+                    targetFinance.commitment + targetFinance.expenditure;
+                  const allocationBalanceMnt =
                     allocatedMnt -
-                    targetFinance.commitment -
-                    targetFinance.expenditure;
-                  const availableRatio =
-                    allocatedMnt > 0 ? availableMnt / allocatedMnt : 0;
-                  const availableTone =
-                    availableMnt < 0
+                    activityFinanceMnt;
+                  const allocationBalanceRatio =
+                    allocatedMnt > 0 ? allocationBalanceMnt / allocatedMnt : 0;
+                  const allocationBalanceTone =
+                    allocationBalanceMnt < 0
                       ? "text-rose-700"
-                      : allocatedMnt > 0 && availableRatio <= 0.15
+                      : allocatedMnt > 0 && allocationBalanceRatio <= 0.15
                         ? "text-amber-700"
                         : "text-[#245f47]";
                   const financeRecordCount =
@@ -7907,7 +7933,7 @@ export default function Home() {
                       key={target.key}
                       className={`overflow-hidden rounded-lg border transition hover:border-[#aebfb2] ${target.kind === "subactivity" ? "ml-4 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cfdacf] bg-white"}`}
                     >
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-4 lg:grid-cols-[minmax(250px,1.6fr)_120px_repeat(4,minmax(90px,0.72fr))_118px] lg:items-center lg:gap-x-2.5">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-4 lg:grid-cols-[minmax(260px,1.8fr)_110px_100px_130px_120px_40px] lg:items-center lg:gap-x-2.5">
                         <div className="col-span-2 flex min-w-0 items-start gap-2.5 sm:col-span-4 lg:col-span-1">
                           {target.kind === "activity" && subactivityCount > 0 ? (
                             <button
@@ -7948,33 +7974,36 @@ export default function Home() {
                             </p>
                           )}
                         </div>
-                        {[
-                          ["Allocated", allocatedMnt, "text-[#315845]", allocation ? "Edit or remove" : "Not allocated"],
-                          ["Committed", targetFinance.commitment, "text-[#183529]", `${commitmentEntryCount} ${commitmentEntryCount === 1 ? "record" : "records"}`],
-                          ["Expenditure", targetFinance.expenditure, "text-[#183529]", `${expenditureEntryCount} ${expenditureEntryCount === 1 ? "record" : "records"}`],
-                          ["Available", availableMnt, availableTone, "Allocation − commitments − expenditure"],
-                        ].map(([label, amount, tone, helper]) => (
-                          <div key={String(label)} className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
-                            <p className="text-[10px] font-semibold text-[#819087] lg:hidden">{label}</p>
-                            <p className={`truncate text-xs font-black tabular-nums ${tone}`}>{formatMnt(Number(amount))}</p>
-                            <p className="mt-0.5 truncate text-[9px] text-[#8a978f]" title={String(helper)}>{helper}</p>
-                          </div>
-                        ))}
-                        <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-4 lg:col-span-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openAllocationDialog(
-                                selectedBudgetLine.id,
-                                target.key,
-                                allocation,
-                              )
-                            }
-                            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#b9c8bc] bg-white px-2.5 text-[11px] font-black text-[#245f47] shadow-sm transition hover:border-[#7f9d89] hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
-                          >
-                            <WalletCards className="h-3.5 w-3.5" />
-                            {allocation ? "Edit" : "Allocate"}
-                          </button>
+                        <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+                          <p className="text-[10px] font-semibold text-[#819087] lg:hidden">Allocation</p>
+                          <p className="truncate text-xs font-black tabular-nums text-[#315845]">{formatMnt(allocatedMnt)}</p>
+                          <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">{allocation ? "Set for this item" : "Not allocated"}</p>
+                        </div>
+                        <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+                          <p className="text-[10px] font-semibold text-[#819087] lg:hidden">Finance</p>
+                          <p className="truncate text-[11px] font-black tabular-nums text-[#183529]">C {formatMnt(targetFinance.commitment)}</p>
+                          <p className="mt-0.5 truncate text-[10px] font-bold tabular-nums text-[#53685c]">E {formatMnt(targetFinance.expenditure)}</p>
+                          <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">{commitmentEntryCount + expenditureEntryCount} records</p>
+                        </div>
+                        <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+                          <p className="text-[10px] font-semibold text-[#819087] lg:hidden">Balance</p>
+                          {allocatedMnt > 0 ? (
+                            <>
+                              <p className={`truncate text-xs font-black tabular-nums ${allocationBalanceTone}`}>{formatMnt(allocationBalanceMnt)}</p>
+                              <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">Allocation less finance</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className={`truncate text-xs font-black ${activityFinanceMnt > 0 ? "text-amber-700" : "text-[#718178]"}`}>
+                                Not allocated
+                              </p>
+                              <p className="mt-0.5 truncate text-[9px] text-[#8a978f]">
+                                {activityFinanceMnt > 0 ? `${formatMnt(activityFinanceMnt)} recorded` : "No finance recorded"}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        <div className="col-span-2 flex items-center justify-end sm:col-span-4 lg:col-span-1 lg:justify-center">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <button
@@ -7999,6 +8028,18 @@ export default function Home() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  openAllocationDialog(
+                                    selectedBudgetLine.id,
+                                    target.key,
+                                    allocation,
+                                  )
+                                }
+                              >
+                                <WalletCards className="h-4 w-4" />
+                                {allocation ? "Edit allocation" : "Set allocation"}
+                              </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => toggleFinanceRecords(target.key)}>
                                 <ReceiptText className="h-4 w-4" />
                                 {recordsExpanded ? "Hide finance records" : "See finance records"}
