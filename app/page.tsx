@@ -4920,6 +4920,13 @@ export default function Home() {
     [financeCreatorFilter, financeDateFrom, financeDateTo],
   );
 
+  const financeEntryMatchesBudgetDetailFilters = useCallback(
+    (entry: FinanceEntry) =>
+      (!financeDateFrom || entry.entryDate >= financeDateFrom) &&
+      (!financeDateTo || entry.entryDate <= financeDateTo),
+    [financeDateFrom, financeDateTo],
+  );
+
   const visibleFinanceEntries = useMemo(
     () => financeStats.relevantEntries.filter(financeEntryMatchesFilters),
     [financeEntryMatchesFilters, financeStats.relevantEntries],
@@ -7598,10 +7605,10 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] w-[min(96vw,1320px)] max-w-none! overflow-y-auto bg-white text-[#14241b] sm:max-w-none!">
+        <DialogContent className="flex h-[min(96vh,940px)] w-[min(96vw,1320px)] max-w-none! flex-col gap-3 overflow-hidden bg-white text-[#14241b] sm:max-w-none!">
           {selectedBudgetLine && (
             <>
-              <DialogHeader className="sticky top-0 z-30 -mx-6 -mt-6 border-b border-[#e2e7e0] bg-white/95 px-6 py-3 pr-14 text-left backdrop-blur">
+              <DialogHeader className="z-30 -mx-6 -mt-6 shrink-0 border-b border-[#e2e7e0] bg-white px-6 py-3 pr-14 text-left">
                 <div className="flex flex-col gap-2 pr-8 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-mono text-sm font-black text-[#2f634c]">
@@ -7657,7 +7664,7 @@ export default function Home() {
                 );
                 return (
                   <>
-                    <div className="overflow-hidden rounded-xl border border-[#d7e0d5] bg-[#f7faf5]">
+                    <div className="shrink-0 overflow-hidden rounded-xl border border-[#d7e0d5] bg-[#f7faf5]">
                       <dl className="grid grid-cols-2 divide-x divide-y divide-[#e1e8df] sm:grid-cols-5 sm:divide-y-0">
                         {[
                           ["Budget", formatMnt(budgetMnt), "text-[#183529]"],
@@ -7674,12 +7681,14 @@ export default function Home() {
                           </div>
                         ))}
                       </dl>
-                      <div className="flex items-center gap-3 border-t border-[#e1e8df] px-3 py-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#dfe7dc]">
-                          <div className={`h-full rounded-full ${utilizationTone}`} style={{ width: `${Math.min(Math.max(utilizationPercent, 0), 100)}%` }} />
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e1e8df] px-3 py-2">
+                        <div className="flex w-full max-w-sm items-center gap-3">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#dfe7dc]">
+                            <div className={`h-full rounded-full ${utilizationTone}`} style={{ width: `${Math.min(Math.max(utilizationPercent, 0), 100)}%` }} />
+                          </div>
+                          <span className="shrink-0 text-[10px] font-black tabular-nums text-[#65766d]">{utilizationPercent}% used</span>
                         </div>
-                        <span className="shrink-0 text-[10px] font-black tabular-nums text-[#65766d]">{utilizationPercent}% used</span>
-                        <span className="hidden text-[10px] text-[#819087] sm:inline">Remaining = budget − commitments − expenditure</span>
+                        <span className="text-[10px] text-[#819087]">Remaining = budget − commitments − expenditure</span>
                       </div>
                     </div>
                     {generalEntries.length > 0 && (
@@ -7691,7 +7700,7 @@ export default function Home() {
                 );
               })()}
 
-              <div className="rounded-xl border border-[#dce4da] bg-[#f7faf5] p-2.5">
+              <div className="shrink-0 rounded-xl border border-[#dce4da] bg-[#f7faf5] p-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#496458]">
@@ -7699,19 +7708,18 @@ export default function Home() {
                     </p>
                     {!budgetDetailFiltersOpen && (
                       <p className="mt-0.5 text-[11px] text-[#718178]">
-                        {financeCreatorFilter !== "all" || financeDateFrom || financeDateTo
+                        {financeDateFrom || financeDateTo
                           ? "Filters are active"
-                          : "All people and dates"}
+                          : "All dates"}
                       </p>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {(financeCreatorFilter !== "all" || financeDateFrom || financeDateTo) && (
+                    {(financeDateFrom || financeDateTo) && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          setFinanceCreatorFilter("all");
                           setFinanceDateFrom("");
                           setFinanceDateTo("");
                         }}
@@ -7733,23 +7741,7 @@ export default function Home() {
                 </div>
                 {budgetDetailFiltersOpen && (
                   <>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                      <label className="block">
-                        <span className="mb-1 block text-[10px] font-bold text-[#65766d]">Person</span>
-                        <NativeSelect
-                          value={financeCreatorFilter}
-                          onChange={(event) => setFinanceCreatorFilter(event.target.value)}
-                          className="h-8 w-full border-[#ced8cf] bg-white text-sm"
-                          aria-label="Filter budget-line records by person"
-                        >
-                          <NativeSelectOption value="all">All people</NativeSelectOption>
-                          {financeCreatorOptions.map(([email, name]) => (
-                            <NativeSelectOption key={email} value={email}>
-                              {name}
-                            </NativeSelectOption>
-                          ))}
-                        </NativeSelect>
-                      </label>
+                    <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
                       <label className="block">
                         <span className="mb-1 block text-[10px] font-bold text-[#65766d]">From</span>
                         <Input
@@ -7778,8 +7770,8 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-[#d7ded5] bg-white">
-                <div className="hidden grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_150px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] xl:grid">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d7ded5] bg-white">
+                <div className="hidden shrink-0 grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_88px] gap-2.5 border-b border-[#dfe6dd] bg-[#f5f8f3] px-3 py-2 text-[10px] font-black uppercase tracking-[0.08em] text-[#718178] xl:grid">
                   <span>Activity</span>
                   <span>Owners</span>
                   <span className="text-right">Allocation</span>
@@ -7788,7 +7780,7 @@ export default function Home() {
                   <span className="text-right">Remaining</span>
                   <span className="text-center">Actions</span>
                 </div>
-                <div className="max-h-[56vh] space-y-1.5 overflow-y-auto bg-[#f7f9f5] p-2">
+                <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[#f7f9f5] p-2 [scrollbar-gutter:stable]">
                 {selectedBudgetTargets
                   .filter(
                     (target) =>
@@ -7828,7 +7820,7 @@ export default function Home() {
                       rollupKeys.has(entry.activityKey),
                   );
                   const visibleTargetEntries = targetEntries.filter(
-                    financeEntryMatchesFilters,
+                    financeEntryMatchesBudgetDetailFilters,
                   );
                   const targetContracts = contracts.filter(
                     (contract) =>
@@ -7933,7 +7925,7 @@ export default function Home() {
                       key={target.key}
                       className={`overflow-hidden rounded-lg border transition hover:border-[#aebfb2] ${target.kind === "subactivity" ? "ml-4 border-[#dfe7dc] bg-[#fbfcfa] sm:ml-8" : "border-[#cfdacf] bg-white"}`}
                     >
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-3 xl:grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_150px] xl:items-center xl:gap-x-2.5">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 sm:grid-cols-3 xl:grid-cols-[minmax(280px,1.8fr)_110px_105px_115px_115px_115px_88px] xl:items-center xl:gap-x-2.5">
                         <div className="col-span-2 flex min-w-0 items-start gap-2.5 sm:col-span-3 xl:col-span-1">
                           {target.kind === "activity" && subactivityCount > 0 ? (
                             <button
@@ -7955,7 +7947,7 @@ export default function Home() {
                               {target.kind === "activity" ? `Main activity${subactivityCount ? ` · ${subactivityCount} subs` : ""}` : "Sub-activity"}
                             </p>
                             <h3
-                              className="mt-0.5 line-clamp-2 text-[13px] font-black leading-[1.15rem] text-[#183529]"
+                              className="mt-0.5 break-words text-[13px] font-black leading-[1.15rem] text-[#183529]"
                               title={localizedTargetLabel(target, allActivities, language)}
                             >
                               {target.kind === "activity" ? `${target.code} · ` : ""}
@@ -7976,20 +7968,24 @@ export default function Home() {
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Allocation</p>
-                          <p className="truncate text-xs font-black tabular-nums text-[#315845]">{formatMnt(allocatedMnt)}</p>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openAllocationDialog(
-                                selectedBudgetLine.id,
-                                target.key,
-                                allocation,
-                              )
-                            }
-                            className="mt-0.5 text-[9px] font-bold text-[#276449] underline-offset-2 hover:underline"
-                          >
-                            {allocation ? "Edit allocation" : "Set allocation"}
-                          </button>
+                          <div className="flex items-center gap-1 xl:justify-end">
+                            <p className="truncate text-xs font-black tabular-nums text-[#315845]">{formatMnt(allocatedMnt)}</p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openAllocationDialog(
+                                  selectedBudgetLine.id,
+                                  target.key,
+                                  allocation,
+                                )
+                              }
+                              className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#c9d5ca] bg-white text-[#276449] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
+                              aria-label={`${allocation ? "Edit" : "Set"} allocation for ${target.kind === "activity" ? target.code : localizedTargetLabel(target, allActivities, language)}`}
+                              title={allocation ? "Edit allocation" : "Set allocation"}
+                            >
+                              <PencilLine className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                         <div className="min-w-0 rounded-md bg-[#f5f8f3] px-2.5 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:text-right">
                           <p className="text-[10px] font-semibold text-[#819087] xl:hidden">Committed</p>
@@ -8019,27 +8015,33 @@ export default function Home() {
                             </>
                           )}
                         </div>
-                        <div className="col-span-2 flex flex-wrap items-center justify-end gap-1.5 sm:col-span-3 xl:col-span-1 xl:flex-col xl:items-stretch">
-                          <Button
-                            size="sm"
+                        <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-3 xl:col-span-1 xl:justify-center">
+                          <button
+                            type="button"
                             onClick={() =>
                               openFinanceDialog(selectedBudgetLine.id, target.key)
                             }
-                            className="h-8 bg-[#0c3b2d] px-2.5 text-[11px] text-white hover:bg-[#174d3a]"
+                            className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#0c3b2d] text-white transition hover:bg-[#174d3a] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447] focus-visible:ring-offset-2"
+                            aria-label={`Add finance entry for ${target.kind === "activity" ? target.code : localizedTargetLabel(target, allActivities, language)}`}
+                            title="Add finance entry"
                           >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add entry
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
+                            <Plus className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => toggleFinanceRecords(target.key)}
                             aria-expanded={recordsExpanded}
-                            className="h-8 px-2.5 text-[11px]"
+                            aria-label={`${recordsExpanded ? "Hide" : "View"} finance records for ${target.kind === "activity" ? target.code : localizedTargetLabel(target, allActivities, language)}`}
+                            title={recordsExpanded ? "Hide finance records" : "View finance records"}
+                            className="relative grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#b9c8bc] bg-white text-[#315845] transition hover:bg-[#eaf2e7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#236447]"
                           >
-                            <ReceiptText className="h-3.5 w-3.5" />
-                            {recordsExpanded ? "Hide records" : `View records${financeRecordCount ? ` (${financeRecordCount})` : ""}`}
-                          </Button>
+                            <ReceiptText className="h-4 w-4" />
+                            {financeRecordCount > 0 && (
+                              <span className="absolute -right-1.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#236447] px-1 text-[9px] font-black text-white">
+                                {financeRecordCount}
+                              </span>
+                            )}
+                          </button>
                         </div>
                       </div>
                       {recordsExpanded && (
