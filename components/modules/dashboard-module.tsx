@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
-import { AlertTriangle, Banknote, CircleCheck, Gauge, HandCoins, ListChecks, ReceiptText, TrendingUp, WalletCards } from "lucide-react";
+import { AlertTriangle, Banknote, CircleCheck, Gauge, HandCoins, Info, ListChecks, ReceiptText, TrendingUp, WalletCards } from "lucide-react";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -25,6 +25,8 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
   const alignedThreshold = 25;
   const highAttentionThreshold = 50;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const plottedPoints = points.filter((point) => point.utilizationPercent > 0);
+  const zeroUtilizationPoints = points.filter((point) => point.utilizationPercent === 0);
   const selectedPoint =
     points.find((point) => point.key === selectedKey) ?? points[0] ?? null;
   const maximumUtilization = Math.max(
@@ -35,9 +37,9 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
     100,
     Math.min(200, Math.ceil(maximumUtilization / 25) * 25),
   );
-  const plot = { left: 58, top: 20, width: 552, height: 205 };
+  const plot = { left: 58, top: 18, width: 552, height: 185 };
   const chartWidth = 650;
-  const chartHeight = 272;
+  const chartHeight = 250;
   const xFor = (value: number) =>
     plot.left + (Math.min(Math.max(value, 0), 100) / 100) * plot.width;
   const yFor = (value: number) =>
@@ -49,46 +51,66 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
     { length: yMaximum / 25 + 1 },
     (_, index) => index * 25,
   );
-  const attentionKeys = new Set(
-    [...points]
-      .sort(
-        (a, b) =>
-          Math.max(
-            Math.abs(b.utilizationPercent - b.progressPercent),
-            b.utilizationPercent > 100 || b.utilizationPercent === 0 ? 100 : 0,
-          ) -
-          Math.max(
-            Math.abs(a.utilizationPercent - a.progressPercent),
-            a.utilizationPercent > 100 || a.utilizationPercent === 0 ? 100 : 0,
-          ),
-      )
-      .filter(
-        (point) =>
-          Math.abs(point.utilizationPercent - point.progressPercent) > alignedThreshold ||
-          point.utilizationPercent === 0 ||
-          point.utilizationPercent > 100,
-      )
-      .slice(0, 6)
-      .map((point) => point.key),
-  );
   const highUseRiskPolygon =
     yMaximum > 100 + alignedThreshold
       ? `${plot.left},${plot.top} ${plot.left + plot.width},${plot.top} ${plot.left + plot.width},${yFor(100 + alignedThreshold)} ${plot.left},${yFor(alignedThreshold)}`
       : `${plot.left},${plot.top} ${xFor(yMaximum - alignedThreshold)},${plot.top} ${plot.left},${yFor(alignedThreshold)}`;
   const lowUseRiskPolygon = `${xFor(alignedThreshold)},${yFor(0)} ${xFor(100)},${yFor(0)} ${xFor(100)},${yFor(100 - alignedThreshold)}`;
+  const alignedUpperX = Math.min(100, yMaximum - alignedThreshold);
+  const alignedUpperY = Math.min(yMaximum, 100 + alignedThreshold);
+  const alignedPolygon = [
+    `${xFor(0)},${yFor(0)}`,
+    `${xFor(0)},${yFor(alignedThreshold)}`,
+    `${xFor(alignedUpperX)},${yFor(alignedUpperY)}`,
+    ...(alignedUpperX < 100 ? [`${xFor(100)},${yFor(yMaximum)}`] : []),
+    `${xFor(100)},${yFor(100 - alignedThreshold)}`,
+    `${xFor(alignedThreshold)},${yFor(0)}`,
+  ].join(" ");
   const selectedGap = selectedPoint
     ? selectedPoint.utilizationPercent - selectedPoint.progressPercent
     : 0;
 
-  function pointColor(point: FinancialUtilizationPoint) {
+  function pointSeverity(point: FinancialUtilizationPoint) {
     const gap = point.utilizationPercent - point.progressPercent;
-    if (point.utilizationPercent === 0 || point.utilizationPercent > 100 || Math.abs(gap) > highAttentionThreshold) return "#cf2f55";
-    if (Math.abs(gap) > alignedThreshold) return "#d97706";
+    if (point.utilizationPercent === 0 || point.utilizationPercent > 100 || Math.abs(gap) > highAttentionThreshold) return "critical";
+    if (Math.abs(gap) > alignedThreshold) return "review";
+    return "aligned";
+  }
+
+  function pointColor(point: FinancialUtilizationPoint) {
+    const severity = pointSeverity(point);
+    if (severity === "critical") return "#cf2f55";
+    if (severity === "review") return "#d97706";
     return "#2c795a";
   }
 
+  const selectedSeverity = selectedPoint ? pointSeverity(selectedPoint) : "aligned";
+  const selectedMessage = selectedPoint
+    ? selectedPoint.utilizationPercent === 0
+      ? "No financial utilization is recorded; review this activity."
+      : selectedPoint.utilizationPercent > 100
+        ? `Financial utilization is ${selectedPoint.utilizationPercent}%; it exceeds the activity allocation.`
+        : selectedGap > alignedThreshold
+          ? `Financial utilization is ${selectedGap} percentage points ahead of progress.`
+          : selectedGap < -alignedThreshold
+            ? `Financial utilization is ${Math.abs(selectedGap)} percentage points behind progress.`
+            : "Progress and financial utilization are aligned within ±25 percentage points."
+    : "";
+  const selectedSeverityLabel =
+    selectedSeverity === "critical"
+      ? "Critical"
+      : selectedSeverity === "review"
+        ? "Review"
+        : "Aligned";
+  const selectedSeverityClass =
+    selectedSeverity === "critical"
+      ? "bg-rose-50 text-rose-700"
+      : selectedSeverity === "review"
+        ? "bg-amber-50 text-amber-700"
+        : "bg-emerald-50 text-emerald-700";
+
   return (
-    <section className="mx-auto w-full max-w-[960px] overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+    <section className="mx-auto w-full max-w-[1080px] overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-4 py-3">
         <div>
           <h2 className="font-black">Progress versus financial utilization</h2>
@@ -98,175 +120,214 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
         </div>
         <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-semibold text-[#5d7467]">
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#2c795a]" />Aligned (±25 pp)</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Outside ±25 pp</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#cf2f55]" />High / low-use warning</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Review (26–50 pp)</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#cf2f55]" />Critical variance / no utilization</span>
         </div>
       </div>
 
       {points.length ? (
-        <>
-          <div className="overflow-x-auto px-3 pb-1 pt-2 sm:px-4">
-            <svg
-              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-              className="mx-auto min-w-[620px]"
-              role="img"
-              aria-label={`Scatter chart of ${points.length} activities comparing delivery progress with financial utilization`}
-            >
-              <polygon points={highUseRiskPolygon} fill="#cf2f55" fillOpacity="0.055" />
-              <polygon points={lowUseRiskPolygon} fill="#cf2f55" fillOpacity="0.055" />
-              {xTicks.map((tick) => (
-                <g key={`x-${tick}`}>
-                  <line
-                    x1={xFor(tick)}
-                    y1={plot.top}
-                    x2={xFor(tick)}
-                    y2={plot.top + plot.height}
-                    stroke="#dfe6de"
-                  />
-                  <text
-                    x={xFor(tick)}
-                    y={plot.top + plot.height + 22}
-                    textAnchor="middle"
-                    className="fill-[#718178] text-[11px]"
-                  >
-                    {tick}%
-                  </text>
-                </g>
-              ))}
-              {yTicks.map((tick) => (
-                <g key={`y-${tick}`}>
-                  <line
-                    x1={plot.left}
-                    y1={yFor(tick)}
-                    x2={plot.left + plot.width}
-                    y2={yFor(tick)}
-                    stroke="#dfe6de"
-                  />
-                  <text
-                    x={plot.left - 11}
-                    y={yFor(tick) + 4}
-                    textAnchor="end"
-                    className="fill-[#718178] text-[11px]"
-                  >
-                    {tick}%
-                  </text>
-                </g>
-              ))}
-              <rect
-                x={plot.left}
-                y={plot.top}
-                width={plot.width}
-                height={plot.height}
-                fill="none"
-                stroke="#cfdacf"
-              />
-              <line
-                x1={xFor(0)}
-                y1={yFor(0)}
-                x2={xFor(100)}
-                y2={yFor(100)}
-                stroke="#718178"
-                strokeDasharray="6 5"
-                strokeWidth="1.5"
-              />
-              <text x={xFor(3)} y={yFor(yMaximum - 8)} className="fill-[#a24055] text-[10px] font-bold">
-                Financial use ahead
-              </text>
-              <text x={xFor(63)} y={yFor(7)} className="fill-[#a24055] text-[10px] font-bold">
-                Financial use behind
-              </text>
-              <text
-                x={plot.left + plot.width / 2}
-                y={chartHeight - 10}
-                textAnchor="middle"
-                className="fill-[#315845] text-xs font-bold"
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_310px]">
+          <div className="min-w-0 border-b border-[#e3e9e1] lg:border-b-0 lg:border-r">
+            <div className="overflow-x-auto px-3 pb-1 pt-2">
+              <svg
+                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                className="mx-auto min-w-[590px]"
+                role="img"
+                aria-label={`Scatter chart of ${plottedPoints.length} activities comparing delivery progress with financial utilization`}
               >
-                Activity progress (%)
-              </text>
-              <text
-                x="18"
-                y={plot.top + plot.height / 2}
-                transform={`rotate(-90 18 ${plot.top + plot.height / 2})`}
-                textAnchor="middle"
-                className="fill-[#315845] text-xs font-bold"
-              >
-                Financial utilization (%)
-              </text>
+                <polygon points={highUseRiskPolygon} fill="#cf2f55" fillOpacity="0.045" />
+                <polygon points={lowUseRiskPolygon} fill="#cf2f55" fillOpacity="0.045" />
+                <polygon points={alignedPolygon} fill="#2c795a" fillOpacity="0.065" />
+                {xTicks.map((tick) => (
+                  <g key={`x-${tick}`}>
+                    <line
+                      x1={xFor(tick)}
+                      y1={plot.top}
+                      x2={xFor(tick)}
+                      y2={plot.top + plot.height}
+                      stroke="#dfe6de"
+                    />
+                    <text
+                      x={xFor(tick)}
+                      y={plot.top + plot.height + 20}
+                      textAnchor="middle"
+                      className="fill-[#718178] text-[11px]"
+                    >
+                      {tick}%
+                    </text>
+                  </g>
+                ))}
+                {yTicks.map((tick) => (
+                  <g key={`y-${tick}`}>
+                    <line
+                      x1={plot.left}
+                      y1={yFor(tick)}
+                      x2={plot.left + plot.width}
+                      y2={yFor(tick)}
+                      stroke="#dfe6de"
+                    />
+                    <text
+                      x={plot.left - 11}
+                      y={yFor(tick) + 4}
+                      textAnchor="end"
+                      className="fill-[#718178] text-[11px]"
+                    >
+                      {tick}%
+                    </text>
+                  </g>
+                ))}
+                <rect
+                  x={plot.left}
+                  y={plot.top}
+                  width={plot.width}
+                  height={plot.height}
+                  fill="none"
+                  stroke="#cfdacf"
+                />
+                <line
+                  x1={xFor(0)}
+                  y1={yFor(0)}
+                  x2={xFor(100)}
+                  y2={yFor(100)}
+                  stroke="#718178"
+                  strokeDasharray="6 5"
+                  strokeWidth="1.5"
+                />
+                <text x={xFor(3)} y={yFor(yMaximum - 8)} className="fill-[#a24055] text-[10px] font-bold">
+                  Financial use ahead
+                </text>
+                <text x={xFor(63)} y={yFor(7)} className="fill-[#a24055] text-[10px] font-bold">
+                  Financial use behind
+                </text>
+                <text
+                  x={plot.left + plot.width / 2}
+                  y={chartHeight - 8}
+                  textAnchor="middle"
+                  className="fill-[#315845] text-xs font-bold"
+                >
+                  Activity progress (%)
+                </text>
+                <text
+                  x="18"
+                  y={plot.top + plot.height / 2}
+                  transform={`rotate(-90 18 ${plot.top + plot.height / 2})`}
+                  textAnchor="middle"
+                  className="fill-[#315845] text-xs font-bold"
+                >
+                  Financial utilization (%)
+                </text>
 
-              {points.map((point) => {
-                const selected = point.key === selectedPoint?.key;
-                const cx = xFor(point.progressPercent);
-                const cy = yFor(point.utilizationPercent);
-                return (
-                  <g
-                    key={point.key}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${point.code}: ${point.progressPercent}% progress and ${point.utilizationPercent}% financial utilization`}
-                    onClick={() => setSelectedKey(point.key)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedKey(point.key);
-                      }
-                    }}
-                    className="cursor-pointer outline-none"
-                  >
-                    <title>{`${point.code} · ${point.title}\nProgress ${point.progressPercent}% · Financial utilization ${point.utilizationPercent}%`}</title>
-                    {selected ? (
-                      <circle cx={cx} cy={cy} r="11" fill="none" stroke="#153f30" strokeWidth="2" />
-                    ) : null}
-                    <circle cx={cx} cy={cy} r="7" fill={pointColor(point)} stroke="white" strokeWidth="2" />
-                    <circle cx={cx} cy={cy} r="15" fill="transparent" />
-                    {attentionKeys.has(point.key) ? (
-                      <text
-                        x={cx > plot.left + plot.width - 80 ? cx - 10 : cx + 10}
-                        y={cy - 10}
-                        textAnchor={cx > plot.left + plot.width - 80 ? "end" : "start"}
-                        className="fill-[#183529] text-[10px] font-black"
+                {plottedPoints.map((point) => {
+                  const selected = point.key === selectedPoint?.key;
+                  const severity = pointSeverity(point);
+                  const cx = xFor(point.progressPercent);
+                  const cy = yFor(point.utilizationPercent);
+                  const radius = severity === "critical" ? 7 : severity === "review" ? 6.5 : 5.5;
+                  const opacity = severity === "critical" ? 1 : severity === "review" ? 0.9 : 0.72;
+                  return (
+                    <g
+                      key={point.key}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${point.code}: ${point.progressPercent}% progress and ${point.utilizationPercent}% financial utilization`}
+                      onClick={() => setSelectedKey(point.key)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedKey(point.key);
+                        }
+                      }}
+                      className="cursor-pointer outline-none"
+                    >
+                      <title>{`${point.code} · ${point.title}\nProgress ${point.progressPercent}% · Financial utilization ${point.utilizationPercent}%`}</title>
+                      {selected ? (
+                        <circle cx={cx} cy={cy} r="11" fill="none" stroke="#153f30" strokeWidth="2" />
+                      ) : null}
+                      <circle cx={cx} cy={cy} r={radius} fill={pointColor(point)} fillOpacity={opacity} stroke="white" strokeWidth="2" />
+                      <circle cx={cx} cy={cy} r="15" fill="transparent" />
+                      {selected ? (
+                        <text
+                          x={cx > plot.left + plot.width - 72 ? cx - 10 : cx + 10}
+                          y={cy - 10}
+                          textAnchor={cx > plot.left + plot.width - 72 ? "end" : "start"}
+                          className="fill-[#183529] text-[10px] font-black"
+                        >
+                          {point.code}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+
+            {zeroUtilizationPoints.length ? (
+              <div className="border-t border-rose-100 bg-rose-50/70 px-3 py-2.5" role="group" aria-label="Activities with no financial utilization">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-black text-rose-700">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {zeroUtilizationPoints.length} {zeroUtilizationPoints.length === 1 ? "activity has" : "activities have"} no financial utilization
+                  </span>
+                  <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
+                    {zeroUtilizationPoints.map((point) => (
+                      <button
+                        type="button"
+                        key={point.key}
+                        title={`${point.code} · ${point.title}`}
+                        onClick={() => setSelectedKey(point.key)}
+                        className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-black transition ${point.key === selectedPoint?.key ? "border-rose-600 bg-rose-600 text-white" : "border-rose-200 bg-white text-rose-700 hover:border-rose-400"}`}
                       >
                         {point.code}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </svg>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {selectedPoint ? (
-            <div className="grid gap-2 border-t border-[#e3e9e1] bg-[#f8faf7] px-4 py-3 md:grid-cols-[minmax(0,1fr)_repeat(4,minmax(85px,auto))] md:items-center">
-              <div className="min-w-0">
+            <aside className="bg-[#f8faf7] p-4" aria-label={`Selected activity ${selectedPoint.code}`}>
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-black uppercase tracking-[0.08em] text-[#49705c]">{selectedPoint.code}</p>
-                <p className="mt-1 break-words text-sm font-black text-[#183529]">{selectedPoint.title}</p>
-                <p className={`mt-1 text-xs font-bold ${selectedPoint.utilizationPercent === 0 || selectedPoint.utilizationPercent > 100 || Math.abs(selectedGap) > highAttentionThreshold ? "text-rose-700" : Math.abs(selectedGap) > alignedThreshold ? "text-amber-700" : "text-[#49705c]"}`}>
-                  {selectedGap > 0
-                    ? `Financial utilization is ${selectedGap} percentage points ahead of progress.`
-                    : selectedGap < 0
-                      ? `Financial utilization is ${Math.abs(selectedGap)} percentage points behind progress.`
-                      : selectedPoint.utilizationPercent === 0
-                        ? "No financial utilization is recorded; review this activity."
-                        : "Progress and financial utilization are aligned."}
-                </p>
+                <span className={`rounded-full px-2 py-1 text-[10px] font-black ${selectedSeverityClass}`}>
+                  {selectedSeverityLabel}
+                </span>
               </div>
-              <div><p className="text-xs text-[#718178]">Progress</p><p className="mt-1 font-black tabular-nums">{selectedPoint.progressPercent}%</p></div>
-              <div><p className="text-xs text-[#718178]">Utilization</p><p className="mt-1 font-black tabular-nums">{selectedPoint.utilizationPercent}%</p></div>
-              <div><p className="text-xs text-[#718178]">Commitments</p><p className="mt-1 font-black tabular-nums">{formatMnt(selectedPoint.commitmentMnt)}</p></div>
-              <div><p className="text-xs text-[#718178]">Expenditure</p><p className="mt-1 font-black tabular-nums">{formatMnt(selectedPoint.expenditureMnt)}</p></div>
-            </div>
+              <p className="mt-2 break-words text-sm font-black leading-5 text-[#183529]">{selectedPoint.title}</p>
+              <p className={`mt-2 text-xs font-bold leading-5 ${selectedSeverity === "critical" ? "text-rose-700" : selectedSeverity === "review" ? "text-amber-700" : "text-[#49705c]"}`}>
+                {selectedMessage}
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {[
+                  ["Progress", `${selectedPoint.progressPercent}%`],
+                  ["Utilization", `${selectedPoint.utilizationPercent}%`],
+                  ["Commitments", formatMnt(selectedPoint.commitmentMnt)],
+                  ["Expenditure", formatMnt(selectedPoint.expenditureMnt)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-[#e0e7de] bg-white p-2.5">
+                    <p className="text-[10px] font-semibold text-[#718178]">{label}</p>
+                    <p className="mt-1 break-words text-sm font-black tabular-nums text-[#183529]">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </aside>
           ) : null}
-        </>
+        </div>
       ) : (
-        <div className="px-5 py-12 text-center text-sm text-[#718178]">
+        <div className="px-5 py-10 text-center text-sm text-[#718178]">
           No activities in the selected scope have an allocation available for comparison.
         </div>
       )}
 
-      <div className="border-t border-[#e3e9e1] px-4 py-2 text-[11px] text-[#718178]">
-        Financial utilization = (commitments + expenditure) ÷ activity allocation.
-        {data.unallocatedCount > 0
-          ? ` ${data.unallocatedCount} ${data.unallocatedCount === 1 ? "activity is" : "activities are"} excluded because no allocation is recorded.`
-          : ""}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#e3e9e1] px-4 py-2 text-[11px] text-[#718178]">
+        <span className="flex items-center gap-1.5">
+          <Info className="h-3.5 w-3.5" />
+          Utilization = (commitments + expenditure) ÷ allocation
+        </span>
+        {data.unallocatedCount > 0 ? (
+          <span>{data.unallocatedCount} {data.unallocatedCount === 1 ? "activity is" : "activities are"} excluded because no allocation is recorded.</span>
+        ) : null}
       </div>
     </section>
   );
