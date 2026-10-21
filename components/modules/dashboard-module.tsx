@@ -33,9 +33,9 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
     100,
     Math.min(200, Math.ceil(maximumUtilization / 25) * 25),
   );
-  const plot = { left: 72, top: 28, width: 758, height: 330 };
-  const chartWidth = 870;
-  const chartHeight = 418;
+  const plot = { left: 58, top: 20, width: 552, height: 205 };
+  const chartWidth = 650;
+  const chartHeight = 272;
   const xFor = (value: number) =>
     plot.left + (Math.min(Math.max(value, 0), 100) / 100) * plot.width;
   const yFor = (value: number) =>
@@ -51,56 +51,67 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
     [...points]
       .sort(
         (a, b) =>
-          b.utilizationPercent - b.progressPercent -
-          (a.utilizationPercent - a.progressPercent),
+          Math.max(
+            Math.abs(b.utilizationPercent - b.progressPercent),
+            b.utilizationPercent > 100 || b.utilizationPercent === 0 ? 100 : 0,
+          ) -
+          Math.max(
+            Math.abs(a.utilizationPercent - a.progressPercent),
+            a.utilizationPercent > 100 || a.utilizationPercent === 0 ? 100 : 0,
+          ),
       )
       .filter(
-        (point) => point.utilizationPercent - point.progressPercent >= 10,
+        (point) =>
+          Math.abs(point.utilizationPercent - point.progressPercent) >= 10 ||
+          point.utilizationPercent === 0 ||
+          point.utilizationPercent > 100,
       )
       .slice(0, 6)
       .map((point) => point.key),
   );
-  const riskPolygon =
+  const highUseRiskPolygon =
     yMaximum > 120
       ? `${plot.left},${plot.top} ${plot.left + plot.width},${plot.top} ${plot.left + plot.width},${yFor(120)} ${plot.left},${yFor(20)}`
       : `${plot.left},${plot.top} ${xFor(yMaximum - 20)},${plot.top} ${plot.left},${yFor(20)}`;
+  const lowUseRiskPolygon = `${xFor(20)},${yFor(0)} ${xFor(100)},${yFor(0)} ${xFor(100)},${yFor(80)}`;
   const selectedGap = selectedPoint
     ? selectedPoint.utilizationPercent - selectedPoint.progressPercent
     : 0;
 
   function pointColor(point: FinancialUtilizationPoint) {
     const gap = point.utilizationPercent - point.progressPercent;
-    if (gap >= 20) return "#cf2f55";
-    if (gap >= 10) return "#d97706";
+    if (point.utilizationPercent === 0 || point.utilizationPercent > 100 || Math.abs(gap) >= 20) return "#cf2f55";
+    if (Math.abs(gap) >= 10) return "#d97706";
     return "#2c795a";
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-5 py-4">
+    <section className="mx-auto w-full max-w-[960px] overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-4 py-3">
         <div>
-          <h2 className="text-lg font-black">Progress versus financial utilization</h2>
-          <p className="mt-1 text-sm text-[#718178]">
+          <h2 className="font-black">Progress versus financial utilization</h2>
+          <p className="mt-0.5 text-xs text-[#718178]">
             Main activity progress compared with commitments and expenditure as a share of allocation.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-[#5d7467]">
+        <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-semibold text-[#5d7467]">
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#2c795a]" />Aligned</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Review</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#cf2f55]" />High attention</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Review difference</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#cf2f55]" />High / low-use warning</span>
         </div>
       </div>
 
       {points.length ? (
         <>
-          <div className="overflow-x-auto px-3 pb-2 pt-4 sm:px-5">
+          <div className="overflow-x-auto px-3 pb-1 pt-2 sm:px-4">
             <svg
               viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-              className="min-w-[720px]"
+              className="mx-auto min-w-[620px]"
               role="img"
               aria-label={`Scatter chart of ${points.length} activities comparing delivery progress with financial utilization`}
             >
-              <polygon points={riskPolygon} fill="#cf2f55" fillOpacity="0.055" />
+              <polygon points={highUseRiskPolygon} fill="#cf2f55" fillOpacity="0.055" />
+              <polygon points={lowUseRiskPolygon} fill="#cf2f55" fillOpacity="0.055" />
               {xTicks.map((tick) => (
                 <g key={`x-${tick}`}>
                   <line
@@ -156,8 +167,11 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
                 strokeDasharray="6 5"
                 strokeWidth="1.5"
               />
-              <text x={xFor(4)} y={yFor(yMaximum - 8)} className="fill-[#a24055] text-[11px] font-bold">
-                Financial use ahead of delivery
+              <text x={xFor(3)} y={yFor(yMaximum - 8)} className="fill-[#a24055] text-[10px] font-bold">
+                Financial use ahead
+              </text>
+              <text x={xFor(63)} y={yFor(7)} className="fill-[#a24055] text-[10px] font-bold">
+                Financial use behind
               </text>
               <text
                 x={plot.left + plot.width / 2}
@@ -219,16 +233,18 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
           </div>
 
           {selectedPoint ? (
-            <div className="grid gap-3 border-t border-[#e3e9e1] bg-[#f8faf7] px-5 py-4 lg:grid-cols-[minmax(0,1fr)_repeat(4,minmax(105px,auto))] lg:items-center">
+            <div className="grid gap-2 border-t border-[#e3e9e1] bg-[#f8faf7] px-4 py-3 md:grid-cols-[minmax(0,1fr)_repeat(4,minmax(85px,auto))] md:items-center">
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.08em] text-[#49705c]">{selectedPoint.code}</p>
                 <p className="mt-1 break-words text-sm font-black text-[#183529]">{selectedPoint.title}</p>
-                <p className={`mt-1 text-xs font-bold ${selectedGap >= 20 ? "text-rose-700" : selectedGap >= 10 ? "text-amber-700" : "text-[#49705c]"}`}>
+                <p className={`mt-1 text-xs font-bold ${selectedPoint.utilizationPercent === 0 || selectedPoint.utilizationPercent > 100 || Math.abs(selectedGap) >= 20 ? "text-rose-700" : Math.abs(selectedGap) >= 10 ? "text-amber-700" : "text-[#49705c]"}`}>
                   {selectedGap > 0
                     ? `Financial utilization is ${selectedGap} percentage points ahead of progress.`
                     : selectedGap < 0
-                      ? `Progress is ${Math.abs(selectedGap)} percentage points ahead of financial utilization.`
-                      : "Progress and financial utilization are aligned."}
+                      ? `Financial utilization is ${Math.abs(selectedGap)} percentage points behind progress.`
+                      : selectedPoint.utilizationPercent === 0
+                        ? "No financial utilization is recorded; review this activity."
+                        : "Progress and financial utilization are aligned."}
                 </p>
               </div>
               <div><p className="text-xs text-[#718178]">Progress</p><p className="mt-1 font-black tabular-nums">{selectedPoint.progressPercent}%</p></div>
@@ -244,7 +260,7 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
         </div>
       )}
 
-      <div className="border-t border-[#e3e9e1] px-5 py-3 text-xs text-[#718178]">
+      <div className="border-t border-[#e3e9e1] px-4 py-2 text-[11px] text-[#718178]">
         Financial utilization = (commitments + expenditure) ÷ activity allocation.
         {data.unallocatedCount > 0
           ? ` ${data.unallocatedCount} ${data.unallocatedCount === 1 ? "activity is" : "activities are"} excluded because no allocation is recorded.`
@@ -536,11 +552,6 @@ export default function DashboardModule({
               ))}
             </section>
 
-            <FinancialUtilizationScatter
-              data={dashboardFinancialUtilization}
-              formatMnt={formatMnt}
-            />
-
             <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)]">
               <article className="overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
                 <div className="border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-5 py-4">
@@ -701,6 +712,11 @@ export default function DashboardModule({
                 </Table>
               </div>
             </section>
+
+            <FinancialUtilizationScatter
+              data={dashboardFinancialUtilization}
+              formatMnt={formatMnt}
+            />
     </>
   );
 }
