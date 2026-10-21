@@ -22,6 +22,8 @@ type FinancialUtilizationPoint = {
 
 function FinancialUtilizationScatter({ data, formatMnt }: any) {
   const points = data.points as FinancialUtilizationPoint[];
+  const alignedThreshold = 25;
+  const highAttentionThreshold = 50;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedPoint =
     points.find((point) => point.key === selectedKey) ?? points[0] ?? null;
@@ -62,7 +64,7 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
       )
       .filter(
         (point) =>
-          Math.abs(point.utilizationPercent - point.progressPercent) >= 10 ||
+          Math.abs(point.utilizationPercent - point.progressPercent) > alignedThreshold ||
           point.utilizationPercent === 0 ||
           point.utilizationPercent > 100,
       )
@@ -70,18 +72,18 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
       .map((point) => point.key),
   );
   const highUseRiskPolygon =
-    yMaximum > 120
-      ? `${plot.left},${plot.top} ${plot.left + plot.width},${plot.top} ${plot.left + plot.width},${yFor(120)} ${plot.left},${yFor(20)}`
-      : `${plot.left},${plot.top} ${xFor(yMaximum - 20)},${plot.top} ${plot.left},${yFor(20)}`;
-  const lowUseRiskPolygon = `${xFor(20)},${yFor(0)} ${xFor(100)},${yFor(0)} ${xFor(100)},${yFor(80)}`;
+    yMaximum > 100 + alignedThreshold
+      ? `${plot.left},${plot.top} ${plot.left + plot.width},${plot.top} ${plot.left + plot.width},${yFor(100 + alignedThreshold)} ${plot.left},${yFor(alignedThreshold)}`
+      : `${plot.left},${plot.top} ${xFor(yMaximum - alignedThreshold)},${plot.top} ${plot.left},${yFor(alignedThreshold)}`;
+  const lowUseRiskPolygon = `${xFor(alignedThreshold)},${yFor(0)} ${xFor(100)},${yFor(0)} ${xFor(100)},${yFor(100 - alignedThreshold)}`;
   const selectedGap = selectedPoint
     ? selectedPoint.utilizationPercent - selectedPoint.progressPercent
     : 0;
 
   function pointColor(point: FinancialUtilizationPoint) {
     const gap = point.utilizationPercent - point.progressPercent;
-    if (point.utilizationPercent === 0 || point.utilizationPercent > 100 || Math.abs(gap) >= 20) return "#cf2f55";
-    if (Math.abs(gap) >= 10) return "#d97706";
+    if (point.utilizationPercent === 0 || point.utilizationPercent > 100 || Math.abs(gap) > highAttentionThreshold) return "#cf2f55";
+    if (Math.abs(gap) > alignedThreshold) return "#d97706";
     return "#2c795a";
   }
 
@@ -95,8 +97,8 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-semibold text-[#5d7467]">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#2c795a]" />Aligned</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Review difference</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#2c795a]" />Aligned (±25 pp)</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" />Outside ±25 pp</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#cf2f55]" />High / low-use warning</span>
         </div>
       </div>
@@ -237,7 +239,7 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.08em] text-[#49705c]">{selectedPoint.code}</p>
                 <p className="mt-1 break-words text-sm font-black text-[#183529]">{selectedPoint.title}</p>
-                <p className={`mt-1 text-xs font-bold ${selectedPoint.utilizationPercent === 0 || selectedPoint.utilizationPercent > 100 || Math.abs(selectedGap) >= 20 ? "text-rose-700" : Math.abs(selectedGap) >= 10 ? "text-amber-700" : "text-[#49705c]"}`}>
+                <p className={`mt-1 text-xs font-bold ${selectedPoint.utilizationPercent === 0 || selectedPoint.utilizationPercent > 100 || Math.abs(selectedGap) > highAttentionThreshold ? "text-rose-700" : Math.abs(selectedGap) > alignedThreshold ? "text-amber-700" : "text-[#49705c]"}`}>
                   {selectedGap > 0
                     ? `Financial utilization is ${selectedGap} percentage points ahead of progress.`
                     : selectedGap < 0
