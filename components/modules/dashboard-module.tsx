@@ -20,7 +20,102 @@ type FinancialUtilizationPoint = {
   expenditureMnt: number;
 };
 
-function FinancialUtilizationScatter({ data, formatMnt }: any) {
+function GoalBudgetVariance({ goalRows, metadataLabel }: any) {
+  const varianceRows = goalRows.map((row: any) => {
+    const hasBudget = row.budgetMnt > 0;
+    const utilizationPercent = hasBudget
+      ? Math.round(((row.commitmentMnt + row.expenditureMnt) / row.budgetMnt) * 100)
+      : 0;
+    const variance = utilizationPercent - row.progress;
+    const category = !hasBudget
+      ? "unavailable"
+      : variance < -25
+        ? "behind"
+        : variance > 25
+          ? "ahead"
+          : "aligned";
+    return { ...row, hasBudget, utilizationPercent, variance, category };
+  });
+
+  return (
+    <aside className="bg-[#f8faf7] p-4" aria-label="Budget variance by goal">
+      <div>
+        <h3 className="text-sm font-black text-[#183529]">Budget variance by goal</h3>
+        <p className="mt-1 text-[11px] leading-4 text-[#718178]">
+          Utilization minus activity progress
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-3.5">
+        {varianceRows.map((row: any) => {
+          const clampedVariance = Math.max(-100, Math.min(100, row.variance));
+          const left = row.hasBudget
+            ? clampedVariance < 0
+              ? 50 + clampedVariance / 2
+              : 50
+            : 50;
+          const width = row.hasBudget ? Math.abs(clampedVariance) / 2 : 0;
+          const barClass =
+            row.category === "behind"
+              ? "bg-rose-500"
+              : row.category === "ahead"
+                ? "bg-amber-500"
+                : row.category === "aligned"
+                  ? "bg-[#2c795a]"
+                  : "bg-[#9ba9a0]";
+          const valueClass =
+            row.category === "behind"
+              ? "text-rose-700"
+              : row.category === "ahead"
+                ? "text-amber-700"
+                : row.category === "aligned"
+                  ? "text-[#245f47]"
+                  : "text-[#718178]";
+          const label = row.goal === "All goals" ? "Cross-goal" : metadataLabel("goal", row.goal);
+
+          return (
+            <div key={row.goal}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-black text-[#183529]" title={label}>{label}</p>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-[#718178]">
+                    {row.progress}% progress · {row.hasBudget ? `${row.utilizationPercent}% utilized` : "No budget"}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-xs font-black tabular-nums ${valueClass}`}>
+                  {row.hasBudget ? `${row.variance > 0 ? "+" : row.variance < 0 ? "−" : ""}${Math.abs(row.variance)} pp` : "—"}
+                </span>
+              </div>
+              <div
+                className="relative mt-1.5 h-5 overflow-hidden rounded-md bg-[linear-gradient(to_right,#fff1f3_0%,#fff1f3_37.5%,#edf6ef_37.5%,#edf6ef_62.5%,#fff6e7_62.5%,#fff6e7_100%)]"
+                role="img"
+                aria-label={row.hasBudget ? `${label}: financial utilization is ${Math.abs(row.variance)} percentage points ${row.variance < 0 ? "behind" : row.variance > 0 ? "ahead of" : "aligned with"} progress` : `${label}: no budget is recorded`}
+              >
+                <span className="absolute inset-y-0 left-[37.5%] border-l border-dashed border-[#b9c6bb]" />
+                <span className="absolute inset-y-0 left-1/2 border-l-2 border-[#789083]" />
+                <span className="absolute inset-y-0 left-[62.5%] border-l border-dashed border-[#b9c6bb]" />
+                {row.hasBudget ? (
+                  <span
+                    className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-full ${barClass}`}
+                    style={{ left: `${left}%`, width: `${Math.max(width, row.variance === 0 ? 0 : 1)}%` }}
+                  />
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-1.5 border-t border-[#dfe7dd] pt-3 text-center text-[9px] font-bold leading-3 text-[#718178]">
+        <span className="text-rose-700">Behind<br />&gt;25 pp</span>
+        <span className="text-[#245f47]">Aligned<br />±25 pp</span>
+        <span className="text-amber-700">Ahead<br />&gt;25 pp</span>
+      </div>
+    </aside>
+  );
+}
+
+function FinancialUtilizationScatter({ data, formatMnt, goalRows, metadataLabel }: any) {
   const points = data.points as FinancialUtilizationPoint[];
   const alignedThreshold = 25;
   const highAttentionThreshold = 50;
@@ -286,39 +381,41 @@ function FinancialUtilizationScatter({ data, formatMnt }: any) {
             ) : null}
           </div>
 
-          {selectedPoint ? (
-            <aside className="bg-[#f8faf7] p-4" aria-label={`Selected activity ${selectedPoint.code}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-black uppercase tracking-[0.08em] text-[#49705c]">{selectedPoint.code}</p>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black ${selectedSeverityClass}`}>
-                  {selectedSeverityLabel}
-                </span>
-              </div>
-              <p className="mt-2 break-words text-sm font-black leading-5 text-[#183529]">{selectedPoint.title}</p>
-              <p className={`mt-2 text-xs font-bold leading-5 ${selectedSeverity === "critical" ? "text-rose-700" : selectedSeverity === "review" ? "text-amber-700" : "text-[#49705c]"}`}>
-                {selectedMessage}
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                {[
-                  ["Progress", `${selectedPoint.progressPercent}%`],
-                  ["Utilization", `${selectedPoint.utilizationPercent}%`],
-                  ["Commitments", formatMnt(selectedPoint.commitmentMnt)],
-                  ["Expenditure", formatMnt(selectedPoint.expenditureMnt)],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-[#e0e7de] bg-white p-2.5">
-                    <p className="text-[10px] font-semibold text-[#718178]">{label}</p>
-                    <p className="mt-1 break-words text-sm font-black tabular-nums text-[#183529]">{value}</p>
-                  </div>
-                ))}
-              </div>
-            </aside>
-          ) : null}
+          <GoalBudgetVariance goalRows={goalRows} metadataLabel={metadataLabel} />
         </div>
       ) : (
         <div className="px-5 py-10 text-center text-sm text-[#718178]">
           No activities in the selected scope have an allocation available for comparison.
         </div>
       )}
+
+      {selectedPoint ? (
+        <div className="grid gap-3 border-t border-[#e3e9e1] bg-[#f8faf7] px-4 py-3 lg:grid-cols-[minmax(0,1fr)_repeat(4,minmax(90px,auto))] lg:items-center" aria-label={`Selected activity ${selectedPoint.code}`}>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-black uppercase tracking-[0.08em] text-[#49705c]">{selectedPoint.code}</p>
+              <span className={`rounded-full px-2 py-1 text-[10px] font-black ${selectedSeverityClass}`}>
+                {selectedSeverityLabel}
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs font-black leading-4 text-[#183529]" title={selectedPoint.title}>{selectedPoint.title}</p>
+            <p className={`mt-1 text-[11px] font-bold leading-4 ${selectedSeverity === "critical" ? "text-rose-700" : selectedSeverity === "review" ? "text-amber-700" : "text-[#49705c]"}`}>
+              {selectedMessage}
+            </p>
+          </div>
+          {[
+            ["Progress", `${selectedPoint.progressPercent}%`],
+            ["Utilization", `${selectedPoint.utilizationPercent}%`],
+            ["Commitments", formatMnt(selectedPoint.commitmentMnt)],
+            ["Expenditure", formatMnt(selectedPoint.expenditureMnt)],
+          ].map(([label, value]) => (
+            <div key={label} className="min-w-0 rounded-lg border border-[#e0e7de] bg-white px-2.5 py-2">
+              <p className="text-[9px] font-semibold text-[#718178]">{label}</p>
+              <p className="mt-0.5 break-words text-xs font-black tabular-nums text-[#183529]">{value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#e3e9e1] px-4 py-2 text-[11px] text-[#718178]">
         <span className="flex items-center gap-1.5">
@@ -779,6 +876,8 @@ export default function DashboardModule({
             <FinancialUtilizationScatter
               data={dashboardFinancialUtilization}
               formatMnt={formatMnt}
+              goalRows={goalRows}
+              metadataLabel={metadataLabel}
             />
     </>
   );
