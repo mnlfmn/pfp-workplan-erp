@@ -18,6 +18,7 @@ export default function ContractsModule({
   contractPaidMnt,
   contractQuery,
   contractSaving,
+  contractSectionFilter,
   contractStartYearFilter,
   contractStartYears,
   contractState,
@@ -42,6 +43,7 @@ export default function ContractsModule({
   setContractDetailId,
   setContractOwnerFilter,
   setContractQuery,
+  setContractSectionFilter,
   setContractStartYearFilter,
   setContractStatusFilter,
   setContractToClose,
@@ -52,7 +54,7 @@ export default function ContractsModule({
   return (
     <>
 <nav className="mx-auto flex w-full max-w-6xl items-center gap-2 text-sm font-semibold text-[#5d7467]" aria-label="Contracts breadcrumb">
-              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); setContractOwnerFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
+              <button type="button" onClick={() => { setContractStatusFilter("all"); setContractStartYearFilter("all"); setContractOwnerFilter("all"); setContractSectionFilter("all"); }} className="hover:text-[#174734]">Contracts</button>
               {contractStatusFilter !== "all" && (
                 <>
                   <ChevronRight className="h-4 w-4" />
@@ -73,6 +75,12 @@ export default function ContractsModule({
                       ? "No accountable owner"
                       : contractOwnerFilter}
                   </span>
+                </>
+              )}
+              {contractSectionFilter !== "all" && (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-[#174734]">Section {contractSectionFilter}</span>
                 </>
               )}
             </nav>
@@ -143,6 +151,16 @@ export default function ContractsModule({
                   />
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                  <NativeSelect
+                    value={contractSectionFilter}
+                    onChange={(event) => setContractSectionFilter(event.target.value)}
+                    className="h-10 min-w-[150px] border-[#ced8cf] bg-[#f8faf7]"
+                    aria-label="Filter contracts by workplan section"
+                  >
+                    <NativeSelectOption value="all">A and B</NativeSelectOption>
+                    <NativeSelectOption value="A">Section A</NativeSelectOption>
+                    <NativeSelectOption value="B">Section B</NativeSelectOption>
+                  </NativeSelect>
                   <NativeSelect
                     value={contractStatusFilter}
                     onChange={(event) => setContractStatusFilter(event.target.value)}

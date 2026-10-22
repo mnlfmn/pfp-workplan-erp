@@ -1602,6 +1602,7 @@ export default function Home() {
   const [contractStatusFilter, setContractStatusFilter] = useState("all");
   const [contractStartYearFilter, setContractStartYearFilter] = useState("all");
   const [contractOwnerFilter, setContractOwnerFilter] = useState("all");
+  const [contractSectionFilter, setContractSectionFilter] = useState("all");
   const [contractDetailId, setContractDetailId] = useState("");
   const [contractDraft, setContractDraft] = useState<ContractDraft>(() =>
     emptyContractDraft(2026),
@@ -2166,6 +2167,7 @@ export default function Home() {
         setContractStatusFilter(filters.contractStatusFilter ?? "all");
         setContractStartYearFilter(filters.contractStartYearFilter ?? "all");
         setContractOwnerFilter(filters.contractOwnerFilter ?? "all");
+        setContractSectionFilter(filters.contractSectionFilter ?? "all");
       } catch {
         window.localStorage.removeItem("pfp-erp-filters");
       }
@@ -2190,11 +2192,13 @@ export default function Home() {
         contractStatusFilter,
         contractStartYearFilter,
         contractOwnerFilter,
+        contractSectionFilter,
       }),
     );
   }, [
     contractQuery,
     contractOwnerFilter,
+    contractSectionFilter,
     contractStartYearFilter,
     contractStatusFilter,
     financeCreatorFilter,
@@ -4926,6 +4930,23 @@ export default function Home() {
         const line = allBudgetLines.find((item) => item.id === allocation.budgetKey);
         return [target?.code, target?.label, line?.code, line?.title];
       });
+      const linkedSections = new Set(
+        (contract.allocations ?? [])
+          .map((allocation) => {
+            const target = contractTargets.find(
+              (item) => item.key === allocation.activityKey,
+            );
+            const activitySection = allActivities.find(
+              (activity) => activity.id === target?.activityId,
+            )?.section;
+            return (
+              activitySection ??
+              allBudgetLines.find((line) => line.id === allocation.budgetKey)
+                ?.section
+            );
+          })
+          .filter((value): value is string => Boolean(value)),
+      );
       const haystack = [
         contract.contractNumber,
         contract.torName,
@@ -4943,6 +4964,8 @@ export default function Home() {
           (contractOwnerFilter === "no_owner"
             ? accountableOwners.some((owner) => !owner)
             : accountableOwners.includes(contractOwnerFilter))) &&
+        (contractSectionFilter === "all" ||
+          linkedSections.has(contractSectionFilter)) &&
         haystack.includes(normalized)
       );
     });
@@ -4951,6 +4974,7 @@ export default function Home() {
     allBudgetLines,
     contractOwnerFilter,
     contractQuery,
+    contractSectionFilter,
     contractStartYearFilter,
     contractStatusFilter,
     contractTargets,
@@ -6543,6 +6567,7 @@ export default function Home() {
                       contractPaidMnt,
                       contractQuery,
                       contractSaving,
+                      contractSectionFilter,
                       contractStartYearFilter,
                       contractStartYears,
                       contractState,
@@ -6567,6 +6592,7 @@ export default function Home() {
                       setContractDetailId,
                       setContractOwnerFilter,
                       setContractQuery,
+                      setContractSectionFilter,
                       setContractStartYearFilter,
                       setContractStatusFilter,
                       setContractToClose,
