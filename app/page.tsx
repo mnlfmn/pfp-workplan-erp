@@ -6624,7 +6624,7 @@ export default function Home() {
                       setTeamDirectoryMember,
                       setTeamDirectoryQuery,
                       setTeamPerformanceSection,
-                      statusKeys,
+                      statusKeys: dashboardStatusKeys,
                       statusMetaFor,
                       teamDirectoryMember,
                       teamDirectoryQuery,
