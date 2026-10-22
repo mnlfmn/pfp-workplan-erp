@@ -38,15 +38,15 @@ function GoalBudgetVariance({ goalRows, metadataLabel }: any) {
   });
 
   return (
-    <aside className="bg-[#f8faf7] p-4" aria-label="Budget variance by goal">
-      <div>
-        <h3 className="text-sm font-black text-[#183529]">Budget variance by goal</h3>
-        <p className="mt-1 text-[11px] leading-4 text-[#718178]">
-          Utilization minus activity progress
+    <section className="h-full overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]" aria-label="Budget variance by goal">
+      <div className="border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-4 py-3">
+        <h3 className="font-black text-[#183529]">Budget variance by goal</h3>
+        <p className="mt-0.5 text-xs leading-4 text-[#718178]">
+          Financial utilization minus activity progress.
         </p>
       </div>
 
-      <div className="mt-4 space-y-3.5">
+      <div className="space-y-3.5 p-4">
         {varianceRows.map((row: any) => {
           const clampedVariance = Math.max(-100, Math.min(100, row.variance));
           const left = row.hasBudget
@@ -104,18 +104,17 @@ function GoalBudgetVariance({ goalRows, metadataLabel }: any) {
             </div>
           );
         })}
+        <div className="grid grid-cols-3 gap-1.5 border-t border-[#dfe7dd] pt-3 text-center text-[9px] font-bold leading-3 text-[#718178]">
+          <span className="text-rose-700">Behind<br />&gt;25 pp</span>
+          <span className="text-[#245f47]">Aligned<br />±25 pp</span>
+          <span className="text-amber-700">Ahead<br />&gt;25 pp</span>
+        </div>
       </div>
-
-      <div className="mt-4 grid grid-cols-3 gap-1.5 border-t border-[#dfe7dd] pt-3 text-center text-[9px] font-bold leading-3 text-[#718178]">
-        <span className="text-rose-700">Behind<br />&gt;25 pp</span>
-        <span className="text-[#245f47]">Aligned<br />±25 pp</span>
-        <span className="text-amber-700">Ahead<br />&gt;25 pp</span>
-      </div>
-    </aside>
+    </section>
   );
 }
 
-function FinancialUtilizationScatter({ data, formatMnt, goalRows, metadataLabel }: any) {
+function FinancialUtilizationScatter({ data, formatMnt }: any) {
   const points = data.points as FinancialUtilizationPoint[];
   const alignedThreshold = 25;
   const highAttentionThreshold = 50;
@@ -205,7 +204,7 @@ function FinancialUtilizationScatter({ data, formatMnt, goalRows, metadataLabel 
         : "bg-emerald-50 text-emerald-700";
 
   return (
-    <section className="mx-auto w-full max-w-[1080px] overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
+    <section className="w-full overflow-hidden rounded-2xl border border-[#d7ded5] bg-white shadow-[0_10px_28px_rgba(20,36,27,0.05)]">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#e3e9e1] bg-gradient-to-r from-[#f3f8f0] to-white px-4 py-3">
         <div>
           <h2 className="font-black">Progress versus financial utilization</h2>
@@ -221,8 +220,8 @@ function FinancialUtilizationScatter({ data, formatMnt, goalRows, metadataLabel 
       </div>
 
       {points.length ? (
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_310px]">
-          <div className="min-w-0 border-b border-[#e3e9e1] lg:border-b-0 lg:border-r">
+        <div>
+          <div className="min-w-0">
             <div className="overflow-x-auto px-3 pb-1 pt-2">
               <svg
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
@@ -380,8 +379,6 @@ function FinancialUtilizationScatter({ data, formatMnt, goalRows, metadataLabel 
               </div>
             ) : null}
           </div>
-
-          <GoalBudgetVariance goalRows={goalRows} metadataLabel={metadataLabel} />
         </div>
       ) : (
         <div className="px-5 py-10 text-center text-sm text-[#718178]">
@@ -873,12 +870,16 @@ export default function DashboardModule({
               </div>
             </section>
 
-            <FinancialUtilizationScatter
-              data={dashboardFinancialUtilization}
-              formatMnt={formatMnt}
-              goalRows={goalRows}
-              metadataLabel={metadataLabel}
-            />
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.75fr)] xl:items-stretch">
+              <FinancialUtilizationScatter
+                data={dashboardFinancialUtilization}
+                formatMnt={formatMnt}
+              />
+              <GoalBudgetVariance
+                goalRows={goalRows}
+                metadataLabel={metadataLabel}
+              />
+            </section>
     </>
   );
 }
