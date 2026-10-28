@@ -1275,10 +1275,25 @@ function WorkplanTargetPicker({
   onValueChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  const pickerRootRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.key === value);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <div ref={pickerRootRef} className="w-full">
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setPortalContainer(
+            pickerRootRef.current?.closest<HTMLElement>(
+              '[data-slot="dialog-content"]',
+            ) ?? null,
+          );
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -1299,6 +1314,7 @@ function WorkplanTargetPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
+        portalContainer={portalContainer ?? undefined}
         className="z-[80] w-[min(44rem,calc(100vw-2rem))] overflow-hidden border-[#cbd6cc] bg-white p-0 text-[#183529] shadow-xl"
       >
         <Command
@@ -1318,7 +1334,10 @@ function WorkplanTargetPicker({
             placeholder="Search workplan code or title…"
             className="text-[#183529] placeholder:text-[#7a8c81]"
           />
-          <CommandList className="max-h-[min(26rem,60vh)]">
+          <CommandList
+            className="max-h-[min(26rem,60vh)] touch-pan-y overscroll-contain overflow-y-auto pr-1 [scrollbar-gutter:stable]"
+            onWheel={(event) => event.stopPropagation()}
+          >
             <CommandEmpty>No matching workplan item.</CommandEmpty>
             <CommandGroup heading="Main activities and sub-activities">
               {options.map((target) => {
@@ -1374,6 +1393,7 @@ function WorkplanTargetPicker({
         </Command>
       </PopoverContent>
     </Popover>
+    </div>
   );
 }
 
