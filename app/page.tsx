@@ -5,7 +5,9 @@ import {
   AlertTriangle,
   BarChart3,
   CalendarDays,
+  Check,
   ChevronRight,
+  ChevronsUpDown,
   CircleCheck,
   Ellipsis,
   GripVertical,
@@ -50,9 +52,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   NativeSelect,
   NativeSelectOption,
 } from "@/components/ui/native-select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
@@ -1242,6 +1257,124 @@ function targetSelectLabel(
   return target.kind === "activity"
     ? `MAIN · ${target.code} · ${label}`
     : `\u00a0\u00a0↳ SUB-ACTIVITY · ${label}`;
+}
+
+function WorkplanTargetPicker({
+  value,
+  options,
+  disabledKeys,
+  activities,
+  language,
+  onValueChange,
+}: {
+  value: string;
+  options: BudgetTarget[];
+  disabledKeys: Set<string>;
+  activities: Activity[];
+  language: UiLanguage;
+  onValueChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.key === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label="Choose workplan activity or sub-activity"
+          className="h-10 w-full justify-between border-[#cbd6cc] bg-white px-3 text-left font-normal text-[#183529] hover:bg-[#f7faf6] hover:text-[#183529]"
+        >
+          <span className="min-w-0 flex-1 truncate">
+            {selected
+              ? targetSelectLabel(selected, activities, language)
+              : "Choose workplan item"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-[#718178]" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="z-[80] w-[min(44rem,calc(100vw-2rem))] overflow-hidden border-[#cbd6cc] bg-white p-0 text-[#183529] shadow-xl"
+      >
+        <Command
+          className="bg-white text-[#183529]"
+          filter={(itemValue, search) => {
+            const terms = search
+              .trim()
+              .toLocaleLowerCase()
+              .split(/\s+/)
+              .filter(Boolean);
+            if (terms.length === 0) return 1;
+            const searchableText = itemValue.toLocaleLowerCase();
+            return terms.every((term) => searchableText.includes(term)) ? 1 : 0;
+          }}
+        >
+          <CommandInput
+            placeholder="Search workplan code or title…"
+            className="text-[#183529] placeholder:text-[#7a8c81]"
+          />
+          <CommandList className="max-h-[min(26rem,60vh)]">
+            <CommandEmpty>No matching workplan item.</CommandEmpty>
+            <CommandGroup heading="Main activities and sub-activities">
+              {options.map((target) => {
+                const disabled = disabledKeys.has(target.key);
+                const label = localizedTargetLabel(target, activities, language);
+                return (
+                  <CommandItem
+                    key={target.key}
+                    value={`${target.code} ${label} ${target.kind} ${target.key}`}
+                    disabled={disabled}
+                    onSelect={() => {
+                      onValueChange(target.key);
+                      setOpen(false);
+                    }}
+                    className={`items-start py-2.5 text-[#183529] data-[selected=true]:bg-[#e9f1e6] data-[selected=true]:text-[#183529] ${
+                      target.kind === "subactivity" ? "pl-7" : "font-bold"
+                    }`}
+                  >
+                    <Check
+                      className={`mt-0.5 h-4 w-4 shrink-0 text-[#2c795a] ${
+                        target.key === value ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-black tracking-wide ${
+                            target.kind === "activity"
+                              ? "bg-[#0c3b2d] text-white"
+                              : "bg-[#e9f1e6] text-[#315845]"
+                          }`}
+                        >
+                          {target.kind === "activity" ? "MAIN" : "SUB"}
+                        </span>
+                        <span className="font-mono text-xs font-black text-[#2f634c]">
+                          {target.code}
+                        </span>
+                        {disabled && (
+                          <span className="text-[10px] font-semibold text-[#8a958e]">
+                            Already selected
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-1 block whitespace-normal text-xs leading-4 text-[#425b4d]">
+                        {label}
+                      </span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function accountableOwnerForTarget(
@@ -8930,27 +9063,21 @@ export default function Home() {
                           <span className="mb-1 block text-xs font-bold text-[#53685c]">
                             Workplan activity or sub-activity
                           </span>
-                          <NativeSelect
+                          <WorkplanTargetPicker
                             value={allocation.activityKey}
-                            onChange={(event) =>
-                              selectContractTarget(index, event.target.value)
+                            options={contractTargets}
+                            disabledKeys={new Set(
+                              contractDraft.allocations
+                                .filter((_, itemIndex) => itemIndex !== index)
+                                .map((item) => item.activityKey)
+                                .filter(Boolean),
+                            )}
+                            activities={allActivities}
+                            language={language}
+                            onValueChange={(activityKey) =>
+                              selectContractTarget(index, activityKey)
                             }
-                            className="h-10 w-full border-[#cbd6cc] bg-white"
-                          >
-                            <NativeSelectOption value="">Choose workplan item</NativeSelectOption>
-                            {contractTargets.map((target) => (
-                              <NativeSelectOption
-                                key={target.key}
-                                value={target.key}
-                                disabled={contractDraft.allocations.some(
-                                  (item, itemIndex) =>
-                                    itemIndex !== index && item.activityKey === target.key,
-                                )}
-                              >
-                                {targetSelectLabel(target, allActivities, language)}
-                              </NativeSelectOption>
-                            ))}
-                          </NativeSelect>
+                          />
                           {line && (
                             <span className="mt-1 block text-[11px] font-semibold text-[#2f634c]">
                               Budget {line.code} · available before this contract {formatMnt(contractBudgetAvailable(line.id))}
