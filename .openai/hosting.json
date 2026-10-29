@@ -1,6 +1,8 @@
 {
-  "capabilities": ["mcp"],
+  "capabilities": [
+    "mcp"
+  ],
   "d1": "DB",
   "r2": "BUCKET",
-  "project_id": "appgprj_6ab9cfa6cd6c8191869bf72f43223dcb"
+  "project_id": "appgprj_6ae2b2128e9081919eb2e5cdae2b93dd"
 }
